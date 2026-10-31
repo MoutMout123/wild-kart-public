@@ -1,0 +1,548 @@
+{
+  "schemaVersion": 1,
+  "id": "plongeon",
+  "name": "Grand Plongeon",
+  "biome": "tropic",
+  "status": "relief refait",
+  "route": {
+    "closed": true,
+    "nodes": [
+      {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          260,
+          18.8,
+          0
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          480,
+          22.8,
+          30
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          620,
+          17.9,
+          120
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          680,
+          11.9,
+          260
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          640,
+          6.4,
+          400
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          520,
+          5,
+          480
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          380,
+          6,
+          500
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          240,
+          6,
+          560
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          160,
+          9.2,
+          680
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          200,
+          18,
+          800
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          340,
+          24.5,
+          860
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          480,
+          24.3,
+          900
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          560,
+          20.4,
+          1000
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          500,
+          19,
+          1110
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          360,
+          20.1,
+          1150
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          200,
+          18.8,
+          1110
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          60,
+          13.7,
+          1020
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -60,
+          7.5,
+          900
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -140,
+          2.7,
+          760
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -180,
+          1,
+          600
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -160,
+          2.7,
+          420
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -180,
+          6.5,
+          260
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -140,
+          7.7,
+          110
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -70,
+          4.2,
+          20
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      }
+    ]
+  },
+  "specials": {
+    "glide": [
+      [
+        0.4906,
+        0.5206
+      ]
+    ],
+    "tunnels": [],
+    "warp": [
+      {
+        "type": "spiral",
+        "from": 0.781,
+        "to": 0.8703
+      }
+    ]
+  },
+  "alternatives": [
+    {
+      "from": 0.4287,
+      "to": 0.5728,
+      "mid": [
+        [
+          324,
+          966,
+          26.3
+        ]
+      ],
+      "width": 14,
+      "side": 1,
+      "narrow": true,
+      "label": "SOUS L'EAU",
+      "tunnel": "aqua",
+      "ai": 0.5,
+      "water": true,
+      "role": "eau"
+    },
+    {
+      "from": 0.1241,
+      "to": 0.2821,
+      "mid": [
+        [
+          506,
+          248,
+          25.5
+        ]
+      ],
+      "width": 13,
+      "side": 1,
+      "narrow": true,
+      "label": "RISQUÉ",
+      "ai": 0.35,
+      "open": true,
+      "role": "risque"
+    }
+  ],
+  "checkpoints": [
+    {
+      "id": "start",
+      "at": 0
+    },
+    {
+      "id": "halfway",
+      "at": 0.5
+    }
+  ],
+  "art": {
+    "zones": [],
+    "landmarks": [],
+    "scatter": {
+      "seed": 74123,
+      "minimumRoadDistance": 8
+    }
+  },
+  "legacy": {
+    "id": "plongeon",
+    "name": "Grand Plongeon",
+    "desc": "Grimpe la colline côtière jusqu’au grand plongeoir, plane au-dessus de la baie et retrouve la route qui longe la mer.",
+    "cup": 6,
+    "level": 3,
+    "laps": 3,
+    "width": 26,
+    "glideH": 9,
+    "theme": {
+      "sky": [
+        "#2aa8ff",
+        "#c8f4ff"
+      ],
+      "fog": "#c4f0ff",
+      "fogN": 260,
+      "fogF": 1450,
+      "ground": "tropic",
+      "road": "#55566a",
+      "curb": [
+        "#2ee6c0",
+        "#fffdf7"
+      ],
+      "barrier": [
+        "#ff6f5a",
+        "#fffdf7"
+      ],
+      "skirt": "#c8a870",
+      "hemi": [
+        "#f0fbff",
+        "#c8b080",
+        1.8
+      ],
+      "sun": "#fff8e0",
+      "sunI": 3.1,
+      "decor": "tropic",
+      "night": false,
+      "terrain": {
+        "h": 26,
+        "seed": 95,
+        "drop": 18,
+        "min": -10
+      },
+      "music": {
+        "bpm": 128,
+        "root": 55,
+        "prog": [
+          [
+            0,
+            4,
+            7
+          ],
+          [
+            5,
+            9,
+            12
+          ],
+          [
+            -3,
+            0,
+            4
+          ],
+          [
+            7,
+            11,
+            14
+          ]
+        ]
+      }
+    },
+    "boosts": [
+      [
+        0.17,
+        0
+      ],
+      [
+        0.662,
+        0.3
+      ],
+      [
+        0.712,
+        -0.3
+      ]
+    ],
+    "items": [
+      0.06,
+      0.34,
+      0.606,
+      0.896
+    ],
+    "tricks": [
+      0.3185
+    ],
+    "zones": [
+      [
+        0.14,
+        0.36,
+        "plage"
+      ],
+      [
+        0.56,
+        0.8,
+        "foret"
+      ]
+    ],
+    "musicStyle": "latin",
+    "obstZones": 3
+  },
+  "relief": {
+    "pass": "2026-10-30",
+    "maxGrade": 0.08,
+    "note": "altitudes refaites, tracé 2D et pipeline historique conservés"
+  }
+}

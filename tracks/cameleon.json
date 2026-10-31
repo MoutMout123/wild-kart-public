@@ -1,0 +1,581 @@
+{
+  "schemaVersion": 1,
+  "id": "cameleon",
+  "name": "Circuit Caméléon",
+  "biome": "grass",
+  "status": "non refait",
+  "route": {
+    "closed": true,
+    "nodes": [
+      {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          300,
+          0,
+          0
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          580,
+          2,
+          40
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          780,
+          5,
+          160
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          860,
+          8,
+          360
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          820,
+          10,
+          560
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          680,
+          8,
+          700
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          500,
+          4,
+          740
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          340,
+          2,
+          700
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          200,
+          5,
+          760
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          140,
+          10,
+          920
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          220,
+          14,
+          1080
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          400,
+          12,
+          1140
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          600,
+          7,
+          1100
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          780,
+          3,
+          1160
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          880,
+          1,
+          1320
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          820,
+          2,
+          1500
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          640,
+          6,
+          1580
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          420,
+          10,
+          1560
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          200,
+          14,
+          1600
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          0,
+          12,
+          1520
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -120,
+          7,
+          1340
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -140,
+          3,
+          1100
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -220,
+          1,
+          880
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -260,
+          2,
+          640
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -240,
+          5,
+          400
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -180,
+          3,
+          180
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -90,
+          0,
+          40
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      }
+    ]
+  },
+  "specials": {
+    "glide": [],
+    "tunnels": [],
+    "warp": []
+  },
+  "alternatives": [
+    {
+      "from": 0.1407,
+      "to": 0.2481,
+      "mid": [
+        [
+          730,
+          430,
+          3.5
+        ]
+      ],
+      "width": 14,
+      "side": 1,
+      "narrow": true,
+      "label": "ROUTE B",
+      "ai": 0.5
+    },
+    {
+      "from": 0.5309,
+      "to": 0.6366,
+      "mid": [
+        [
+          616,
+          1428,
+          1.5
+        ]
+      ],
+      "width": 14,
+      "side": 1,
+      "narrow": true,
+      "label": "ROUTE B",
+      "ai": 0.5
+    }
+  ],
+  "checkpoints": [
+    {
+      "id": "start",
+      "at": 0
+    },
+    {
+      "id": "halfway",
+      "at": 0.5
+    }
+  ],
+  "art": {
+    "zones": [],
+    "landmarks": [],
+    "scatter": {
+      "seed": 74123,
+      "minimumRoadDistance": 8
+    }
+  },
+  "legacy": {
+    "id": "cameleon",
+    "name": "Circuit Caméléon",
+    "desc": "Plateaux, vallées et collines de retour : le relief reste fixe pendant que les biomes et la météo changent. Anticipe les annonces des deux routes alternées.",
+    "cup": 5,
+    "level": 4,
+    "laps": 2,
+    "width": 26,
+    "glideH": 9,
+    "theme": {
+      "sky": [
+        "#3e9bff",
+        "#d3efff"
+      ],
+      "fog": "#d3efff",
+      "fogN": 180,
+      "fogF": 950,
+      "ground": "grass",
+      "road": "#55576a",
+      "curb": [
+        "#ff4f3a",
+        "#fffdf7"
+      ],
+      "barrier": [
+        "#ffc531",
+        "#17143a"
+      ],
+      "skirt": "#8a6a48",
+      "hemi": [
+        "#d6efff",
+        "#5a8f3c",
+        1.7
+      ],
+      "sun": "#fff1d0",
+      "sunI": 2.7,
+      "decor": "cameleon",
+      "night": false,
+      "terrain": {
+        "h": 40,
+        "seed": 11
+      },
+      "music": {
+        "bpm": 138,
+        "root": 48,
+        "prog": [
+          [
+            0,
+            4,
+            7
+          ],
+          [
+            7,
+            11,
+            14
+          ],
+          [
+            9,
+            12,
+            16
+          ],
+          [
+            5,
+            9,
+            12
+          ]
+        ]
+      }
+    },
+    "boosts": [
+      [
+        0.178,
+        0
+      ],
+      [
+        0.43,
+        0.3
+      ],
+      [
+        0.68,
+        -0.3
+      ]
+    ],
+    "items": [
+      0.06,
+      0.3,
+      0.566,
+      0.8
+    ],
+    "tricks": [
+      0.3353
+    ],
+    "gates": [
+      {
+        "branch": 0,
+        "period": 30,
+        "mode": "alt"
+      },
+      {
+        "branch": 1,
+        "period": 36,
+        "mode": "alt"
+      }
+    ],
+    "cham": {
+      "period": 40
+    },
+    "themeX": {
+      "decor": "cameleon"
+    },
+    "musicStyle": "pop",
+    "obst": {
+      "kinds": [
+        "pillars",
+        "rollers",
+        "walkers",
+        "bumpers"
+      ]
+    },
+    "obstZones": 4
+  }
+}

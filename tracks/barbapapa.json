@@ -1,0 +1,451 @@
+{
+  "schemaVersion": 1,
+  "id": "barbapapa",
+  "name": "Fête Foraine Barbe-à-Papa",
+  "biome": "fair",
+  "status": "non refait",
+  "route": {
+    "closed": true,
+    "nodes": [
+      {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          180,
+          0,
+          0
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          320,
+          2,
+          20
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          400,
+          5,
+          100
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          400,
+          7,
+          200
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          320,
+          6,
+          260
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          220,
+          3,
+          250
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          150,
+          1,
+          300
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          160,
+          2,
+          400
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          240,
+          6,
+          460
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          240,
+          9,
+          560
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          140,
+          8,
+          610
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          20,
+          4,
+          580
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -40,
+          1,
+          480
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -100,
+          0,
+          380
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -180,
+          2,
+          320
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -200,
+          5,
+          200
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -150,
+          3,
+          90
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -80,
+          0,
+          20
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      }
+    ]
+  },
+  "specials": {
+    "glide": [],
+    "tunnels": [],
+    "warp": []
+  },
+  "alternatives": [
+    {
+      "from": 0.2516,
+      "to": 0.4837,
+      "mid": [
+        [
+          340,
+          346,
+          3
+        ]
+      ],
+      "width": 14,
+      "side": -1,
+      "narrow": true,
+      "label": "CHAPITEAU",
+      "tunnel": "fun",
+      "ai": 0.45
+    },
+    {
+      "from": 0.753,
+      "to": 0.9152,
+      "mid": [
+        [
+          -125,
+          235,
+          10
+        ]
+      ],
+      "width": 13,
+      "side": 1,
+      "narrow": true,
+      "label": "RISQUÉ",
+      "ai": 0.35,
+      "open": true,
+      "role": "risque"
+    }
+  ],
+  "checkpoints": [
+    {
+      "id": "start",
+      "at": 0
+    },
+    {
+      "id": "halfway",
+      "at": 0.5
+    }
+  ],
+  "art": {
+    "zones": [],
+    "landmarks": [],
+    "scatter": {
+      "seed": 74123,
+      "minimumRoadDistance": 8
+    }
+  },
+  "legacy": {
+    "id": "barbapapa",
+    "name": "Fête Foraine Barbe-à-Papa",
+    "desc": "Monte vers les manèges, plonge près du chapiteau puis remonte sur la terrasse de fête. Bumpers, ballons et deux raccourcis rythment les relances.",
+    "cup": 2,
+    "level": 2,
+    "laps": 2,
+    "width": 24,
+    "glideH": 9,
+    "theme": {
+      "sky": [
+        "#12082e",
+        "#4a1a6a"
+      ],
+      "fog": "#2a1450",
+      "fogN": 160,
+      "fogF": 950,
+      "ground": "fair",
+      "road": "#2e2f3d",
+      "curb": [
+        "#ff4f7a",
+        "#ffc531"
+      ],
+      "barrier": [
+        "#ffc531",
+        "#ff4f3a"
+      ],
+      "skirt": "#3a3050",
+      "hemi": [
+        "#d0a0ff",
+        "#2a2050",
+        1.6
+      ],
+      "sun": "#ffd0f0",
+      "sunI": 1.8,
+      "decor": "fair",
+      "night": true,
+      "tunnel": "fun",
+      "terrain": {
+        "h": 22,
+        "seed": 79,
+        "drop": 20
+      },
+      "music": {
+        "bpm": 156,
+        "root": 55,
+        "prog": [
+          [
+            0,
+            4,
+            7
+          ],
+          [
+            5,
+            9,
+            12
+          ],
+          [
+            7,
+            11,
+            14
+          ],
+          [
+            0,
+            4,
+            7
+          ]
+        ]
+      }
+    },
+    "boosts": [
+      [
+        0.17,
+        0
+      ],
+      [
+        0.43,
+        0.3
+      ],
+      [
+        0.68,
+        -0.3
+      ]
+    ],
+    "items": [
+      0.06,
+      0.3,
+      0.55,
+      0.8
+    ],
+    "zones": [
+      [
+        0.14,
+        0.36,
+        "fleurs"
+      ],
+      [
+        0.56,
+        0.8,
+        "ville"
+      ]
+    ],
+    "obst": {
+      "pillar": "balloons",
+      "roll": "beachball",
+      "kinds": [
+        "bumpers",
+        "rollers",
+        "bumpers"
+      ]
+    },
+    "obstZones": 3
+  }
+}

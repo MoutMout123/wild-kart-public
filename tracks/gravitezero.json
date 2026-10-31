@@ -1,0 +1,479 @@
+{
+  "schemaVersion": 1,
+  "id": "gravitezero",
+  "name": "Anneau Gravité Zéro",
+  "biome": "space",
+  "status": "non refait",
+  "route": {
+    "closed": true,
+    "nodes": [
+      {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          140,
+          0,
+          0
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          240,
+          0,
+          0
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          280,
+          0,
+          15
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          320,
+          0,
+          32
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          360,
+          0,
+          40
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          520,
+          0,
+          40
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          640,
+          0,
+          100
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          680,
+          0,
+          220
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          620,
+          0,
+          330
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          520,
+          0,
+          360
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          420,
+          0,
+          360
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          380,
+          0,
+          345
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          340,
+          0,
+          328
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          300,
+          0,
+          320
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          160,
+          0,
+          320
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          20,
+          0,
+          300
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -80,
+          0,
+          240
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -120,
+          0,
+          140
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -80,
+          0,
+          40
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      }
+    ]
+  },
+  "specials": {
+    "glide": [],
+    "tunnels": [],
+    "warp": [
+      {
+        "type": "loop",
+        "r": 17,
+        "from": 0.1222,
+        "to": 0.1874
+      },
+      {
+        "type": "loop",
+        "r": 17,
+        "from": 0.5743,
+        "to": 0.6385
+      }
+    ]
+  },
+  "alternatives": [
+    {
+      "from": 0.7098,
+      "to": 0.8982,
+      "mid": [
+        [
+          20,
+          230,
+          0
+        ]
+      ],
+      "width": 14,
+      "side": 1,
+      "narrow": true,
+      "label": "SAS",
+      "tunnel": "fun",
+      "ai": 0.5
+    },
+    {
+      "from": 0.2688,
+      "to": 0.5224,
+      "mid": [
+        [
+          544,
+          180,
+          10
+        ]
+      ],
+      "width": 13,
+      "side": 1,
+      "narrow": true,
+      "label": "RISQUÉ",
+      "ai": 0.35,
+      "open": true,
+      "role": "risque"
+    }
+  ],
+  "checkpoints": [
+    {
+      "id": "start",
+      "at": 0
+    },
+    {
+      "id": "halfway",
+      "at": 0.5
+    }
+  ],
+  "art": {
+    "zones": [],
+    "landmarks": [],
+    "scatter": {
+      "seed": 74123,
+      "minimumRoadDistance": 8
+    }
+  },
+  "legacy": {
+    "id": "gravitezero",
+    "name": "Anneau Gravité Zéro",
+    "desc": "Deux loopings complets, un mur vertical et un sas secret : ici, le haut et le bas, c'est relatif.",
+    "cup": 3,
+    "level": 3,
+    "laps": 3,
+    "width": 24,
+    "glideH": 10,
+    "theme": {
+      "sky": [
+        "#03020c",
+        "#0e0b2e"
+      ],
+      "fog": "#07061a",
+      "fogN": 420,
+      "fogF": 1800,
+      "ground": "space",
+      "groundY": -160,
+      "skirtDepth": 8,
+      "floating": true,
+      "noGround": true,
+      "road": "#2a2a3a",
+      "curb": [
+        "#2ee6ff",
+        "#ff2fa8"
+      ],
+      "barrier": [
+        "#2ee6ff",
+        "#1b1840"
+      ],
+      "skirt": "#3a3a5a",
+      "hemi": [
+        "#b8c8ff",
+        "#1a1a3a",
+        1.6
+      ],
+      "sun": "#ffffff",
+      "sunI": 2.8,
+      "decor": "space",
+      "night": true,
+      "tunnel": "metal",
+      "music": {
+        "bpm": 142,
+        "root": 48,
+        "prog": [
+          [
+            0,
+            3,
+            7
+          ],
+          [
+            -4,
+            0,
+            3
+          ],
+          [
+            -2,
+            2,
+            5
+          ],
+          [
+            3,
+            7,
+            10
+          ]
+        ]
+      }
+    },
+    "hopLabel": "Gravité zéro !",
+    "boosts": [
+      [
+        0.21,
+        0
+      ],
+      [
+        0.43,
+        0.3
+      ],
+      [
+        0.744,
+        -0.3
+      ]
+    ],
+    "items": [
+      0.06,
+      0.3,
+      0.662,
+      0.8
+    ],
+    "zones": [
+      [
+        0.14,
+        0.36,
+        "lune"
+      ],
+      [
+        0.56,
+        0.8,
+        "volcan"
+      ]
+    ],
+    "obst": {
+      "pillar": "crystal",
+      "walk": "rover",
+      "roll": "boulder",
+      "kinds": [
+        "bumpers",
+        "walkers",
+        "pillars"
+      ]
+    },
+    "obstZones": 3
+  }
+}

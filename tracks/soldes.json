@@ -1,0 +1,456 @@
+{
+  "schemaVersion": 1,
+  "id": "soldes",
+  "name": "Centre Commercial des Soldes",
+  "biome": "mall",
+  "status": "non refait",
+  "route": {
+    "closed": true,
+    "nodes": [
+      {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          160,
+          0,
+          0
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          260,
+          0,
+          0
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          330,
+          0,
+          40
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          350,
+          4,
+          120
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          350,
+          8,
+          200
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          320,
+          8,
+          270
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          240,
+          8,
+          290
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          160,
+          8,
+          260
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          120,
+          8,
+          190
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          60,
+          8,
+          150
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -20,
+          6,
+          170
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -80,
+          3,
+          230
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -160,
+          0,
+          250
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -240,
+          0,
+          210
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -260,
+          0,
+          120
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -220,
+          0,
+          40
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -120,
+          0,
+          5
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      }
+    ]
+  },
+  "specials": {
+    "glide": [],
+    "tunnels": [],
+    "warp": []
+  },
+  "alternatives": [
+    {
+      "from": 0.5018,
+      "to": 0.6471,
+      "mid": [
+        [
+          28,
+          198,
+          5.5
+        ]
+      ],
+      "width": 16,
+      "side": -1,
+      "narrow": true,
+      "label": "BOUTIQUE OUVERTE ?",
+      "tunnel": "fun",
+      "ai": 0.5
+    },
+    {
+      "from": 0.096,
+      "to": 0.3037,
+      "mid": [
+        [
+          226,
+          52,
+          12
+        ],
+        [
+          261,
+          98,
+          14
+        ],
+        [
+          303,
+          133,
+          14
+        ]
+      ],
+      "width": 11,
+      "side": 1,
+      "narrow": true,
+      "label": "TOITS EXPRESS",
+      "ai": 0.25,
+      "open": true,
+      "role": "risque",
+      "boost": true,
+      "launch": {
+        "at": 0.43,
+        "minSpeed": 28,
+        "vy": 6.5,
+        "label": "Saut des toits !"
+      }
+    }
+  ],
+  "checkpoints": [
+    {
+      "id": "start",
+      "at": 0
+    },
+    {
+      "id": "halfway",
+      "at": 0.5
+    }
+  ],
+  "art": {
+    "zones": [],
+    "landmarks": [],
+    "scatter": {
+      "seed": 74123,
+      "minimumRoadDistance": 8
+    }
+  },
+  "legacy": {
+    "id": "soldes",
+    "name": "Centre Commercial des Soldes",
+    "desc": "Deux raccourcis dans le centre commercial : la boutique ouvre par périodes, les toits offrent un tremplin et un turbo mais demandent de rester sur une voie étroite.",
+    "cup": 2,
+    "level": 2,
+    "laps": 3,
+    "width": 24,
+    "glideH": 9,
+    "theme": {
+      "sky": [
+        "#bfe2ff",
+        "#fff4e6"
+      ],
+      "fog": "#f6efe6",
+      "fogN": 220,
+      "fogF": 1100,
+      "ground": "mall",
+      "road": "#3a3a4a",
+      "curb": [
+        "#ff4f7a",
+        "#fffdf7"
+      ],
+      "barrier": [
+        "#2ec4c0",
+        "#fffdf7"
+      ],
+      "skirt": "#c8c0b8",
+      "hemi": [
+        "#fffaf2",
+        "#c8bcae",
+        1.9
+      ],
+      "sun": "#fff6e8",
+      "sunI": 2.4,
+      "decor": "mall",
+      "night": false,
+      "music": {
+        "bpm": 122,
+        "root": 57,
+        "prog": [
+          [
+            0,
+            4,
+            7
+          ],
+          [
+            -3,
+            0,
+            4
+          ],
+          [
+            5,
+            9,
+            12
+          ],
+          [
+            7,
+            11,
+            14
+          ]
+        ]
+      }
+    },
+    "boosts": [
+      [
+        0.17,
+        0
+      ],
+      [
+        0.43,
+        0.3
+      ],
+      [
+        0.68,
+        -0.3
+      ]
+    ],
+    "items": [
+      0.06,
+      0.34,
+      0.55,
+      0.8
+    ],
+    "zones": [
+      [
+        0.14,
+        0.36,
+        "ville"
+      ],
+      [
+        0.56,
+        0.8,
+        "fleurs"
+      ]
+    ],
+    "obst": {
+      "pillar": "cones",
+      "car": "cart",
+      "kinds": [
+        "traffic",
+        "pillars",
+        "traffic"
+      ]
+    },
+    "obstZones": 3,
+    "gates": [
+      {
+        "branch": 0,
+        "period": 22,
+        "phase": 0.12,
+        "mode": "branch"
+      }
+    ]
+  }
+}

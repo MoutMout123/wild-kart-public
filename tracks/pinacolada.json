@@ -1,0 +1,399 @@
+{
+  "schemaVersion": 1,
+  "id": "pinacolada",
+  "name": "Lagon Pina Colada",
+  "biome": "tropic",
+  "status": "relief refait",
+  "route": {
+    "closed": true,
+    "nodes": [
+      {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          200,
+          8.3,
+          0
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          380,
+          10,
+          40
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          480,
+          7.1,
+          140
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          480,
+          6.3,
+          260
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          400,
+          11,
+          360
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          300,
+          18.6,
+          460
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          200,
+          23.1,
+          520
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          100,
+          20.5,
+          500
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          40,
+          13.4,
+          420
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          0,
+          6.7,
+          320
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -60,
+          3.3,
+          240
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -120,
+          2.6,
+          160
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -110,
+          2.9,
+          70
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -60,
+          2.2,
+          15
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      }
+    ]
+  },
+  "specials": {
+    "glide": [
+      [
+        0.6213,
+        0.6613
+      ]
+    ],
+    "tunnels": [],
+    "warp": []
+  },
+  "alternatives": [
+    {
+      "from": 0.1121,
+      "to": 0.4383,
+      "mid": [
+        [
+          312,
+          159,
+          19.4
+        ]
+      ],
+      "width": 13,
+      "side": 1,
+      "narrow": true,
+      "label": "RISQUÉ",
+      "ai": 0.35,
+      "open": true,
+      "role": "risque"
+    },
+    {
+      "from": 0.815,
+      "to": 0.9226,
+      "mid": [
+        [
+          -78,
+          154,
+          3.6
+        ]
+      ],
+      "width": 14,
+      "side": 1,
+      "narrow": true,
+      "label": "RACCOURCI",
+      "tunnel": "aqua",
+      "ai": 0.3,
+      "secret": true,
+      "water": true,
+      "role": "secret"
+    }
+  ],
+  "checkpoints": [
+    {
+      "id": "start",
+      "at": 0
+    },
+    {
+      "id": "halfway",
+      "at": 0.5
+    }
+  ],
+  "art": {
+    "zones": [],
+    "landmarks": [],
+    "scatter": {
+      "seed": 74123,
+      "minimumRoadDistance": 8
+    }
+  },
+  "legacy": {
+    "id": "pinacolada",
+    "name": "Lagon Pina Colada",
+    "desc": "Monte sur la falaise du lagon, saute du promontoire en planeur au-dessus des cocotiers, puis redescends vers la plage.",
+    "cup": 1,
+    "level": 1,
+    "laps": 3,
+    "width": 28,
+    "glideH": 9,
+    "theme": {
+      "sky": [
+        "#2aa8ff",
+        "#c8f4ff"
+      ],
+      "fog": "#c4f0ff",
+      "fogN": 260,
+      "fogF": 1450,
+      "ground": "tropic",
+      "road": "#55566a",
+      "curb": [
+        "#2ee6c0",
+        "#fffdf7"
+      ],
+      "barrier": [
+        "#ff6f5a",
+        "#fffdf7"
+      ],
+      "skirt": "#c8a870",
+      "hemi": [
+        "#f0fbff",
+        "#c8b080",
+        1.8
+      ],
+      "sun": "#fff8e0",
+      "sunI": 3.1,
+      "decor": "tropic",
+      "night": false,
+      "terrain": {
+        "h": 26,
+        "seed": 95,
+        "drop": 18,
+        "min": -10
+      },
+      "music": {
+        "bpm": 128,
+        "root": 55,
+        "prog": [
+          [
+            0,
+            4,
+            7
+          ],
+          [
+            5,
+            9,
+            12
+          ],
+          [
+            -3,
+            0,
+            4
+          ],
+          [
+            7,
+            11,
+            14
+          ]
+        ]
+      }
+    },
+    "boosts": [
+      [
+        0.17,
+        0
+      ],
+      [
+        0.47,
+        0.3
+      ],
+      [
+        0.696,
+        -0.3
+      ]
+    ],
+    "items": [
+      0.06,
+      0.3,
+      0.55,
+      0.848
+    ],
+    "zones": [
+      [
+        0.14,
+        0.36,
+        "plage"
+      ],
+      [
+        0.56,
+        0.8,
+        "foret"
+      ]
+    ],
+    "obstZones": 2
+  },
+  "relief": {
+    "pass": "2026-10-30",
+    "maxGrade": 0.08,
+    "note": "altitudes refaites, tracé 2D et pipeline historique conservés"
+  }
+}

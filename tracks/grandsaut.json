@@ -1,0 +1,621 @@
+{
+  "schemaVersion": 1,
+  "id": "grandsaut",
+  "name": "Canyon du Grand Saut",
+  "biome": "redsand",
+  "status": "pilote à corriger",
+  "route": {
+    "closed": true,
+    "nodes": [
+      {
+        "position": [
+          0,
+          3,
+          0
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          140,
+          8,
+          -18
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          250,
+          20,
+          50
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          295,
+          36,
+          175
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          250,
+          54,
+          305
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          155,
+          72,
+          390
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          25,
+          92,
+          420
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -105,
+          110,
+          335
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -245,
+          120,
+          180
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -390,
+          105,
+          5
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -535,
+          82,
+          -135
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -675,
+          60,
+          -195
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -800,
+          38,
+          -155
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -880,
+          24,
+          -55
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -880,
+          18,
+          70
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -815,
+          11,
+          185
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -700,
+          6,
+          245
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -550,
+          2,
+          218
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -370,
+          1,
+          138
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -170,
+          1,
+          44
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      }
+    ]
+  },
+  "specials": {
+    "glide": [
+      [
+        0.1864,
+        0.2264
+      ],
+      [
+        0.6864,
+        0.7264
+      ]
+    ],
+    "tunnels": [],
+    "warp": [
+      {
+        "from": 0.285,
+        "to": 0.43,
+        "type": "wall",
+        "angle": 65,
+        "side": -1,
+        "lift": 1.15,
+        "rise": 9
+      }
+    ]
+  },
+  "alternatives": [
+    {
+      "from": 0.0487,
+      "to": 0.1671,
+      "mid": [
+        [
+          205,
+          142,
+          34
+        ]
+      ],
+      "width": 18,
+      "side": 1,
+      "narrow": true,
+      "label": "CORNICHE ABRITÉE",
+      "ai": 0.5,
+      "tunnel": "rock"
+    },
+    {
+      "from": 0.5,
+      "to": 0.6671,
+      "mid": [
+        [
+          -640,
+          -80,
+          87
+        ],
+        [
+          -755,
+          -65,
+          63
+        ],
+        [
+          -835,
+          -80,
+          40
+        ],
+        [
+          -875,
+          -30,
+          26
+        ]
+      ],
+      "width": 16,
+      "side": -1,
+      "narrow": true,
+      "label": "BALCON DES RAPACES",
+      "ai": 0.25,
+      "open": false,
+      "role": "risque",
+      "boost": true,
+      "launch": {
+        "at": 0.43,
+        "minSpeed": 30,
+        "vy": 7,
+        "label": "Envol des rapaces !"
+      }
+    }
+  ],
+  "checkpoints": [
+    {
+      "id": "start",
+      "at": 0
+    },
+    {
+      "id": "terraces",
+      "at": 0.2
+    },
+    {
+      "id": "wind-ridge",
+      "at": 0.4
+    },
+    {
+      "id": "raptors",
+      "at": 0.6
+    },
+    {
+      "id": "grove",
+      "at": 0.8
+    }
+  ],
+  "art": {
+    "direction": "Canyon des vents : ocre, turquoise patiné et végétation de gorge. Le spectaculaire vient du viaduc incliné et des éoliennes à voile.",
+    "zones": [
+      {
+        "from": 0,
+        "to": 0.28,
+        "name": "Terrasses d’ocre",
+        "palette": "ochre"
+      },
+      {
+        "from": 0.28,
+        "to": 0.7,
+        "name": "Crête des voiles",
+        "palette": "wind"
+      },
+      {
+        "from": 0.7,
+        "to": 1,
+        "name": "Gorge des acacias",
+        "palette": "oasis"
+      }
+    ],
+    "landmarks": [
+      {
+        "kind": "mesa",
+        "x": 435,
+        "z": 150,
+        "radius": 70,
+        "height": 195,
+        "variant": 0
+      },
+      {
+        "kind": "mesa",
+        "x": 60,
+        "z": 215,
+        "radius": 40,
+        "height": 115,
+        "variant": 1
+      },
+      {
+        "kind": "mesa",
+        "x": -175,
+        "z": 495,
+        "radius": 75,
+        "height": 185,
+        "variant": 2
+      },
+      {
+        "kind": "mesa",
+        "x": -400,
+        "z": 370,
+        "radius": 66,
+        "height": 220,
+        "variant": 1
+      },
+      {
+        "kind": "mesa",
+        "x": -415,
+        "z": -180,
+        "radius": 50,
+        "height": 138,
+        "variant": 0
+      },
+      {
+        "kind": "mesa",
+        "x": -665,
+        "z": -355,
+        "radius": 80,
+        "height": 230,
+        "variant": 2
+      },
+      {
+        "kind": "mesa",
+        "x": -1040,
+        "z": -40,
+        "radius": 85,
+        "height": 260,
+        "variant": 1
+      },
+      {
+        "kind": "mesa",
+        "x": -720,
+        "z": 420,
+        "radius": 63,
+        "height": 165,
+        "variant": 2
+      },
+      {
+        "kind": "windmill",
+        "x": 80,
+        "z": 275,
+        "height": 40,
+        "rotation": 1.3
+      },
+      {
+        "kind": "windmill",
+        "x": -400,
+        "z": 290,
+        "height": 48,
+        "rotation": 0.6
+      },
+      {
+        "kind": "windmill",
+        "x": -625,
+        "z": 380,
+        "height": 35,
+        "rotation": 1.1
+      }
+    ],
+    "scatter": {
+      "seed": 190626,
+      "minimumRoadDistance": 8,
+      "maximumSlope": 0.65
+    }
+  },
+  "legacy": {
+    "id": "grandsaut",
+    "name": "Canyon du Grand Saut",
+    "desc": "Gravis les terrasses d’ocre, roule à 65° sur la crête des éoliennes à voile et plonge vers les acacias. Deux vols, un tunnel creusé et le balcon des rapaces relient les étages du canyon.",
+    "cup": 3,
+    "level": 3,
+    "laps": 2,
+    "width": 26,
+    "glideH": 9,
+    "theme": {
+      "sky": [
+        "#4e9dbb",
+        "#f2cba0"
+      ],
+      "fog": "#dfc3a2",
+      "fogN": 330,
+      "fogF": 1550,
+      "ground": "redsand",
+      "road": "#5e4a44",
+      "curb": [
+        "#ffc531",
+        "#2b2b3a"
+      ],
+      "barrier": [
+        "#ff4f3a",
+        "#fffdf7"
+      ],
+      "skirt": "#b4532f",
+      "hemi": [
+        "#d5edee",
+        "#845337",
+        2.1
+      ],
+      "sun": "#ffe0af",
+      "sunI": 2.5,
+      "decor": "canyon",
+      "night": false,
+      "terrain": {
+        "h": 100,
+        "drop": 60,
+        "seed": 1906,
+        "ridges": true,
+        "min": -55
+      },
+      "music": {
+        "bpm": 132,
+        "root": 47,
+        "prog": [
+          [
+            0,
+            3,
+            7
+          ],
+          [
+            -2,
+            2,
+            5
+          ],
+          [
+            -4,
+            0,
+            3
+          ],
+          [
+            -5,
+            -1,
+            2
+          ]
+        ]
+      }
+    },
+    "boosts": [
+      [
+        0.354,
+        0
+      ],
+      [
+        0.462,
+        0.3
+      ],
+      [
+        0.856,
+        -0.3
+      ]
+    ],
+    "items": [
+      0.084,
+      0.3,
+      0.55,
+      0.8
+    ],
+    "tricks": [
+      0.435
+    ],
+    "zones": [],
+    "obst": {
+      "ball": "lava",
+      "kinds": [
+        "balls",
+        "pillars",
+        "rollers"
+      ]
+    },
+    "obstZones": 3,
+    "rockfall": {
+      "at": 0.3
+    },
+    "pilot": "canyon"
+  }
+}
