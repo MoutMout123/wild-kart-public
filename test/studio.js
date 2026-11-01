@@ -6,7 +6,7 @@
 (function (root) {
 'use strict';
 const C = root.WKStudioCore, K = () => root.__TK;
-const ST = { map: null, sel: -1, undo: [], redo: [], mode: 'pieces', brush: { m: 'relief', r: 40, h: 6 }, view: { x: 0, z: 0, s: 1 }, check: null, el: null, saved: null, cup: [], dirty: false };
+const ST = { keepClosed: true, adjusted: null, adjT: 0, map: null, sel: -1, undo: [], redo: [], mode: 'pieces', brush: { m: 'relief', r: 40, h: 6 }, view: { x: 0, z: 0, s: 1 }, check: null, el: null, saved: null, cup: [], dirty: false };
 const DRAFT = 'wkstudio.draft';
 const $ = (sel, r) => (r || ST.el).querySelector(sel);
 const mk = (tag, cls, txt, parent) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; if (parent) parent.appendChild(e); return e; };
@@ -20,9 +20,20 @@ function change(fn, keepSel) {
   ST.undo.push(clone(ST.map)); if (ST.undo.length > 60) ST.undo.shift(); ST.redo.length = 0;
   fn(ST.map); if (!keepSel) ST.sel = Math.min(ST.sel, ST.map.pieces.length - 1); ST.dirty = true; recheck(); lsSet(DRAFT, JSON.stringify({ map: ST.map, saved: ST.saved })); draw(); panel();
 }
+/* Modification de la géométrie d'une pièce (longueur, angle, rayon, sens, dénivelé, ajout, suppression). Si le circuit était fermé
+   et que « Garder le circuit fermé » est coché, les pièces qui SUIVENT sont légèrement ajustées (WKStudioCore.reclose) ; la pièce
+   modifiée reste telle quelle, et une seule annulation (↶) revient à l'état d'avant. Signalement C2-13. */
+const isClosed = (ps) => { const c = C.closure(C.walk(ps)); return c.gap < 1 && c.dh < 1; };
+function edit(ed, fn) { const was = ST.map.pieces.length > 2 && isClosed(ST.map.pieces); let note = null; ST.adjusted = null;
+  change((m) => { fn(m); if (!was || !ST.keepClosed || m.pieces.length < 3) return; const cl = C.closure(C.walk(m.pieces)); if (cl.gap < 1 && cl.dh < 1 && cl.dy < .05) return;
+    const r = C.reclose(m.pieces, ed, { width: m.width });
+    if (r) { m.pieces = r.pieces; const ch = r.changed.filter((j) => j !== ed); ST.adjusted = new Set(ch); ST.adjT = Date.now(); setTimeout(draw, 3100);
+      note = ch.length ? (ch.length > 1 ? 'Pièces ' : 'Pièce ') + ch.map((j) => j + 1).join(', ') + ' ajustée' + (ch.length > 1 ? 's' : '') + ' pour garder le circuit fermé (↶ pour annuler).' : null; }
+    else note = 'Cette modification ouvre le circuit et ne peut pas être compensée par les pièces suivantes : ajuste-les, ou utilise « Fermer le circuit ».'; }, true);
+  if (note) toast(note); }
 function undo() { if (!ST.undo.length) return; ST.redo.push(clone(ST.map)); ST.map = ST.undo.pop(); ST.sel = Math.min(ST.sel, ST.map.pieces.length - 1); recheck(); draw(); panel(); }
-function redo() { if (!ST.redo.length) return; ST.undo.push(clone(ST.map)); ST.map = ST.redo.pop(); recheck(); draw(); panel(); }
-function recheck() { ST.check = C.validate(ST.map); ST.geo = C.walk(ST.map.pieces); ST.badSet = new Set(ST.check.ok ? [] : (C.geometry(ST.check.map || ST.map).bad || [])); status(); }
+function redo() { if (!ST.redo.length) return; ST.undo.push(clone(ST.map)); ST.map = ST.redo.pop(); ST.sel = Math.min(ST.sel, ST.map.pieces.length - 1); recheck(); draw(); panel(); }
+function recheck() { ST.check = C.validate(ST.map); ST.geo = C.walk(ST.map.pieces); ST.badSet = new Set(ST.check.ok ? [] : ST.check.bad || []); /* numéros d'origine (avant : liste nettoyée, décalée d'une pièce) */ status(); }
 function fit() { const w = ST.geo || C.walk(ST.map.pieces); let a = 1e9, b = -1e9, c = 1e9, d = -1e9; for (const p of w.pts) { a = Math.min(a, p[0]); b = Math.max(b, p[0]); c = Math.min(c, p[1]); d = Math.max(d, p[1]); }
   const cv = $('canvas'), W = cv.clientWidth || 600, H = cv.clientHeight || 400; ST.view.x = (a + b) / 2; ST.view.z = (c + d) / 2; ST.view.s = Math.min(W / (b - a + 120), H / (d - c + 120)); draw(); }
 
@@ -35,7 +46,7 @@ const PALETTE = [
   ['Tremplin', { t: 'droite', l: 60, feat: 'tremplin' }], ['Planeur', { t: 'droite', l: 120, feat: 'planeur' }], ['Tunnel', { t: 'droite', l: 80, feat: 'tunnel' }],
   ['Objets', { t: 'droite', l: 40, feat: 'objets' }], ['Plaque turbo', { t: 'droite', l: 40, feat: 'boost' }],
 ];
-function addPiece(p) { change((m) => { const at = ST.sel >= 0 ? ST.sel + 1 : m.pieces.length; m.pieces.splice(at, 0, clone(p)); ST.sel = at; }, true); }
+function addPiece(p) { const at = ST.sel >= 0 ? ST.sel + 1 : ST.map.pieces.length; edit(at, (m) => { m.pieces.splice(at, 0, clone(p)); ST.sel = at; }); }
 
 /* ---------- dessin (vue de dessus) ---------- */
 function w2s(x, z) { const cv = $('canvas'); return [cv.clientWidth / 2 + (x - ST.view.x) * ST.view.s, cv.clientHeight / 2 - (z - ST.view.z) * ST.view.s]; }
@@ -51,10 +62,14 @@ function draw() {
   const w = ST.geo || C.walk(ST.map.pieces), wd = Math.max(2, ST.map.width * ST.view.s);
   x.lineCap = 'round'; x.lineJoin = 'round';
   // bordure puis chaussée, pièce par pièce (couleur de surface, rouge si en défaut, contour jaune si choisie) ; plus haut = plus clair
+  const adj = ST.adjusted && Date.now() - ST.adjT < 3000 ? ST.adjusted : null; // pièces ajustées automatiquement (bleu, 3 s)
   for (const pass of [0, 1]) w.spans.forEach((s) => { const p = ST.map.pieces[s.k]; x.beginPath(); for (let i = s.i0; i <= s.i1; i++) { const [px, py] = w2s(w.pts[i][0], w.pts[i][1]); if (i === s.i0) x.moveTo(px, py); else x.lineTo(px, py); }
-    if (pass === 0) { x.strokeStyle = s.k === ST.sel ? '#ffd23a' : ST.badSet && ST.badSet.has(s.k) ? '#ff3a4a' : '#f4f1e8'; x.lineWidth = wd + Math.max(3, 3 * ST.view.s); }
+    if (pass === 0) { x.strokeStyle = s.k === ST.sel ? '#ffd23a' : ST.badSet && ST.badSet.has(s.k) ? '#ff3a4a' : adj && adj.has(s.k) ? '#3fb6ff' : '#f4f1e8'; x.lineWidth = wd + Math.max(3, 3 * ST.view.s); }
     else { const yv = (w.pts[s.i0][2] + w.pts[s.i1][2]) / 2; x.strokeStyle = (C.SURFACES[p.surf || 'normal'] || C.SURFACES.normal).couleur; x.lineWidth = wd; x.globalAlpha = 1; x.stroke(); x.strokeStyle = yv > 0 ? 'rgba(255,255,255,' + Math.min(.35, yv / 40) + ')' : 'rgba(0,0,0,' + Math.min(.4, -yv / 30) + ')'; }
     x.stroke(); });
+  // pièces en défaut : trait rouge pointillé au milieu de la chaussée, visible même sur la pièce choisie (contour jaune)
+  if (ST.badSet && ST.badSet.size) { x.save(); x.setLineDash([8, 6]); x.strokeStyle = '#ff3a4a'; x.lineWidth = Math.max(2, Math.min(5, wd * .25));
+    w.spans.forEach((s) => { if (!ST.badSet.has(s.k)) return; x.beginPath(); for (let i = s.i0; i <= s.i1; i++) { const [px, py] = w2s(w.pts[i][0], w.pts[i][1]); if (i === s.i0) x.moveTo(px, py); else x.lineTo(px, py); } x.stroke(); }); x.restore(); }
   // éléments et hauteurs
   x.font = '600 12px system-ui, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
   const ICON = { tremplin: '⤴', planeur: '🪂', tunnel: '◗', objets: '❓', boost: '⏩' };
@@ -101,7 +116,7 @@ function status() {
   mk('b', null, Math.round(w.L) + ' m · ' + ST.map.pieces.length + ' pièces · ', st);
   mk('span', c.ok ? 'ok' : 'ko', c.ok ? '✔ circuit valide' : '✖ ' + c.errors.length + ' problème(s)', st);
   if (!c.ok && cl.gap > 1) mk('span', null, ' · fin à ' + Math.round(cl.gap) + ' m du départ', st);
-  const list = $('.wks-msgs'); list.textContent = ''; for (const e of c.errors.slice(0, 6)) mk('li', 'ko', e, list); for (const e of c.warnings.slice(0, 4)) mk('li', 'warn', e, list);
+  const list = $('.wks-msgs'); list.textContent = ''; for (const e of c.errors.slice(0, 6)) { const li = mk('li', 'ko', e, list), n = /[Pp]i[èe]ces? (\d+)/.exec(e); if (n) { li.style.cursor = 'pointer'; li.title = 'Afficher la pièce'; li.onclick = () => { ST.sel = Math.min(+n[1] - 1, ST.map.pieces.length - 1); draw(); panel(); }; } } for (const e of c.warnings.slice(0, 4)) mk('li', 'warn', e, list);
 }
 function field(parent, label, input) { const l = mk('label', 'wks-f', null, parent); mk('span', null, label, l); l.appendChild(input); return input; }
 function select(opts, val, on) { const s = document.createElement('select'); for (const [v, t] of opts) { const o = mk('option', null, t, s); o.value = v; } s.value = val; s.onchange = () => on(s.value); return s; }
@@ -119,16 +134,17 @@ function panel() {
   if (!p) { mk('p', 'wks-note', 'Touche une pièce pour la modifier. Les nouvelles pièces s\'aimantent après la pièce choisie (flèche jaune), ou en fin de tracé.', P); return; }
   mk('h4', null, 'Pièce ' + (i + 1) + ' — ' + (p.t === 'droite' ? 'ligne droite' : p.a > 0 ? 'virage à gauche' : 'virage à droite'), P);
   const row = mk('div', 'wks-row', null, P);
-  if (p.t === 'droite') { row.appendChild(stepper(p.l, 10, C.PIECES.droite.l[0], C.PIECES.droite.l[1], ' m', (v) => change((m) => { m.pieces[i].l = v; }, true))); }
-  else { row.appendChild(stepper(Math.abs(p.a), 15, 15, 270, '°', (v) => change((m) => { m.pieces[i].a = Math.sign(p.a) * v; }, true)));
-    row.appendChild(stepper(p.r, 5, C.PIECES.virage.r[0], C.PIECES.virage.r[1], ' m', (v) => change((m) => { m.pieces[i].r = v; }, true)));
-    const inv = mk('button', 'wks-b', '⇄', row); inv.title = 'Inverser le sens'; inv.onclick = () => change((m) => { m.pieces[i].a = -m.pieces[i].a; }, true); }
-  mk('small', null, 'Dénivelé ', P); P.appendChild(stepper(p.dy || 0, 2, -C.LIMITS.dy, C.LIMITS.dy, ' m', (v) => change((m) => { if (v) m.pieces[i].dy = v; else delete m.pieces[i].dy; }, true)));
+  if (p.t === 'droite') { row.appendChild(stepper(p.l, 10, C.PIECES.droite.l[0], C.PIECES.droite.l[1], ' m', (v) => edit(i, (m) => { m.pieces[i].l = v; }))); }
+  else { row.appendChild(stepper(Math.abs(p.a), 15, 15, 270, '°', (v) => edit(i, (m) => { m.pieces[i].a = Math.sign(p.a) * v; })));
+    row.appendChild(stepper(p.r, 5, C.PIECES.virage.r[0], C.PIECES.virage.r[1], ' m', (v) => edit(i, (m) => { m.pieces[i].r = v; })));
+    const inv = mk('button', 'wks-b', '⇄', row); inv.title = 'Inverser le sens'; inv.onclick = () => edit(i, (m) => { m.pieces[i].a = -m.pieces[i].a; }); }
+  mk('small', null, 'Dénivelé ', P); P.appendChild(stepper(p.dy || 0, 2, -C.LIMITS.dy, C.LIMITS.dy, ' m', (v) => edit(i, (m) => { if (v) m.pieces[i].dy = v; else delete m.pieces[i].dy; })));
   field(P, 'Surface', select(Object.entries(C.SURFACES).map(([k, s]) => [k, s.nom]), p.surf || 'normal', (v) => change((m) => { if (v === 'normal') delete m.pieces[i].surf; else m.pieces[i].surf = v; }, true)));
   if (p.t === 'droite') field(P, 'Élément', select([['', 'Aucun']].concat(Object.entries(C.FEATS).map(([k, f]) => [k, f.nom + ' (≥ ' + f.min + ' m)'])), p.feat || '', (v) => change((m) => { if (v) m.pieces[i].feat = v; else delete m.pieces[i].feat; }, true)));
   const r2 = mk('div', 'wks-row', null, P);
-  const del = mk('button', 'wks-b red', 'Supprimer', r2); del.onclick = () => change((m) => { m.pieces.splice(i, 1); ST.sel = i - 1; }, true);
+  const del = mk('button', 'wks-b red', 'Supprimer', r2); del.onclick = () => edit(i - 1, (m) => { m.pieces.splice(i, 1); ST.sel = i - 1; });
   const here = mk('button', 'wks-b', 'Tester ici', r2); here.onclick = () => playtest(i);
+  const kc = mk('label', 'wks-f wks-keep', null, P), cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = ST.keepClosed; cb.onchange = () => { ST.keepClosed = cb.checked; }; kc.appendChild(cb); mk('span', null, 'Garder le circuit fermé (ajuste les pièces suivantes)', kc);
 }
 
 /* ---------- biomes, test, sauvegarde, partage ---------- */
@@ -144,13 +160,13 @@ function playtest(start) {
   const [ti] = mount([def]); const prevTrack = k.UI.track, prevMode = k.UI.mode;
   k.UI.mode = 'quick'; k.UI.track = ti; ST.returnView = clone(ST.view);
   k.UI.afterMenu = () => { unmount(); k.UI.track = prevTrack; k.UI.mode = prevMode; open(true); };
-  close(true); try { k.launch(); } catch (e) { unmount(); k.UI.afterMenu = null; open(true); toast('Le test n\'a pas pu démarrer : ' + e.message); }
+  close(true); const fail = (e) => { unmount(); k.UI.afterMenu = null; open(true); toast('Le test n\'a pas pu démarrer : ' + e.message); }; try { return Promise.resolve(k.launch()).catch(fail); } catch (e) { fail(e); }
 }
 function playCup(entries) {
   const defs = []; for (const e of entries) { const v = C.validate(e.map); if (!v.ok) { toast('« ' + e.map.name + ' » n\'est pas valide : ' + v.errors[0]); return; } defs.push(C.toDef(v.map, themeOf(v.map.biome), { id: 'studio-' + e.id, obst: obstOf(v.map.biome) })); }
   if (!defs.length) { toast('Choisis au moins un circuit pour la coupe.'); return; }
   const k = K(), list = mount(defs), prevMode = k.UI.mode; k.UI.mode = 'gp'; k.UI.gp = { i: 0, cc: k.SAVE.cc, points: {}, list, studio: true };
-  k.UI.afterMenu = () => { unmount(); k.UI.mode = prevMode; open(true); }; close(true); k.launch();
+  k.UI.afterMenu = () => { unmount(); k.UI.mode = prevMode; open(true); }; close(true); return k.launch();
 }
 function saveMap() {
   const v = C.validate(ST.map); const all = C.loadAll(LS).maps; const id = ST.saved || 'c' + Date.now().toString(36);
@@ -184,7 +200,11 @@ function listDlg() { const r = C.loadAll(LS); dialog('Mes circuits et coupes', (
     const d = mk('button', 'wks-b red', '🗑', li); d.title = 'Supprimer'; d.onclick = () => { if (!root.confirm('Supprimer « ' + e.map.name + ' » ?')) return; C.saveAll(LS, C.loadAll(LS).maps.filter((x) => x.id !== e.id)); done(); listDlg(); }; }
   const row = mk('div', 'wks-row', null, box); const nw = mk('button', 'wks-b', 'Nouveau circuit', row); nw.onclick = () => { loadInto(C.blank(), null); done(); };
   if (r.maps.length) { const go = mk('button', 'wks-b red', 'Lancer la coupe perso', row); go.onclick = () => { const sel = r.maps.filter((e) => cup.has(e)); if (!sel.length) { toast('Coche les circuits de la coupe (dans l\'ordre de la liste).'); return; } done(); playCup(sel); }; } }); }
-function closeAuto() { const add = C.autoClose(ST.map.pieces, 40); if (add === null) { toast('Fermeture impossible depuis ici : rapproche la fin du départ.'); return; }
+function closeAuto() {
+  // d'abord, ajuster les pièces existantes (après la pièce choisie, sinon en fin de tracé) si l'écart est modéré ; sinon, ajouter des pièces
+  { const cl = C.closure(C.walk(ST.map.pieces)); if (ST.map.pieces.length > 2 && (cl.gap > .5 || cl.dh > .5) && cl.gap < 120) { const ed = ST.sel >= 0 ? ST.sel : -1, r = C.reclose(ST.map.pieces, ed, { width: ST.map.width });
+    if (r) { const ch = r.changed.filter((j) => j !== ed); change((m) => { m.pieces = r.pieces; }, true); ST.adjusted = new Set(ch); ST.adjT = Date.now(); setTimeout(draw, 3100); draw(); toast('Circuit refermé en ajustant ' + (ch.length > 1 ? 'les pièces ' : 'la pièce ') + ch.map((j) => j + 1).join(', ') + ' (↶ pour annuler).'); return; } } }
+  const add = C.autoClose(ST.map.pieces, 40, { width: ST.map.width }); if (add === null) { toast('Fermeture impossible depuis ici : rapproche la fin du départ.'); return; }
   if (!add.length) { if (C.closure(C.walk(ST.map.pieces)).dy <= .05) { toast('Le circuit est déjà fermé.'); return; } const fx = C.levelFix(ST.map.pieces); if (!fx) { toast('Écart de hauteur trop grand : ajoute une descente ou une montée.'); return; }
     change((m) => { m.pieces = fx; }, true); toast('Dénivelé des dernières pièces ajusté pour rejoindre le départ.'); return; }
   change((m) => { m.pieces.push(...add); ST.sel = m.pieces.length - 1; }, true); toast(add.length + ' pièce(s) ajoutée(s) pour rejoindre le départ.'); }
@@ -234,7 +254,7 @@ function build() {
   mk('div', 'wks-sel', null, side);
   root.addEventListener('resize', () => draw());
   root.addEventListener('keydown', (e) => { if (!ST.el || ST.el.hidden || /INPUT|TEXTAREA|SELECT/.test((e.target && e.target.tagName) || '')) return;
-    if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') { e.preventDefault(); redo(); } else if (e.key === 'Delete' && ST.sel >= 0) change((m) => { m.pieces.splice(ST.sel, 1); ST.sel--; }, true); });
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') { e.preventDefault(); redo(); } else if (e.key === 'Delete' && ST.sel >= 0) { const i = ST.sel; edit(i - 1, (m) => { m.pieces.splice(i, 1); ST.sel = i - 1; }); } });
 }
 /* Ouverture : reprend le brouillon (même état qu'avant le test) ; fromTest garde aussi la vue. */
 function open(fromTest) {

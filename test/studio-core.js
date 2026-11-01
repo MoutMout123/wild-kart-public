@@ -70,8 +70,9 @@ function validate(input) {
   const dg = num(raw.dangers); m.dangers = Number.isNaN(dg) ? 1 : clamp(Math.round(dg), LIMITS.dangers[0], LIMITS.dangers[1]);
   if (!Array.isArray(raw.pieces) || !raw.pieces.length) errors.push('Aucune pièce de route.');
   else if (raw.pieces.length > LIMITS.pieces) errors.push('Trop de pièces (' + raw.pieces.length + ', maximum ' + LIMITS.pieces + ').');
-  m.pieces = [];
+  m.pieces = []; const badIdx = new Set(); let nErr = errors.length;
   (Array.isArray(raw.pieces) ? raw.pieces.slice(0, LIMITS.pieces) : []).forEach((p, i) => {
+    if (errors.length > nErr) badIdx.add(i - 1); nErr = errors.length; // pièce précédente en erreur (numérotation d'origine)
     const n = i + 1; if (!p || typeof p !== 'object') { errors.push('Pièce ' + n + ' : invalide.'); return; }
     const q = {};
     if (p.t === 'droite') { const l = num(p.l); if (Number.isNaN(l) || l < PIECES.droite.l[0] || l > PIECES.droite.l[1]) { errors.push('Pièce ' + n + ' : longueur hors limites (' + PIECES.droite.l.join(' à ') + ' m).'); return; } q.t = 'droite'; q.l = +l.toFixed(2); }
@@ -91,8 +92,12 @@ function validate(input) {
     m.sculpt.push({ x: +x.toFixed(1), z: +z.toFixed(1), r: +clamp(r, 8, 160).toFixed(1), h: +clamp(h, -30, 30).toFixed(2), m: s.m === 'lisser' ? 'lisser' : 'relief' });
   }
   if (Array.isArray(raw.sculpt) && raw.sculpt.length > LIMITS.strokes) warnings.push('Sculpture tronquée à ' + LIMITS.strokes + ' coups de pinceau.');
-  if (!errors.length) { const g = geometry(m); errors.push(...g.errors); warnings.push(...g.warnings); }
-  return { ok: !errors.length, map: m, errors, warnings };
+  if (errors.length > nErr && Array.isArray(raw.pieces)) badIdx.add(Math.min(raw.pieces.length, LIMITS.pieces) - 1);
+  // Les contrôles géométriques ne tournent que si toutes les pièces sont valides : leurs numéros sont alors ceux d'origine.
+  // (Avant, l'éditeur recalculait la géométrie sur la liste nettoyée, où une pièce invalide avait disparu : le rouge tombait
+  // sur la pièce suivante.)
+  if (!errors.length) { const g = geometry(m); errors.push(...g.errors); warnings.push(...g.warnings); for (const k of g.bad) badIdx.add(k); }
+  return { ok: !errors.length, map: m, errors, warnings, bad: [...badIdx].filter((k) => k >= 0).sort((a, b) => a - b) };
 }
 
 /* ---------- Géométrie : tortue 3D ---------- */
@@ -118,7 +123,7 @@ function closure(w) { return { gap: Math.hypot(w.end.x, w.end.z), dh: Math.abs(M
 
 /* Fermeture automatique : virage – droite – virage (Dubins) de la fin du tracé vers le départ, le plus court qui se vérifie
    en simulation ; le dénivelé restant est réparti sur les pièces ajoutées. Renvoie la liste des pièces à ajouter, ou null. */
-function autoClose(pieces, R) {
+function autoClose(pieces, R, opts = {}) {
   const w = walk(pieces), e = w.end; if (closure(w).gap < .5 && closure(w).dh < 1) return [];
   const best = []; R = R || 40;
   for (const r of [R, R * .8, R * 1.3, R * .6, R * 1.7]) {
@@ -136,7 +141,10 @@ function autoClose(pieces, R) {
         if (add.some((p) => p.t === 'droite' && (p.l < PIECES.droite.l[0] || p.l > PIECES.droite.l[1]))) { // droite trop courte : l'absorber ; trop longue : la couper
           const ix = add.findIndex((p) => p.t === 'droite'); const l = add[ix].l; if (l < PIECES.droite.l[0]) add.splice(ix, 1); else { const n = Math.ceil(l / PIECES.droite.l[1]); add.splice(ix, 1, ...Array.from({ length: n }, () => ({ t: 'droite', l: l / n }))); } }
         const tot = add.reduce((s, p) => s + (p.t === 'droite' ? p.l : Math.abs(p.a) * Math.PI / 180 * p.r), 0); if (!add.length) continue;
+        if (add.some((p) => p.t === 'virage' && Math.abs(p.a) > 300)) continue; // pas de boucle complète pour rejoindre le départ
         const test = walk(pieces.concat(add)), cl = closure(test); if (cl.gap > 1 || cl.dh > 1.5) continue;
+        // aucune solution qui fait chevaucher la route (avant : des virages de 330° qui recoupaient tout le circuit)
+        if (geometry({ width: opts.width || 24, pieces: pieces.concat(add) }).errors.some((e) => /chevauchent|recoupe/.test(e))) continue;
         best.push({ add, tot });
       }
     }
@@ -149,6 +157,51 @@ function autoClose(pieces, R) {
   const ey = e.y, tot = best[0].tot; if (Math.abs(ey) > .01) for (const p of add) { const len = p.t === 'droite' ? p.l : Math.abs(p.a) * Math.PI / 180 * p.r; p.dy = +(-ey * len / tot).toFixed(2); }
   return add;
 }
+
+/* Refermeture locale après une modification (signalement C2-13) : au lieu d'ajouter des pièces en fin de tracé, on ajuste un peu
+   les pièces qui SUIVENT la pièce modifiée (longueurs des droites, angles et rayons des virages), la pièce modifiée restant
+   telle que l'utilisateur l'a voulue. Moindres carrés amortis (Gauss-Newton, forme de norme minimale : système 3×3) sur les 3
+   écarts de fermeture (x, z, cap). On essaie d'abord 2 pièces suivantes, puis 3, 4… ; une solution n'est retenue que si toutes
+   les pièces restent dans leurs limites et que le circuit complet est valide (aucun chevauchement). Le dénivelé est rattrapé
+   de même sur les pièces suivantes. Renvoie { pieces, changed: [indices] } ou null. */
+function reclose(pieces, edited, opts = {}) {
+  const N = pieces.length; if (N < 3) return null; const ed = edited == null ? -1 : edited;
+  const base = JSON.parse(JSON.stringify(pieces)), width = opts.width || 24;
+  const ok = (ps) => { const v = validate({ format: FORMAT, version: VERSION, name: 'x', biome: 'prairie', width, pieces: ps }); return v.ok; };
+  const flat = (cl) => cl.gap < .3 && cl.dh < .3;
+  const order = []; for (let d = 1; d < N; d++) { const j = mod((ed < 0 ? N - 1 : ed) + d, N); if (j !== ed) order.push(j); } if (ed < 0) order.unshift(N - 1), order.pop();
+  for (let K = 2; K <= Math.min(6, order.length); K++) {
+    const js = order.slice(0, K), vars = [];
+    for (const j of js) { const p = base[j]; if (p.t === 'droite') vars.push({ j, k: 'l', sc: 60, lo: PIECES.droite.l[0], hi: PIECES.droite.l[1] });
+      else { vars.push({ j, k: 'a', sc: 60, lo: p.a > 0 ? PIECES.virage.a[0] : -300, hi: p.a > 0 ? 300 : -PIECES.virage.a[0] }); vars.push({ j, k: 'r', sc: 30, lo: PIECES.virage.r[0], hi: PIECES.virage.r[1] }); } }
+    if (!vars.some((v) => v.k === 'a') || vars.length < 3) continue; // le cap ne se rattrape que par un angle
+    const ps = JSON.parse(JSON.stringify(base)), res = () => { const e = walk(ps, { step: 6 }).end; return [e.x, e.z, Math.atan2(Math.sin(e.h), Math.cos(e.h)) * 60]; };
+    let r = res();
+    for (let it = 0; it < 40 && Math.hypot(r[0], r[1], r[2]) > .05; it++) {
+      const J = vars.map((v) => { const o = ps[v.j][v.k], h = v.k === 'a' ? .2 : .1; ps[v.j][v.k] = o + h; const r2 = res(); ps[v.j][v.k] = o; return r2.map((x, q) => (x - r[q]) / h * v.sc); });
+      // du = -Jᵀ (J Jᵀ + λI)⁻¹ r, J de taille 3 × n (colonnes = variables, mises à l'échelle)
+      const A = [0, 1, 2].map((a) => [0, 1, 2].map((b) => J.reduce((s, c) => s + c[a] * c[b], 0) + (a === b ? 1e-3 : 0)));
+      const y = solve3(A, r); if (!y) break;
+      vars.forEach((v, n) => { const du = -(J[n][0] * y[0] + J[n][1] * y[1] + J[n][2] * y[2]) * v.sc; const step = clamp(du, -v.sc, v.sc); ps[v.j][v.k] = clamp(ps[v.j][v.k] + step, v.lo, v.hi); });
+      r = res();
+    }
+    const cl = closure(walk(ps)); if (!flat(cl)) continue;
+    for (const v of vars) ps[v.j][v.k] = v.k === 'a' ? +ps[v.j][v.k].toFixed(3) : +ps[v.j][v.k].toFixed(2);
+    if (!flat(closure(walk(ps)))) continue;
+    // hauteur : rattrapée sur les pièces suivantes (pas sur la pièce modifiée)
+    let rest = -walk(ps).end.y;
+    for (const j of order) { if (Math.abs(rest) <= .01) break; const p = ps[j], len = p.t === 'droite' ? p.l : Math.abs(p.a) * Math.PI / 180 * p.r, cap = LIMITS.grade * len / 1.5 * .95, cur = p.dy || 0;
+      const nv = clamp(cur + rest, Math.max(-cap, -LIMITS.dy), Math.min(cap, LIMITS.dy)); rest -= nv - cur; if (Math.abs(nv) > .005) p.dy = +nv.toFixed(2); else delete p.dy; }
+    if (Math.abs(rest) > .05 || !ok(ps)) continue;
+    const changed = []; ps.forEach((p, j) => { if (JSON.stringify(p) !== JSON.stringify(base[j])) changed.push(j); });
+    return { pieces: ps, changed };
+  }
+  return null;
+}
+function solve3(A, b) { const M = A.map((row, i) => row.concat([b[i]]));
+  for (let c = 0; c < 3; c++) { let p = c; for (let i = c + 1; i < 3; i++) if (Math.abs(M[i][c]) > Math.abs(M[p][c])) p = i; if (Math.abs(M[p][c]) < 1e-12) return null; [M[c], M[p]] = [M[p], M[c]];
+    for (let i = 0; i < 3; i++) if (i !== c) { const f = M[i][c] / M[c][c]; for (let k = c; k < 4; k++) M[i][k] -= f * M[c][k]; } }
+  return [M[0][3] / M[0][0], M[1][3] / M[1][1], M[2][3] / M[2][2]]; }
 
 /* Tracé fermé en plan mais pas en hauteur : l'écart est réparti sur les dernières pièces, en respectant la pente maximale.
    Renvoie une copie des pièces, ou null si l'écart ne peut pas être absorbé. */
@@ -176,7 +229,7 @@ function geometry(m) {
       if (j <= i) continue; const q = P[j], ds = Math.min(Math.abs(p.s - q.s), w.L - Math.abs(p.s - q.s)); if (ds < near * 3) continue;
       if ((p.x - q.x) ** 2 + (p.z - q.z) ** 2 > near * near) continue;
       const tag = Math.min(p.k, q.k) + '-' + Math.max(p.k, q.k);
-      if (Math.abs(p.y - q.y) < LIMITS.levelDy) { bad.add(p.k); bad.add(q.k); if (!seen.has(tag)) { seen.add(tag); errors.push('Les pièces ' + (p.k + 1) + ' et ' + (q.k + 1) + ' se chevauchent au même niveau : écarte-les ou fais passer l\'une au-dessus (≥ ' + LIMITS.levelDy + ' m).'); } }
+      if (Math.abs(p.y - q.y) < LIMITS.levelDy) { bad.add(p.k); bad.add(q.k); if (!seen.has(tag)) { seen.add(tag); errors.push(p.k === q.k ? 'La pièce ' + (p.k + 1) + ' se recoupe elle-même : réduis son angle ou agrandis son rayon.' : 'Les pièces ' + (p.k + 1) + ' et ' + (q.k + 1) + ' se chevauchent au même niveau : écarte-les ou fais passer l\'une au-dessus (≥ ' + LIMITS.levelDy + ' m).'); } }
       else bridges++;
     } }
   if (bridges) warnings.push('Passage(s) en pont détecté(s) : vérifie-les en test.');
@@ -235,6 +288,6 @@ function saveAll(ls, maps) {
   catch (e) { try { if (prev) ls.setItem(STORE, prev); } catch (e2) { /* stockage plein */ } return false; }
 }
 
-const API = { FORMAT, VERSION, PIECES, SURFACES, FEATS, BIOMES, LIMITS, blank, validate, migrate, walk, closure, autoClose, levelFix, geometry, toDef, toCode, fromCode, loadAll, saveAll, hash, STORE };
+const API = { FORMAT, VERSION, PIECES, SURFACES, FEATS, BIOMES, LIMITS, blank, validate, migrate, walk, closure, autoClose, reclose, levelFix, geometry, toDef, toCode, fromCode, loadAll, saveAll, hash, STORE };
 if (typeof module !== 'undefined' && module.exports) module.exports = API; else root.WKStudioCore = API;
 })(typeof window !== 'undefined' ? window : globalThis);

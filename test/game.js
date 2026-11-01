@@ -3758,8 +3758,63 @@ function placeOnGrid(k, slot) {
 
 function setWorld(ti) {
   LAPS = TRACKS[ti].sections ? 1 : RACE_OPTS.laps || TRACKS[ti].laps || 3;
-  if (G.W) disposeWorld(G.W);
-  G.W = buildWorld(ti); G.hazards = []; G.rockets = []; G.karts = [];
+  const pre = G.prebuilt; G.prebuilt = null;
+  if (pre && pre.ti === ti && pre.seed === RACE_OPTS.seed) { if (G.W && G.W !== pre.W) disposeWorld(G.W); G.W = pre.W; } // monde déjà construit par tranches (launchPrepared)
+  else { if (pre && pre.W !== G.W) disposeWorld(pre.W); if (G.W) disposeWorld(G.W); G.W = buildWorld(ti); }
+  G.hazards = []; G.rockets = []; G.karts = [];
+}
+// Écran de chargement d'un circuit : animé uniquement par des transformations CSS (le compositeur du navigateur les fait tourner
+// même quand le fil principal est occupé), pour ne jamais donner l'impression d'un gel.
+const RACE_LOADER = (() => { let el = null, bar = null;
+  const make = () => { el = document.createElement('div'); el.id = 'race-loader'; el.setAttribute('role', 'status');
+    el.style.cssText = 'position:fixed;inset:0;z-index:150;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:radial-gradient(ellipse at 50% 45%,#133375 0%,#081940 45%,#030719 100%);color:#fff;font:800 clamp(16px,4vw,24px) var(--f-display,system-ui),sans-serif;letter-spacing:.06em;text-align:center;padding:16px';
+    el.innerHTML = '<style>@keyframes wkrl{to{transform:rotate(360deg)}}#race-loader .rl-roue{width:64px;height:64px;border-radius:50%;border:7px solid rgba(255,255,255,.18);border-top-color:#ffc531;border-right-color:#ff4f3a;animation:wkrl .8s linear infinite;will-change:transform}#race-loader .rl-bar{width:min(70vw,360px);height:8px;border-radius:99px;background:#091639;border:1px solid #23588e;overflow:hidden}#race-loader .rl-fill{height:100%;width:100%;background:linear-gradient(90deg,#17baff,#6380ff);transform-origin:0 50%;transform:scaleX(0);transition:transform .25s linear;will-change:transform}#race-loader small{font-size:12px;letter-spacing:.2em;color:#90b9f2}</style><div class="rl-roue"></div><div class="rl-nom"></div><div class="rl-bar"><div class="rl-fill"></div></div><small>CHARGEMENT DU CIRCUIT</small>';
+    document.body.appendChild(el); bar = el.querySelector('.rl-fill'); };
+  return { show(nom) { if (!el) make(); el.querySelector('.rl-nom').textContent = nom || ''; bar.style.transform = 'scaleX(0)'; el.hidden = false; el.style.display = 'flex'; },
+    set(p) { if (bar) bar.style.transform = 'scaleX(' + clamp(p, 0, 1).toFixed(3) + ')'; },
+    hide() { if (el) { el.hidden = true; el.style.display = 'none'; } }, visible() { return !!el && !el.hidden; } }; })();
+// Lancement d'une course sans gel visible : le monde est construit par tranches (buildWorldSteps, runSliced) sous l'écran de
+// chargement, puis les shaders sont compilés en parallèle et les textures envoyées une par une, enfin une image est rendue avant
+// d'afficher la course (même méthode que le démarrage). En cas d'erreur : construction d'un bloc, comme avant.
+let LAUNCH_ID = 0;
+const prepSlice = (t0) => { const d = performance.now() - t0; if (G.prepT && d > (G.prepT.maxSlice || 0)) G.prepT.maxSlice = Math.round(d); }; // plus longue tranche (relevé)
+// Variante de runSliced pour l'écran de chargement d'un circuit : entre deux tranches, on rend la main par une simple tâche
+// (le navigateur traite les touches et fait tourner la roue CSS), et on n'attend une image que toutes les 120 ms pour la barre.
+// Attendre une image à chaque tranche multipliait la durée totale (une image peut coûter cher pendant l'envoi à la carte graphique).
+function runSlicedLoad(gen, onP) {
+  return new Promise((resolve, reject) => { let lastF = performance.now();
+    const step = () => { const t0 = performance.now();
+      try { for (;;) { const r = gen.next(); if (r.done) { prepSlice(t0); resolve(r.value); return; } if (typeof r.value === 'number' && onP) onP(r.value); if (performance.now() - t0 > 30) break; } }
+      catch (e) { reject(e); return; }
+      prepSlice(t0);
+      if (performance.now() - lastF > 120) requestAnimationFrame(() => { lastF = performance.now(); setTimeout(step, 0); }); else setTimeout(step, 0); };
+    step(); });
+}
+async function launchPrepared(ti, cc, who) {
+  if (G.prep) return; // double appui pendant la préparation : ignoré
+  const id = ++LAUNCH_ID, yieldFrame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+  const PT = G.prepT = { ti, t0: performance.now() }, mk = (k) => { PT[k] = Math.round(performance.now() - PT.t0); };
+  RACE_LOADER.show(TRACKS[ti] && TRACKS[ti].name); G.prep = true; const cv = renderer.domElement; await yieldFrame(); cv.style.visibility = 'hidden'; mk('ecran'); // canvas 3D caché pendant la préparation : l'écran de chargement s'affiche sans recomposer la 3D
+  try {
+    RACE_OPTS.laps = SAVE.laps || 0; RACE_OPTS.obst = SAVE.obst !== false; RACE_OPTS.seed = (Math.random() * 4294967295) >>> 0; RACE_OPTS.music = SAVE.musicPick || 'auto';
+    if (G.W) { disposeWorld(G.W); G.W = null; } G.race = null; // le menu derrière n'est plus rendu : mémoire libérée avant de construire
+    PIXEL_JOBS = []; let W;
+    try { W = await runSlicedLoad(buildWorldSteps(ti), (p) => RACE_LOADER.set(p * .75)); } finally { while (PIXEL_JOBS.length) texReady({ userData: { wkFill: PIXEL_JOBS.shift() } }); PIXEL_JOBS = null; }
+    mk('monde'); if (id !== LAUNCH_ID) { disposeWorld(W); return; }
+    G.prebuilt = { ti, W, seed: RACE_OPTS.seed }; const seed = RACE_OPTS.seed;
+    { const a = performance.now(); startRace(ti, cc, who); PT.startRaceMs = Math.round(performance.now() - a); } RACE_OPTS.seed = seed; G.paused = true; RACE_LOADER.set(.8); mk('course');
+    try { if (renderer.compileAsync) await renderer.compileAsync(G.W.scene, camera); } catch (e) { /* compilation au premier rendu */ }
+    mk('shaders'); RACE_LOADER.set(.9);
+    try { await runSlicedLoad((function* () { const seen = new Set();
+      G.W.scene.traverse((o) => { for (const m of [].concat(o.material || [])) for (const k in m) { const t = m[k]; if (t && t.isTexture && !t.isRenderTargetTexture && !seen.has(t)) seen.add(t); } });
+      for (const t of seen) { renderer.initTexture(t); yield; } })()); } catch (e) { /* téléversement au premier rendu */ }
+    mk('textures'); RACE_LOADER.set(1);
+    // Premières images rendues sous l'écran de chargement (envoi des géométries, ombres, premiers dessins) : la course n'apparaît
+    // qu'une fois ces images passées. (Un envoi par petits lots a été essayé : il multiplie les attentes de la carte graphique.)
+    cv.style.visibility = ''; for (let n = 0; n < 2; n++) { const a = performance.now(); renderer.render(G.W.scene, camera); PT['rendu' + n] = Math.round(performance.now() - a); await yieldFrame(); }
+    mk('fin');
+  } catch (e) { console.error(e); G.prebuilt = null; startRace(ti, cc, who); }
+  finally { if (id === LAUNCH_ID) { renderer.domElement.style.visibility = ''; G.prep = false; if (G.race) G.paused = false; RACE_LOADER.hide(); } }
 }
 
 const BOT_LV = [
@@ -3774,7 +3829,7 @@ function applyBotLevel(lv) {
 }
 function startRace(ti, ccIdx, who, roster) {
   G.police = null; Secret.last = -99; setTimeout(ghostStart, 0); if (REPLAY.on) { REPLAY.on = false; REPLAY.added = new Set(); REPLAY.live = null; const el = $('#replay'); if (el) el.hidden = true; } recReset();
-  if (!roster) { RACE_OPTS.laps = SAVE.laps || 0; RACE_OPTS.obst = SAVE.obst !== false; RACE_OPTS.seed = (Math.random() * 4294967295) >>> 0; RACE_OPTS.music = SAVE.musicPick || 'auto'; }
+  if (!roster && !(G.prebuilt && G.prebuilt.ti === ti)) { RACE_OPTS.laps = SAVE.laps || 0; RACE_OPTS.obst = SAVE.obst !== false; RACE_OPTS.seed = (Math.random() * 4294967295) >>> 0; RACE_OPTS.music = SAVE.musicPick || 'auto'; }
   setWorld(ti); G.netKarts = new Map();
   if (roster) {
     for (const e of roster) { const isP = e.id === Net.id; const k = makeKart(cleanCfg(e.cfg), isP, ccIdx); k.netId = e.id; k.isAI = !!e.ai; k.isRemote = !isP && !(Net.host && e.ai);
@@ -4047,17 +4102,27 @@ function sculptHeight(list, x, z, h) { for (let q = 0; q < list.length; q++) { c
   if (s.m === 'lisser') h *= 1 - w * clamp(Math.abs(s.h) / 10, .2, 1); else h += s.h * w; } return h; }
 function buildTerrain(W, ext, cx, cz) {
   const { th, scene } = W; const tr = th.terrain; if (!tr) return;
-  const size = 2 * (ext + 520), segs = W.def.production ? 150 : ({ high: 180, medium: 150, low: 110 }[SAVE.quality] || 150), step = size / segs, R1 = segs + 1;
+  // Massifs (specials.massifs, concepteur) : relief plus fin pour des falaises nettes au ras des routes.
+  const MS = W.def.massifs || [], massif = MS.length > 0;
+  const size = 2 * (ext + 520), segs = W.def.production ? 150 : massif ? ({ high: 240, medium: 200, low: 160 }[SAVE.quality] || 200) : ({ high: 180, medium: 150, low: 110 }[SAVE.quality] || 150), step = size / segs, R1 = segs + 1;
   const nL = fbm(3, 5, tr.seed || 17), nR = tileNoise(16, (tr.seed || 17) + 5);
   const x0 = cx - size / 2, z0 = cz - size / 2, flat = W.wallD + step * 1.7, blend = tr.blend || 64, reach = flat + blend + 4, drop = W.def.pond ? W.def.pond.depth : tr.drop || 22; // étang (option de carte) : creux modéré sous le planeur au lieu d'un ravin
   // distance à la route la plus proche (projection des échantillons sur la grille)
-  const D = new Float32Array(R1 * R1).fill(1e9), HB = new Float32Array(R1 * R1), GP = new Uint8Array(R1 * R1), HM = new Float32Array(R1 * R1).fill(1e9), F2 = (flat + 8) ** 2;
+  const D = new Float32Array(R1 * R1).fill(1e9), HB = new Float32Array(R1 * R1), GP = new Uint8Array(R1 * R1), HM = new Float32Array(R1 * R1).fill(1e9), F2 = (flat + 8) ** 2, TN = new Uint8Array(R1 * R1);
+  let tnCur = 0; // classe du tunnel de l'échantillon en cours (massifs) : 1 roche au-dessus, 2 bouche (terrain découpé sous la coque)
   const splat = (x, z, h, gap) => { const ix0 = Math.max(0, Math.floor((x - reach - x0) / step)), ix1 = Math.min(segs, Math.ceil((x + reach - x0) / step)), iz0 = Math.max(0, Math.floor((z - reach - z0) / step)), iz1 = Math.min(segs, Math.ceil((z + reach - z0) / step));
-    for (let iz = iz0; iz <= iz1; iz++) { const dz = z0 + iz * step - z; for (let ix = ix0; ix <= ix1; ix++) { const dx = x0 + ix * step - x, d = dx * dx + dz * dz, q = iz * R1 + ix; if (d < D[q]) { D[q] = d; HB[q] = h; GP[q] = gap; } if (!gap && d < F2 && h < HM[q]) HM[q] = h; } } };
+    for (let iz = iz0; iz <= iz1; iz++) { const dz = z0 + iz * step - z; for (let ix = ix0; ix <= ix1; ix++) { const dx = x0 + ix * step - x, d = dx * dx + dz * dz, q = iz * R1 + ix; if (d < D[q]) { D[q] = d; HB[q] = h; GP[q] = gap; TN[q] = tnCur; } if (!gap && d < F2 && h < HM[q]) HM[q] = h; } } };
   // Ligne d'eau (même formule que buildDecor, appelé plus tard) : le rivage du relief y descend sous la mer.
   if (W.th.water && W.waterX == null) { let mx = -Infinity; for (let i = 0; i < W.S.N; i++) mx = Math.max(mx, W.S.px[i]); W.waterX = mx + 55; }
-  const S = W.S; for (let i = 0; i < S.N; i += 2) splat(S.px[i], S.pz[i], S.py[i], S.glide[i]);
+  const S = W.S, tnS = new Uint8Array(S.N), mB = Math.ceil(step * 1.5 / (S.seg || 2)), flatM = W.wallD + step * 1.45, toit = massif ? Math.max(...MS.map((m) => m.toit || 30)) : 0;
+  if (massif) for (const [a, b] of W.def.tunnels || []) { const ia = Math.floor(a * S.N), ib = Math.floor(b * S.N); for (let i = ia; i <= ib; i++) tnS[i % S.N] = i < ia + mB || i > ib - mB ? 0 : i < ia + 2 * mB || i > ib - 2 * mB ? 2 : 1; } // bouche découpée bien à l'intérieur de la coque
+  for (let i = 0; i < S.N; i += 2) { tnCur = tnS[i]; splat(S.px[i], S.pz[i], S.py[i], S.glide[i]); } tnCur = 0;
   for (const B of W.branches) for (let j = 0; j < B.N; j += 2) splat(B.px[j], B.pz[j], B.py[j], B.glide && B.glide[j] ? 1 : 0); // envol : ravin sous le vol
+  // Hauteur des massifs : pics (altitude absolue h, rayon r, raideur k) ; rugosité fondue vers le pied.
+  const massifAt = (x, z, u, v) => { let m = -Infinity; for (const M of MS) for (const pk of M.pics || []) { const dd = Math.hypot(x - pk.x, z - pk.z); if (dd >= pk.r) continue; const w = dd / pk.r;
+    let hh = pk.h * (1 - Math.pow(w, pk.k || 1.4)); hh *= 1 + (M.rugosite != null ? M.rugosite : .12) * (nR(u, v) - .5) * 2 * (1 - w); m = Math.max(m, hh); } return m; };
+  const cls = massif ? new Uint8Array(R1 * R1) : null; // 1 roche de tunnel, 2 bouche, 3 aplani (couloir des routes)
+  if (massif) W.massifTunnel = { lat: flatM + 6, haut: toit + 4 };
   const H = new Float32Array(R1 * R1); let minH = Infinity;
   for (let iz = 0; iz <= segs; iz++) for (let ix = 0; ix <= segs; ix++) {
     const q = iz * R1 + ix, x = x0 + ix * step, z = z0 + iz * step, u = ix / segs, v = iz / segs;
@@ -4065,7 +4130,12 @@ function buildTerrain(W, ext, cx, cz) {
     let hn = (nL(u, v) - .38) * tr.h + Math.max(0, far - .9) * tr.h * .9 + (tr.ridges ? Math.abs(nR(u, v) - .5) * tr.h * .5 : 0);
     if (tr.sculpt) hn = sculptHeight(tr.sculpt, x, z, hn); // Wild Kart Studio : pinceaux (la route garde sa plate-forme)
     let h = hn; const d = Math.sqrt(D[q]);
-    if (d < reach) { const base = GP[q] ? HB[q] - drop : Math.min(HB[q], HM[q]) - 1.2; const t = smoothstep(flat, flat + blend, d); h = lerp(base, GP[q] ? Math.min(hn, base + 6) : hn, t); }
+    if (massif) { const M = massifAt(x, z, u, v), T0 = Math.max(hn, M);
+      if (d < reach && TN[q] === 1) { const roof = HB[q] + toit; h = d < flatM ? Math.max(T0, roof) : Math.max(T0, lerp(roof, T0, smoothstep(flatM, flatM + blend, d))); if (d < flatM) cls[q] = 1; }
+      else if (d < reach) { const base = GP[q] ? HB[q] - drop : Math.min(HB[q], HM[q]) - 1.2, cut = M > HB[q] + 4, f0 = cut ? flatM : flat, bl = cut ? (MS[0].falaise || 14) : blend;
+        h = lerp(base, GP[q] ? Math.min(T0, base + 6) : T0, smoothstep(f0, f0 + bl, d)); if (d < flatM) cls[q] = TN[q] === 2 ? 2 : 3; }
+      else h = T0; }
+    else if (d < reach) { const base = GP[q] ? HB[q] - drop : Math.min(HB[q], HM[q]) - 1.2; const t = smoothstep(flat, flat + blend, d); h = lerp(base, GP[q] ? Math.min(hn, base + 6) : hn, t); }
     // Rivage (cartes avec mer à l'est, W.waterX) : le relief descend sous le niveau de la mer à partir de la ligne d'eau.
     if (W.waterX != null && x > W.waterX - 120) h = Math.min(h, (W.waterX - x) * .1 - .8);
     h = Math.max(h, tr.min != null ? tr.min : -60); H[q] = h; if (h < minH) minH = h;
@@ -4078,10 +4148,13 @@ function buildTerrain(W, ext, cx, cz) {
     const q = iz * R1 + ix, x = x0 + ix * step, z = z0 + iz * step, h = H[q];
     pos[q * 3] = x; pos[q * 3 + 1] = h; pos[q * 3 + 2] = z; uv[q * 2] = x / 40; uv[q * 2 + 1] = -z / 40;
     if (col) { const L = tr.colors; let k = 0; while (k < L.length - 1 && h > L[k + 1][0]) k++; const a = L[k], b = L[Math.min(k + 1, L.length - 1)]; const t = b[0] === a[0] ? 0 : clamp((h - a[0]) / (b[0] - a[0]), 0, 1); c.set(a[1]); c2.set(b[1]); c.lerp(c2, t); col[q * 3] = c.r; col[q * 3 + 1] = c.g; col[q * 3 + 2] = c.b; }
-    if (ix < segs && iz < segs) { const a = q, b = q + 1, d = q + R1, e = d + 1; idx[ii++] = a; idx[ii++] = d; idx[ii++] = b; idx[ii++] = b; idx[ii++] = d; idx[ii++] = e; }
+    if (ix < segs && iz < segs) { const a = q, b = q + 1, d = q + R1, e = d + 1;
+      // Massifs : pas de triangle à la bouche d'un tunnel (bande découpée à l'intérieur de la coque, qui la couvre).
+      const bad = cls && ((tri) => tri.some((v) => cls[v] === 2));
+      if (!bad || !bad([a, d, b])) { idx[ii++] = a; idx[ii++] = d; idx[ii++] = b; } if (!bad || !bad([b, d, e])) { idx[ii++] = b; idx[ii++] = d; idx[ii++] = e; } }
   }
   const g = new T.BufferGeometry(); g.setAttribute('position', new T.BufferAttribute(pos, 3)); g.setAttribute('uv', new T.BufferAttribute(uv, 2)); if (col) g.setAttribute('color', new T.BufferAttribute(col, 3));
-  g.setIndex(new T.BufferAttribute(idx, 1)); g.computeVertexNormals();
+  g.setIndex(new T.BufferAttribute(ii < idx.length ? idx.slice(0, ii) : idx, 1)); g.computeVertexNormals();
   if (W.def.production) window.WKProduction.terrainNormals(g);
   { const nrm = g.attributes.normal, n = R1 * R1, C = col || new Float32Array(n * 3).fill(1), pn = fbm(2, 4, (tr.seed || 17) + 33), pn2 = fbm(6, 3, (tr.seed || 17) + 71);
     const tint = new T.Color(TERRAIN_TINT[th.ground] || '#e8e4c8'), rk = new T.Color(TERRAIN_ROCK[th.ground] || '#a8a296'); let h0 = Infinity, h1 = -Infinity; for (let q = 0; q < n; q++) { h0 = Math.min(h0, H[q]); h1 = Math.max(h1, H[q]); }
@@ -4120,7 +4193,8 @@ function buildBranchGeo(W, B, mats) {
   // boîtes à mi-parcours + turbo
   const jm = B.glideA != null ? Math.max(B.jA + 8, B.glideA - 40) : Math.floor(B.N * .5); // boîtes avant la rampe d'un envol
   if (!OFF) for (const f of [-.45, 0, .45]) { const x = B.px[jm] + B.rx[jm] * f * hw, z = B.pz[jm] + B.rz[jm] * f * hw; W.addBox(x, z, B.py[jm]); }
-  if (B.def.boost) { const jb = Math.floor(B.N * .3); scene.add(new T.Mesh(quadAt(B, jb, 0, 2.6, 4.5, .16), mats.pad)); W.pads.push({ i: jb, lat: 0, P: B }); }
+  // boost : true (une plaque à 30 %) ou liste de fractions de la branche (concepteur : raccourci rendu utile par ses turbos).
+  for (const f of Array.isArray(B.def.boost) ? B.def.boost : B.def.boost ? [.3] : []) { const jb = Math.floor(B.N * f); scene.add(new T.Mesh(quadAt(B, jb, 0, 2.6, 4.5, .16), mats.pad)); W.pads.push({ i: jb, lat: 0, P: B }); }
   if (B.def.tunnel) tunnelOn(W, B, [[B.jA + 6, B.jB - 6]], B.def.tunnel);
   // panneau d'embranchement
   const si = Math.max(0, B.i0 - 30) % W.S.N, S = W.S, dd = B.side * (W.wallD + 1.4);
@@ -4811,12 +4885,13 @@ function obstState(o, t) {
 }
 function obstacleHits(k, dt, ax, az) {
   const W = G.W; if (!W.obst || k.isRemote) return; if (ax == null) { ax = k.x; az = k.z; }
+  if (k.obstCd > 0) k.obstCd -= dt || 1 / 60; // immunité après une touche d'obstacle (voir plus bas)
   for (const o of W.obst) {
     if (o.kind === 'rockfall') { rockfallHits(k, o); continue; }
     if (o.kind === 'bridge') { bridgeHits(k, o); continue; }
     if (o.kind === 'rafts') { raftsHits(k, o); continue; }
     if (o.kind === 'crusher' && !o.down) continue;
-    if (o.kind === 'jet') { if ((k.x - o.x) ** 2 + (k.z - o.z) ** 2 < (o.r + .9) ** 2 && Math.abs(k.y - o.y) < 4) obstHit11(k, o); continue; }
+    if (o.kind === 'jet') { if (!(k.obstCd > 0) && (k.x - o.x) ** 2 + (k.z - o.z) ** 2 < (o.r + .9) ** 2 && Math.abs(k.y - o.y) < 4) { obstHit11(k, o); if (k.spin > 0) k.obstCd = 2.2; } continue; }
     if (o.kind === 'snapper') { if (snapperHits(k, o, ax, az)) obstHit11(k, o); continue; }
     const R = o.r + 1.1, bx = k.x, bz = k.z; if ((bx - o.x) ** 2 + (bz - o.z) ** 2 > (R + 4) ** 2 && (ax - o.x) ** 2 + (az - o.z) ** 2 > (R + 4) ** 2) continue;
     if (Math.abs(k.y - o.y) > (o.kind === 'pillar' ? 5 : 3)) continue;
@@ -4828,6 +4903,11 @@ function obstacleHits(k, dt, ax, az) {
     let cx = ax + dx * t, cz = az + dz * t; let nx = cx - o.x, nz = cz - o.z; let nl = Math.hypot(nx, nz);
     if (nl < 1e-4) { nx = -Math.sin(k.vh); nz = -Math.cos(k.vh); nl = 1; } nx /= nl; nz /= nl;
     k.x = o.x + nx * (R + .02); k.z = o.z + nz * (R + .02);
+    // Véhicule ou bille qui pousse le kart dans son axe : sortie latérale progressive (0,3 m par pas, vers le centre de la piste),
+    // sinon le kart en toupie était charrié devant l'obstacle et refrappé à la fin de chaque toupie (jusqu'à 4 fois en 8 s).
+    if ((o.kind === 'traffic' || o.kind === 'ball') && o.h != null) { const fx = Math.sin(o.h), fz = Math.cos(o.h); if (Math.abs(nx * fx + nz * fz) > .5) {
+      const P2 = o.P, j2 = clamp(o.i | 0, 0, P2.N - 1), latK = (k.x - P2.px[j2]) * P2.rx[j2] + (k.z - P2.pz[j2]) * P2.rz[j2], latO = (o.x - P2.px[j2]) * P2.rx[j2] + (o.z - P2.pz[j2]) * P2.rz[j2];
+      let sd = Math.sign(latK - latO); if (!sd) sd = latO > 0 ? -1 : 1; if (Math.abs(latK + sd * .3) > (P2.lim || W.lim)) sd = -sd; k.x += P2.rx[j2] * sd * .3; k.z += P2.rz[j2] * sd * .3; } }
     const vx = Math.sin(k.vh) * Math.sign(k.speed || 1), vz = Math.cos(k.vh) * Math.sign(k.speed || 1), vn = vx * nx + vz * nz;
     if (o.kind === 'pillar' && o.style === 'bumper') { obstHit11(k, o, R, nx, nz, vn); continue; }
     // Obstacle « danger » qui met le kart en toupie (ou le touche pendant sa toupie) : le kart est seulement repoussé hors de
@@ -4842,7 +4922,8 @@ function obstacleHits(k, dt, ax, az) {
       if (k.drift && -vn > .4) { endDrift(k, false); k.driftLock = true; }
     }
     if (o.kind === 'pillar' || (o.kind === 'crusher' && o.style !== 'geyser')) { if (k.isPlayer && k.bumpCd <= 0) { AudioSys.sfx('wall'); vibrate(30); k.bumpCd = .4; } }
-    if (o.kind !== 'pillar' && k.star <= 0) { hitKart(k, null); if (k.isPlayer && k.spin > 0) banner('Aïe !', .8, true); }
+    // Une seule touche par contact : immunité de 2,2 s (toupie de 1,15 s puis le temps de repartir) ; l'obstacle reste solide.
+    if (o.kind !== 'pillar' && k.star <= 0 && !(k.obstCd > 0)) { hitKart(k, null); if (k.spin > 0) { k.obstCd = 2.2; if (k.isPlayer) banner('Aïe !', .8, true); } }
   }
 }
 // dos d'âne : bosses arrondies intégrées à la route (remplacent les tremplins)
@@ -5363,7 +5444,10 @@ function buildUndersides(W, gapS, warpS) {
     (W.underDebug = W.underDebug || {})[P === S ? -1 : P.id] = { up, g: (i) => (TG ? lowGround(i) : null) };
     for (let i = 0; i < N; i++) up[i] = floating || (th.terrain ? P.py[i] - lowGround(i) > (TG ? 1.6 : 1.5) : P.py[i] - ground > 1.5) ? 1 : 0;
     const nx = (i) => (P.closed === false ? Math.min(i + 1, N - 1) : (i + 1) % N);
-    const skip = (i) => !(up[i] || up[nx(i)]) || (P === S ? gapS(i) || warpS(i) : !!(P.glide && (P.glide[i] || P.glide[nx(i)])));
+    // Branche encore au niveau de la route principale et dans son emprise (bouche) : son dessous traverserait la chaussée principale
+    // en biais et dépasserait de quelques centimètres (POUDREUSE de la Glissade, signalement « raccourci masqué »).
+    const overMain = (i) => { if (P === S || !P.map) return false; const m = P.map[i]; if (m == null) return false; return Math.hypot(P.px[i] - S.px[m], P.pz[i] - S.pz[m]) < W.wallD + d && Math.abs(P.py[i] - S.py[m]) < 3; };
+    const skip = (i) => !(up[i] || up[nx(i)]) || overMain(i) || overMain(nx(i)) || (P === S ? gapS(i) || warpS(i) : !!(P.glide && (P.glide[i] || P.glide[nx(i)])));
     const add = (geo, m) => { const mesh = new T.Mesh(geo, m); mesh.name = 'Dessous de route'; scene.add(mesh); tris += geo.index ? geo.index.count / 3 : 0; };
     add(bandGeo(P, [{ o: d, y: -.5 }, { o: -d, y: -.5 }], { vScale: 10, skip }), mat);
     // Cartes à terrain : le talus (7 m, -5 m) qui borde la route pend dans le vide sous une route surélevée ; vu d'en dessous, on voyait
@@ -5374,7 +5458,7 @@ function buildUndersides(W, gapS, warpS) {
       // Talus en l'air : sol réel plus bas que son milieu ou son pied (sinon il est enfoui dans le terrain, rien à fermer).
       const at = (i, o) => terrainAt(P.px[i] + P.rx[i] * sg * o, P.pz[i] + P.rz[i] * sg * o);
       const air = new Uint8Array(N); for (let i = 0; i < N; i++) air[i] = TG && (P.py[i] - 5 > at(i, d + 7) || P.py[i] - 2.5 > at(i, d + 3.5)) ? 1 : 0;
-      const sk3 = (i) => !(air[i] || air[nx(i)]) || talusSkip(i) || talusSkip(nx(i)) || (P === S ? gapS(i) || warpS(i) : !!(P.glide && (P.glide[i] || P.glide[nx(i)])));
+      const sk3 = (i) => !(air[i] || air[nx(i)]) || overMain(i) || overMain(nx(i)) || talusSkip(i) || talusSkip(nx(i)) || (P === S ? gapS(i) || warpS(i) : !!(P.glide && (P.glide[i] || P.glide[nx(i)])));
       add(bandGeo(P, sg > 0 ? [{ o: d + 7, y: -5 }, { o: d, y: P === S ? .06 : .07 }] : [{ o: -d, y: P === S ? .06 : .07 }, { o: -d - 7, y: -5 }], { world: true, skip: sk3 }), matBack);
     }
     // Lèvres : seulement où la jupe (ou le talus des cartes à terrain) manque, sur la route principale ; sur les branches, les jupes ne
@@ -5643,7 +5727,8 @@ function buildBranchGeo2(W, B, mats) {
   }
   const jm = B.glideA != null ? Math.max(B.jA + 8, B.glideA - 40) : Math.floor(B.N * .5); // boîtes avant la rampe d'un envol
   if (!OFF) for (const f of [-.45, 0, .45]) { const x = B.px[jm] + B.rx[jm] * f * hw, z = B.pz[jm] + B.rz[jm] * f * hw; W.addBox(x, z, B.py[jm]); }
-  if (B.def.boost) { const jb = Math.floor(B.N * .3); scene.add(new T.Mesh(quadAt(B, jb, 0, 2.6, 4.5, .16), mats.pad)); W.pads.push({ i: jb, lat: 0, P: B }); }
+  // boost : true (une plaque à 30 %) ou liste de fractions de la branche (concepteur : raccourci rendu utile par ses turbos).
+  for (const f of Array.isArray(B.def.boost) ? B.def.boost : B.def.boost ? [.3] : []) { const jb = Math.floor(B.N * f); scene.add(new T.Mesh(quadAt(B, jb, 0, 2.6, 4.5, .16), mats.pad)); W.pads.push({ i: jb, lat: 0, P: B }); }
   if (B.def.tunnel) tunnelOn(W, B, [[B.jA + 6, B.jB - 6]], B.def.tunnel); if (B.def.tunnel === 'aqua') aquaExtras(W, B, B.jA + 6, B.jB - 6);
   if (B.def.portal) buildPortal(W, B);
   if (B.def.barn) buildBarn(W, B);
@@ -5682,8 +5767,24 @@ function buildWarp(S, def, hw) {
       // droite ; le kart suivait ce S tout seul et le braquage semblait retenu à l'entrée et à la sortie du looping.
       // Ancienne formule (retour arrière) : df = L·K·sin(2πu)/2π + r·sin(th), dl = shift·sin(2πu), K = 0,85.
       const A0 = .12, Lr = L * (1 - 2 * A0), WR = z.wr || .25, KR = z.kr != null ? z.kr : K;
-      for (let q = 0; q <= n; q++) { const u = q / n, i = (i0 + q) % N, th = TAU * spin(u), v = clamp((u - A0) / (1 - 2 * A0), 0, 1), w = smoothstep(0, WR, v) * smoothstep(0, WR, 1 - v),
-        dy = r * (1 - Math.cos(th)), df = Lr * KR * Math.sin(TAU * v) / TAU * w + r * Math.sin(th), dl = shift * Math.sin(TAU * v) * w;
+      // Décalage latéral (entrée d'un côté, sortie de l'autre). Réglage par défaut : il ne commence qu'une fois la route inclinée de
+      // TA à TB degrés, puis bascule de côté au sommet : la partie encore roulée à plat reste alignée avec la route physique (aucun
+      // virage affiché que le joueur n'a pas demandé ; avant : jusqu'à 32-36° à l'entrée). Le moteur vérifie l'écart entre les surfaces
+      // de l'entrée et de la sortie (≥ 4,5 m) et prend le premier réglage qui le respecte, du plus aligné au plus décalé ; sinon
+      // l'ancienne formule (fenêtre sur la rotation). z.ta/z.tb/z.ancien imposent un réglage.
+      const prof = (c) => { const o = []; for (let q = 0; q <= n; q++) { const u = q / n, th = TAU * spin(u), v = clamp((u - A0) / (1 - 2 * A0), 0, 1), w = smoothstep(0, WR, v) * smoothstep(0, WR, 1 - v), thd = th * 180 / Math.PI;
+        o.push([Lr * KR * Math.sin(TAU * v) / TAU * w + r * Math.sin(th), r * (1 - Math.cos(th)), c.ancien ? shift * Math.sin(TAU * v) * w : shift * c.s * (smoothstep(c.ta, c.tb, thd) - 2 * smoothstep(160, 200, thd) + smoothstep(360 - c.tb, 360 - c.ta, thd))]); } return o; };
+      // Écart entre surfaces avec le même repère que le rendu (tangente par différences, droite horizontale orthogonalisée) : la route
+      // pivote là où le décalage change en pleine pente, ses bords se rapprochent alors plus que l'axe.
+      const gap = (o) => { let m = Infinity; const c = (q) => { const k = clamp(q, 0, n), i = (i0 + k) % N, [df, dy, dl] = o[k]; return [S.px[i] + F0[0] * df + R0[0] * dl, S.py[i] + dy, S.pz[i] + F0[2] * df + R0[1] * dl]; };
+        const pts = []; for (let q = 0; q <= n; q++) { const p = c(q), a = c(q - 1), b = c(q + 1); let fx = b[0] - a[0], fy = b[1] - a[1], fz = b[2] - a[2]; const fl = Math.hypot(fx, fy, fz) || 1; fx /= fl; fy /= fl; fz /= fl;
+          let rx = R0[0], ry = 0, rz = R0[1]; const d = rx * fx + rz * fz; rx -= fx * d; ry -= fy * d; rz -= fz * d; const rl = Math.hypot(rx, ry, rz) || 1;
+          pts.push([-hw, 0, hw].map((l) => [p[0] + rx / rl * l, p[1] + ry / rl * l, p[2] + rz / rl * l])); }
+        for (let a = 0; a <= n; a++) for (let b = a + 15; b <= n; b++) for (const p of pts[a]) for (const q of pts[b]) m = Math.min(m, Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2])); return m; };
+      const cands = z.ancien ? [{ ancien: true }] : z.ta != null ? [{ ta: z.ta, tb: z.tb, s: 1 }] : [{ ta: 35, tb: 80, s: 1 }, { ta: 35, tb: 80, s: 1.25 }, { ta: 30, tb: 75, s: 1.25 }, { ta: 35, tb: 80, s: 1.5 }, { ta: 40, tb: 90, s: 1.5 }, { ta: 30, tb: 75, s: 1.5 }, { ta: 35, tb: 80, s: 1.8 }, { ta: 40, tb: 90, s: 1.8 }, { ta: 25, tb: 70, s: 1.5 }, { ancien: true }];
+      let best = null; for (const c of cands) { const o = prof(c), g = gap(o); if (!best || g > best.g) best = { c, o, g }; if (g >= 4.5) { best = { c, o, g }; break; } }
+      z.reglage = Object.assign({ ecart: +best.g.toFixed(1) }, best.c);
+      for (let q = 0; q <= n; q++) { const i = (i0 + q) % N, [df, dy, dl] = best.o[q];
         wo[i * 3] += F0[0] * df + R0[0] * dl; wo[i * 3 + 1] += dy; wo[i * 3 + 2] += F0[2] * df + R0[1] * dl; S.wz[i] = 1; S.ag[i] = 1; }
     } else if (z.type === 'spiral') {
       // tire-bouchon : la route fait un tour complet sur elle-même (on roule la tête en bas au milieu)
@@ -9044,7 +9145,7 @@ function begin() {
     go();
   });
 }
-function launch() { if (UI.mode === 'daily') { dailyPlay(); return; } if (UI.mode === 'party' && UI.party) { const P = UI.party; startRace(P.roundTrack, SAVE.cc, P.players[P.turn]); return; } const ti = UI.mode === 'gp' && UI.gp ? (UI.gp.list ? UI.gp.list[UI.gp.i % UI.gp.list.length] : UI.gp.i % TRACKS.length) : UI.track; startRace(ti, UI.mode === 'gp' && UI.gp ? UI.gp.cc : SAVE.cc); if (UI.mode === 'quick' && SAVE.soloBomb) soloBomb(); }
+function launch() { if (UI.mode === 'daily') { dailyPlay(); return; } if (UI.mode === 'party' && UI.party) { const P = UI.party; startRace(P.roundTrack, SAVE.cc, P.players[P.turn]); return; } const ti = UI.mode === 'gp' && UI.gp ? (UI.gp.list ? UI.gp.list[UI.gp.i % UI.gp.list.length] : UI.gp.i % TRACKS.length) : UI.track; return launchPrepared(ti, UI.mode === 'gp' && UI.gp ? UI.gp.cc : SAVE.cc).then(() => { if (UI.mode === 'quick' && SAVE.soloBomb && G.race) soloBomb(); }); }
 function soloBomb() { const R = G.race; if (!R || R.online) return; R.bombMode = true; R.bombType = 'sips'; G.netKarts = new Map(); G.karts.forEach((k, i) => { k.netId = k.isPlayer ? 'moi' : 'bot' + i; G.netKarts.set(k.netId, k); }); }
 $('#b-start').onclick = begin;
 
@@ -9283,7 +9384,7 @@ function frame(now) {
   let dt = (now - lastTick) / 1000; lastTick = now; last = iv && el >= iv ? now - (el % iv) : now; RFR.n++; if (!(dt > 0)) dt = 0; dt = Math.min(dt, .1);
   if (UI.screen === 'calib') updateCalibUI();
   if (UI.screen === 'garage' && GS.kart) { renderGarage(dt); return; }
-  if (!G.W || !G.race) return;
+  if (!G.W || !G.race || G.prep) return;
   if (window.WK_LOADER && window.WK_LOADER.couvre && window.WK_LOADER.couvre()) return; // animation de démarrage au premier plan
   const racing = !!G.race.player && G.race.state !== 'attract';
   // en menu derrière un écran plein (roulette, questions…), on rafraîchit la 3D moins souvent
@@ -9375,6 +9476,6 @@ if (window.TK_TEST) (function testPanel() {
 })();
 
 // accès pour les tests automatisés
-window.__TK = { startAttract, simStep, netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, updateItems, throwFwd, FRONT_TRAPS, onNetEvent, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, videoReady, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner, progOpen, weekDefs, updateObstacles, bridgeAvoid, brAt, raftsAvoid, playerEmote, kartEmote, aiControl, collideKarts, openStudio, toMenu, zoneEnv, studioSurfAt, obstacleHits };
+window.__TK = { buildWorldSteps, disposeWorld, startAttract, simStep, netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, updateItems, throwFwd, FRONT_TRAPS, onNetEvent, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, videoReady, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner, progOpen, weekDefs, updateObstacles, bridgeAvoid, brAt, raftsAvoid, playerEmote, kartEmote, aiControl, collideKarts, openStudio, toMenu, zoneEnv, studioSurfAt, obstacleHits };
 Object.assign(window.__TK, { Graphics, adaptPerf, enhancedGraphics });
 })();
