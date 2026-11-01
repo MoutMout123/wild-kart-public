@@ -1,0 +1,613 @@
+{
+  "schemaVersion": 1,
+  "id": "festival",
+  "name": "Festival Boum-Boum",
+  "biome": "grass",
+  "status": "coupe refaite",
+  "route": {
+    "closed": true,
+    "nodes": [
+      {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          300,
+          0,
+          0
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          600,
+          0,
+          -40
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          880,
+          1,
+          0
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          1080,
+          2,
+          140
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          1140,
+          3,
+          360
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          1060,
+          4,
+          560
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          880,
+          5,
+          640
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          700,
+          6,
+          600
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          560,
+          8,
+          480
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          440,
+          10,
+          500
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          400,
+          12,
+          640
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          480,
+          12,
+          800
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          660,
+          10,
+          900
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          820,
+          8,
+          1000
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          860,
+          6,
+          1180
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          760,
+          4,
+          1340
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          560,
+          2,
+          1400
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          340,
+          1,
+          1360
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          160,
+          0,
+          1260
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          60,
+          0,
+          1100
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -100,
+          0,
+          1000
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -260,
+          0,
+          1060
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -400,
+          0,
+          980
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -420,
+          0,
+          780
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -300,
+          0,
+          600
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -280,
+          0,
+          400
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -240,
+          0,
+          200
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -140,
+          0,
+          50
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      }
+    ]
+  },
+  "specials": {
+    "glide": [
+      [
+        0.7937,
+        0.8137
+      ]
+    ],
+    "tunnels": [],
+    "warp": [
+      {
+        "type": "loop",
+        "r": 22,
+        "from": 0.1027,
+        "to": 0.1243
+      }
+    ]
+  },
+  "alternatives": [
+    {
+      "from": 0.4767,
+      "to": 0.6091,
+      "mid": [
+        [
+          610,
+          1150,
+          6
+        ]
+      ],
+      "width": 14,
+      "side": 1,
+      "offroad": true,
+      "label": "FOSSE"
+    },
+    {
+      "from": 0.3331,
+      "to": 0.4111,
+      "mid": [
+        [
+          550,
+          620,
+          19
+        ]
+      ],
+      "width": 13,
+      "side": -1,
+      "narrow": true,
+      "label": "RISQUÉ",
+      "ai": 0.35,
+      "open": true,
+      "role": "risque"
+    }
+  ],
+  "checkpoints": [
+    {
+      "id": "start",
+      "at": 0
+    },
+    {
+      "id": "halfway",
+      "at": 0.5
+    }
+  ],
+  "art": {
+    "zones": [],
+    "landmarks": [],
+    "scatter": {
+      "seed": 74123,
+      "minimumRoadDistance": 8
+    }
+  },
+  "legacy": {
+    "id": "festival",
+    "name": "Festival Boum-Boum",
+    "desc": "XXL : de nuit entre les scènes, les projecteurs et la foule. Feux d'artifice, flammes de la scène, enceintes-bumpers et un raccourci par la fosse.",
+    "cup": 5,
+    "level": 4,
+    "laps": 2,
+    "width": 26,
+    "glideH": 9,
+    "theme": {
+      "sky": [
+        "#07041a",
+        "#2a0a3a"
+      ],
+      "fog": "#120826",
+      "fogN": 220,
+      "fogF": 1300,
+      "ground": "grass",
+      "road": "#2e2f3d",
+      "curb": [
+        "#ff3a8a",
+        "#38e0ff"
+      ],
+      "barrier": [
+        "#ffe14a",
+        "#1b1840"
+      ],
+      "skirt": "#2a3a28",
+      "hemi": [
+        "#c0a0ff",
+        "#20301a",
+        1.4
+      ],
+      "sun": "#ffd0f0",
+      "sunI": 1.7,
+      "decor": "festival",
+      "night": true,
+      "tunnel": "fun",
+      "music": {
+        "bpm": 126,
+        "root": 53,
+        "prog": [
+          [
+            0,
+            3,
+            7
+          ],
+          [
+            -4,
+            0,
+            3
+          ],
+          [
+            -2,
+            2,
+            5
+          ],
+          [
+            3,
+            7,
+            10
+          ]
+        ]
+      },
+      "terrain": {
+        "h": 22,
+        "seed": 57,
+        "drop": 16
+      }
+    },
+    "boosts": [
+      [
+        0.17,
+        0
+      ],
+      [
+        0.646,
+        0.3
+      ],
+      [
+        0.736,
+        -0.3
+      ]
+    ],
+    "items": [
+      0.06,
+      0.364,
+      0.55,
+      0.848
+    ],
+    "tricks": [
+      0.2307,
+      0.7142
+    ],
+    "zones": [
+      [
+        0.14,
+        0.36,
+        "desert"
+      ],
+      [
+        0.56,
+        0.8,
+        "foret"
+      ]
+    ],
+    "musicStyle": "house",
+    "obst": {
+      "jet": "lava",
+      "pillar": "cones",
+      "kinds": [
+        "jets",
+        "bumpers",
+        "jets",
+        "pillars"
+      ]
+    },
+    "obstZones": 5
+  },
+  "cupUpgrade": {
+    "loop": [
+      0.1027,
+      0.1243
+    ]
+  }
+}

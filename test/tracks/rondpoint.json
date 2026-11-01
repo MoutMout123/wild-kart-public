@@ -1,0 +1,321 @@
+{
+  "schemaVersion": 1,
+  "id": "rondpoint",
+  "name": "💣 Rond-Point Explosif",
+  "biome": "fair",
+  "status": "non refait",
+  "route": {
+    "closed": true,
+    "nodes": [
+      {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          110,
+          0,
+          0
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          170,
+          0,
+          30
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          190,
+          0,
+          100
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          170,
+          0,
+          170
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          110,
+          0,
+          200
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          0,
+          0,
+          200
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -60,
+          0,
+          170
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -80,
+          0,
+          100
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -60,
+          0,
+          30
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      }
+    ]
+  },
+  "specials": {
+    "glide": [],
+    "tunnels": [],
+    "warp": []
+  },
+  "alternatives": [
+    {
+      "from": 0.12,
+      "to": 0.62,
+      "mid": [
+        [
+          45,
+          95,
+          0
+        ]
+      ],
+      "width": 14,
+      "narrow": true,
+      "label": "TOUT DROIT",
+      "ai": 0.5
+    },
+    {
+      "from": 0.3,
+      "to": 0.84,
+      "mid": [
+        [
+          70,
+          118,
+          0
+        ]
+      ],
+      "width": 14,
+      "narrow": true,
+      "label": "TRAVERSÉE",
+      "ai": 0.5
+    },
+    {
+      "from": 0.44,
+      "to": 0.97,
+      "mid": [
+        [
+          78,
+          80,
+          0
+        ]
+      ],
+      "width": 14,
+      "narrow": true,
+      "label": "DIAGONALE",
+      "ai": 0.5
+    }
+  ],
+  "checkpoints": [
+    {
+      "id": "start",
+      "at": 0
+    },
+    {
+      "id": "halfway",
+      "at": 0.5
+    }
+  ],
+  "art": {
+    "zones": [],
+    "landmarks": [],
+    "scatter": {
+      "seed": 74123,
+      "minimumRoadDistance": 8
+    }
+  },
+  "legacy": {
+    "id": "rondpoint",
+    "name": "💣 Rond-Point Explosif",
+    "desc": "Petit circuit fait pour la Patate chaude : trois routes traversent le milieu et se croisent, on se rentre dedans sans arrêt.",
+    "cup": 0,
+    "level": 1,
+    "laps": 6,
+    "width": 24,
+    "glideH": 9,
+    "arena": true,
+    "theme": {
+      "sky": [
+        "#12082e",
+        "#4a1a6a"
+      ],
+      "fog": "#2a1450",
+      "fogN": 160,
+      "fogF": 950,
+      "ground": "fair",
+      "road": "#2e2f3d",
+      "curb": [
+        "#ff4f7a",
+        "#ffc531"
+      ],
+      "barrier": [
+        "#ffc531",
+        "#ff4f3a"
+      ],
+      "skirt": "#3a3050",
+      "hemi": [
+        "#d0a0ff",
+        "#2a2050",
+        1.6
+      ],
+      "sun": "#ffd0f0",
+      "sunI": 1.8,
+      "decor": "fair",
+      "night": true,
+      "tunnel": "fun",
+      "terrain": {
+        "h": 22,
+        "seed": 79,
+        "drop": 20
+      },
+      "music": {
+        "bpm": 156,
+        "root": 55,
+        "prog": [
+          [
+            0,
+            4,
+            7
+          ],
+          [
+            5,
+            9,
+            12
+          ],
+          [
+            7,
+            11,
+            14
+          ],
+          [
+            0,
+            4,
+            7
+          ]
+        ]
+      }
+    },
+    "boosts": [
+      [
+        0.2,
+        0
+      ],
+      [
+        0.56,
+        0.3
+      ],
+      [
+        0.9,
+        -0.3
+      ]
+    ],
+    "items": [
+      0.05,
+      0.37,
+      0.7
+    ],
+    "obst": {
+      "pillar": "balloons",
+      "kinds": [
+        "bumpers"
+      ]
+    },
+    "obstZones": 1,
+    "musicStyle": "house"
+  }
+}

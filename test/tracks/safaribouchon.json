@@ -1,0 +1,482 @@
+{
+  "schemaVersion": 1,
+  "id": "safaribouchon",
+  "name": "Safari Embouteillé",
+  "biome": "savanna",
+  "status": "non refait",
+  "route": {
+    "closed": true,
+    "nodes": [
+      {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          240,
+          0,
+          -10
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          440,
+          2,
+          20
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          560,
+          5,
+          120
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          580,
+          9,
+          260
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          520,
+          8,
+          360
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          420,
+          5,
+          400
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          380,
+          2,
+          500
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          400,
+          3,
+          620
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          320,
+          7,
+          700
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          200,
+          9,
+          690
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          160,
+          5,
+          600
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          200,
+          2,
+          500
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          180,
+          3,
+          420
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          80,
+          6,
+          400
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -40,
+          8,
+          420
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -140,
+          5,
+          360
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -180,
+          2,
+          240
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -150,
+          0,
+          110
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -80,
+          0,
+          20
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      }
+    ]
+  },
+  "specials": {
+    "glide": [],
+    "tunnels": [],
+    "warp": []
+  },
+  "alternatives": [
+    {
+      "from": 0.4254,
+      "to": 0.6499,
+      "mid": [
+        [
+          284,
+          460,
+          4
+        ]
+      ],
+      "width": 14,
+      "side": 1,
+      "offroad": true,
+      "label": "HORS-PISTE"
+    },
+    {
+      "from": 0.7245,
+      "to": 0.9223,
+      "mid": [
+        [
+          -35,
+          263,
+          11
+        ]
+      ],
+      "width": 13,
+      "side": 1,
+      "narrow": true,
+      "label": "RISQUÉ",
+      "ai": 0.35,
+      "open": true,
+      "role": "risque"
+    },
+    {
+      "from": 0.0942,
+      "to": 0.3391,
+      "mid": [
+        [
+          380,
+          175,
+          1.5
+        ]
+      ],
+      "width": 14,
+      "side": 1,
+      "narrow": true,
+      "label": "RACCOURCI",
+      "tunnel": "fun",
+      "ai": 0.3,
+      "secret": true,
+      "role": "secret"
+    }
+  ],
+  "checkpoints": [
+    {
+      "id": "start",
+      "at": 0
+    },
+    {
+      "id": "halfway",
+      "at": 0.5
+    }
+  ],
+  "art": {
+    "zones": [],
+    "landmarks": [],
+    "scatter": {
+      "seed": 74123,
+      "minimumRoadDistance": 8
+    }
+  },
+  "legacy": {
+    "id": "safaribouchon",
+    "name": "Safari Embouteillé",
+    "desc": "Trois crêtes de savane et leurs vallées : prépare tes dépassements entre les zèbres et les jeeps, ou garde un turbo pour couper dans le hors-piste.",
+    "cup": 2,
+    "level": 2,
+    "laps": 2,
+    "width": 26,
+    "glideH": 9,
+    "theme": {
+      "sky": [
+        "#ff6a3a",
+        "#ffd7a0"
+      ],
+      "fog": "#ffc896",
+      "fogN": 260,
+      "fogF": 1450,
+      "ground": "savanna",
+      "road": "#6a4a3a",
+      "curb": [
+        "#ffc531",
+        "#7a3a1a"
+      ],
+      "barrier": [
+        "#ffc531",
+        "#6b3a1a"
+      ],
+      "skirt": "#b07a48",
+      "hemi": [
+        "#ffe0b8",
+        "#a07a40",
+        1.7
+      ],
+      "sun": "#ffb060",
+      "sunI": 3,
+      "decor": "safari",
+      "night": false,
+      "terrain": {
+        "h": 34,
+        "seed": 73,
+        "drop": 24
+      },
+      "music": {
+        "bpm": 120,
+        "root": 52,
+        "prog": [
+          [
+            0,
+            4,
+            7
+          ],
+          [
+            5,
+            9,
+            12
+          ],
+          [
+            7,
+            11,
+            14
+          ],
+          [
+            0,
+            4,
+            7
+          ]
+        ]
+      }
+    },
+    "boosts": [
+      [
+        0.186,
+        0
+      ],
+      [
+        0.462,
+        0.3
+      ],
+      [
+        0.68,
+        -0.3
+      ]
+    ],
+    "items": [
+      0.132,
+      0.3,
+      0.55,
+      0.8
+    ],
+    "zones": [
+      [
+        0.14,
+        0.36,
+        "desert"
+      ],
+      [
+        0.56,
+        0.8,
+        "foret"
+      ]
+    ],
+    "obst": {
+      "pillar": "termite",
+      "walk": "zebra",
+      "car": "car",
+      "kinds": [
+        "walkers",
+        "traffic",
+        "walkers"
+      ]
+    },
+    "obstZones": 3
+  }
+}

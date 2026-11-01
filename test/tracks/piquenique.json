@@ -1,0 +1,463 @@
+{
+  "schemaVersion": 1,
+  "id": "piquenique",
+  "name": "Prairie des Pique-Niqueurs",
+  "biome": "grass",
+  "status": "référence refaite",
+  "route": {
+    "closed": true,
+    "nodes": [
+      {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          160,
+          2,
+          0
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          300,
+          10.6,
+          10
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          400,
+          13.3,
+          60
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          440,
+          15,
+          160
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          400,
+          10.6,
+          260
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          300,
+          7.5,
+          300
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          200,
+          4.9,
+          280
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          120,
+          4.6,
+          300
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          60,
+          8.2,
+          380
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -40,
+          11.8,
+          400
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -140,
+          12.7,
+          360
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -200,
+          11.1,
+          260
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -200,
+          6,
+          140
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -140,
+          2.5,
+          40
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -70,
+          0.9,
+          5
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      }
+    ]
+  },
+  "specials": {
+    "glide": [
+      [
+        0.425,
+        0.465
+      ]
+    ],
+    "tunnels": [],
+    "warp": []
+  },
+  "alternatives": [
+    {
+      "from": 0.5314,
+      "to": 0.7783,
+      "mid": [
+        [
+          -35,
+          285,
+          8.8
+        ]
+      ],
+      "width": 14,
+      "side": 1,
+      "narrow": true,
+      "label": "RACCOURCI DE LA GRANGE",
+      "ai": 0.3,
+      "secret": false,
+      "role": "raccourci",
+      "boost": true,
+      "portal": "RACCOURCI : LA GRANGE",
+      "barn": {
+        "at": 0.3,
+        "length": 36
+      }
+    }
+  ],
+  "checkpoints": [
+    {
+      "id": "start",
+      "at": 0
+    },
+    {
+      "id": "halfway",
+      "at": 0.5
+    }
+  ],
+  "art": {
+    "zones": [],
+    "landmarks": [],
+    "scatter": {
+      "seed": 74123,
+      "minimumRoadDistance": 8
+    }
+  },
+  "legacy": {
+    "id": "piquenique",
+    "name": "Prairie des Pique-Niqueurs",
+    "desc": "Une prairie qui ondule : grimpe vers le belvédère fleuri, plonge dans le vallon puis remonte sur la seconde colline avant la ligne.",
+    "cup": 1,
+    "level": 1,
+    "laps": 3,
+    "width": 28,
+    "glideH": 9,
+    "theme": {
+      "sky": [
+        "#3e9bff",
+        "#d3efff"
+      ],
+      "fog": "#d3efff",
+      "fogN": 180,
+      "fogF": 950,
+      "ground": "grass",
+      "road": "#55576a",
+      "curb": [
+        "#ff4f3a",
+        "#fffdf7"
+      ],
+      "barrier": [
+        "#ffc531",
+        "#17143a"
+      ],
+      "skirt": "#8a6a48",
+      "hemi": [
+        "#d6efff",
+        "#5a8f3c",
+        1.7
+      ],
+      "sun": "#fff1d0",
+      "sunI": 2.7,
+      "decor": "prairie",
+      "night": false,
+      "terrain": {
+        "h": 40,
+        "seed": 11
+      },
+      "music": {
+        "bpm": 138,
+        "root": 48,
+        "prog": [
+          [
+            0,
+            4,
+            7
+          ],
+          [
+            7,
+            11,
+            14
+          ],
+          [
+            9,
+            12,
+            16
+          ],
+          [
+            5,
+            9,
+            12
+          ]
+        ]
+      }
+    },
+    "boosts": [
+      [
+        0.202,
+        0
+      ],
+      [
+        0.49,
+        0.3
+      ],
+      [
+        0.68,
+        -0.3
+      ]
+    ],
+    "items": [
+      0.06,
+      0.3,
+      0.566,
+      0.816
+    ],
+    "tricks": [
+      0.9143
+    ],
+    "zones": [
+      [
+        0.14,
+        0.36,
+        "fleurs"
+      ],
+      [
+        0.56,
+        0.8,
+        "foret"
+      ]
+    ],
+    "obstZones": 2,
+    "pond": {
+      "depth": 5,
+      "radius": 46
+    },
+    "obst": {
+      "kinds": [
+        "pillars"
+      ],
+      "pillar": "hay",
+      "roll": null,
+      "walk": null,
+      "branchPillar": "hay"
+    }
+  },
+  "relief": {
+    "pass": "2026-10-31",
+    "maxGrade": 0.08,
+    "note": "carte de référence coupe 1 : 25 à 30 m de montée cumulée (bosses de figure comprises), un seul raccourci",
+    "keys": [
+      [
+        0,
+        0
+      ],
+      [
+        0.05,
+        0
+      ],
+      [
+        0.22,
+        13
+      ],
+      [
+        0.3,
+        15
+      ],
+      [
+        0.4,
+        8.5
+      ],
+      [
+        0.47,
+        5
+      ],
+      [
+        0.52,
+        4.5
+      ],
+      [
+        0.66,
+        12
+      ],
+      [
+        0.74,
+        13
+      ],
+      [
+        0.85,
+        6
+      ],
+      [
+        0.95,
+        1
+      ],
+      [
+        1,
+        0
+      ]
+    ]
+  }
+}

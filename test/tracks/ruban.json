@@ -1,0 +1,636 @@
+{
+  "schemaVersion": 1,
+  "id": "ruban",
+  "name": "Ruban Céleste du Dernier Verre",
+  "biome": "cloud",
+  "status": "non refait",
+  "route": {
+    "closed": true,
+    "nodes": [
+      {
+        "position": [
+          0,
+          10,
+          0
+        ],
+        "width": 22,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          300,
+          12,
+          0
+        ],
+        "width": 22,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          600,
+          16,
+          60
+        ],
+        "width": 22,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          840,
+          22,
+          210
+        ],
+        "width": 22,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          930,
+          28,
+          450
+        ],
+        "width": 22,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          840,
+          34,
+          690
+        ],
+        "width": 22,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          630,
+          38,
+          780
+        ],
+        "width": 22,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          390,
+          40,
+          750
+        ],
+        "width": 22,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          180,
+          42,
+          840
+        ],
+        "width": 22,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          90,
+          44,
+          1050
+        ],
+        "width": 22,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          210,
+          46,
+          1260
+        ],
+        "width": 22,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          480,
+          46,
+          1320
+        ],
+        "width": 22,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          750,
+          44,
+          1260
+        ],
+        "width": 22,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          990,
+          42,
+          1320
+        ],
+        "width": 22,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          1170,
+          40,
+          1500
+        ],
+        "width": 22,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          1140,
+          36,
+          1740
+        ],
+        "width": 22,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          930,
+          32,
+          1860
+        ],
+        "width": 22,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          660,
+          28,
+          1830
+        ],
+        "width": 22,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          420,
+          24,
+          1890
+        ],
+        "width": 22,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          180,
+          20,
+          1860
+        ],
+        "width": 22,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -30,
+          18,
+          1740
+        ],
+        "width": 22,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -180,
+          16,
+          1530
+        ],
+        "width": 22,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -300,
+          14,
+          1290
+        ],
+        "width": 22,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -390,
+          12,
+          1020
+        ],
+        "width": 22,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -450,
+          12,
+          750
+        ],
+        "width": 22,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -420,
+          12,
+          480
+        ],
+        "width": 22,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -330,
+          10,
+          240
+        ],
+        "width": 22,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -180,
+          10,
+          60
+        ],
+        "width": 22,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      }
+    ]
+  },
+  "specials": {
+    "glide": [
+      [
+        0.286,
+        0.302
+      ],
+      [
+        0.7816,
+        0.7976
+      ]
+    ],
+    "tunnels": [],
+    "warp": [
+      {
+        "type": "wall",
+        "angle": 60,
+        "side": 1,
+        "from": 0.1597,
+        "to": 0.196
+      },
+      {
+        "type": "wall",
+        "angle": 60,
+        "side": 1,
+        "from": 0.5086,
+        "to": 0.5429
+      }
+    ]
+  },
+  "alternatives": [
+    {
+      "from": 0.3264,
+      "to": 0.438,
+      "mid": [
+        [
+          420,
+          1155,
+          54
+        ]
+      ],
+      "width": 13,
+      "side": -1,
+      "narrow": true,
+      "label": "RISQUÉ",
+      "ai": 0.35,
+      "open": true,
+      "role": "risque"
+    },
+    {
+      "from": 0.6149,
+      "to": 0.7525,
+      "mid": [
+        [
+          240,
+          1680,
+          22
+        ]
+      ],
+      "width": 14,
+      "side": 1,
+      "narrow": true,
+      "label": "RACCOURCI",
+      "tunnel": "fun",
+      "ai": 0.3,
+      "secret": true,
+      "role": "secret"
+    },
+    {
+      "from": 0.8292,
+      "to": 0.9408,
+      "mid": [
+        [
+          -342,
+          606,
+          25
+        ]
+      ],
+      "width": 14,
+      "side": 1,
+      "narrow": true,
+      "label": "ROUTE DU HAUT",
+      "ai": 0.5,
+      "role": "haut"
+    }
+  ],
+  "checkpoints": [
+    {
+      "id": "start",
+      "at": 0
+    },
+    {
+      "id": "halfway",
+      "at": 0.5
+    }
+  ],
+  "art": {
+    "zones": [],
+    "landmarks": [],
+    "scatter": {
+      "seed": 74123,
+      "minimumRoadDistance": 8
+    }
+  },
+  "legacy": {
+    "id": "ruban",
+    "name": "Ruban Céleste du Dernier Verre",
+    "desc": "Une seule grande course en trois sections sur un ruban suspendu sans barrières, deux virages relevés et deux envols au-dessus des nuages.",
+    "cup": 4,
+    "level": 4,
+    "laps": 1,
+    "width": 22,
+    "glideH": 8,
+    "theme": {
+      "sky": [
+        "#ff9ad5",
+        "#ffe9d0"
+      ],
+      "fog": "#ffdcea",
+      "fogN": 240,
+      "fogF": 1250,
+      "ground": "cloud",
+      "groundY": -40,
+      "skirtDepth": 9,
+      "floating": true,
+      "road": "#5a5d72",
+      "curb": [
+        "#ffd25a",
+        "#fff4fa"
+      ],
+      "barrier": [
+        "#ffc531",
+        "#fffdf7"
+      ],
+      "skirt": "#8a6a4f",
+      "hemi": [
+        "#ffffff",
+        "#9ab0d8",
+        1.8
+      ],
+      "sun": "#fff6e0",
+      "sunI": 2.8,
+      "decor": "sky",
+      "night": false,
+      "music": {
+        "bpm": 140,
+        "root": 52,
+        "prog": [
+          [
+            0,
+            4,
+            7
+          ],
+          [
+            5,
+            9,
+            12
+          ],
+          [
+            -3,
+            0,
+            4
+          ],
+          [
+            7,
+            11,
+            14
+          ]
+        ]
+      },
+      "roadStyle": "ribbon"
+    },
+    "boosts": [
+      [
+        0.218,
+        0
+      ],
+      [
+        0.47,
+        0.3
+      ],
+      [
+        0.68,
+        -0.3
+      ]
+    ],
+    "items": [
+      0.06,
+      0.364,
+      0.566,
+      0.864
+    ],
+    "edges": [
+      [
+        0.0415,
+        0.9734,
+        0
+      ]
+    ],
+    "zones": [
+      [
+        0.14,
+        0.36,
+        "neige"
+      ],
+      [
+        0.56,
+        0.8,
+        "desert"
+      ]
+    ],
+    "sections": true,
+    "themeX": {
+      "roadStyle": "ribbon",
+      "curb": [
+        "#ffd25a",
+        "#fff4fa"
+      ],
+      "sky": [
+        "#ff9ad5",
+        "#ffe9d0"
+      ],
+      "fog": "#ffdcea"
+    },
+    "obst": {
+      "kinds": [
+        "pillars",
+        "crushers",
+        "pillars"
+      ]
+    },
+    "obstZones": 4
+  }
+}

@@ -1,0 +1,589 @@
+{
+  "schemaVersion": 1,
+  "id": "tonton",
+  "name": "Boum chez Tonton",
+  "biome": "parquet",
+  "status": "coupe refaite",
+  "route": {
+    "closed": true,
+    "nodes": [
+      {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          300,
+          0,
+          0
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          600,
+          0,
+          0
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          800,
+          0,
+          60
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          900,
+          2,
+          200
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          880,
+          6,
+          380
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          760,
+          10,
+          480
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          600,
+          14,
+          500
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          440,
+          18,
+          460
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          320,
+          20,
+          520
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          260,
+          20,
+          660
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          320,
+          18,
+          800
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          500,
+          14,
+          860
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          700,
+          10,
+          840
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          860,
+          6,
+          900
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          900,
+          3,
+          1060
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          780,
+          0,
+          1160
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          560,
+          0,
+          1160
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          340,
+          0,
+          1100
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          160,
+          0,
+          1140
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          0,
+          0,
+          1060
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -100,
+          0,
+          900
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -60,
+          0,
+          720
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -160,
+          0,
+          560
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -220,
+          0,
+          380
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -180,
+          0,
+          200
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -100,
+          0,
+          60
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      }
+    ]
+  },
+  "specials": {
+    "glide": [
+      [
+        0.374,
+        0.399
+      ]
+    ],
+    "tunnels": [
+      [
+        0.7572,
+        0.7952
+      ]
+    ],
+    "warp": [
+      {
+        "type": "loop",
+        "r": 22,
+        "from": 0.0808,
+        "to": 0.1061
+      }
+    ]
+  },
+  "alternatives": [
+    {
+      "from": 0.4954,
+      "to": 0.6392,
+      "mid": [
+        [
+          745,
+          950,
+          5
+        ]
+      ],
+      "width": 14,
+      "side": 1,
+      "narrow": true,
+      "label": "CHATIÈRE",
+      "tunnel": "fun",
+      "ai": 0.5
+    },
+    {
+      "from": 0.1608,
+      "to": 0.2958,
+      "mid": [
+        [
+          700,
+          280,
+          17
+        ]
+      ],
+      "width": 13,
+      "side": 1,
+      "narrow": true,
+      "label": "RISQUÉ",
+      "ai": 0.35,
+      "open": true,
+      "role": "risque"
+    }
+  ],
+  "checkpoints": [
+    {
+      "id": "start",
+      "at": 0
+    },
+    {
+      "id": "halfway",
+      "at": 0.5
+    }
+  ],
+  "art": {
+    "zones": [],
+    "landmarks": [],
+    "scatter": {
+      "seed": 74123,
+      "minimumRoadDistance": 8
+    }
+  },
+  "legacy": {
+    "id": "tonton",
+    "name": "Boum chez Tonton",
+    "desc": "XXL : la fête dans une maison géante. On roule sur un tapis rouge entre le canapé, la table basse et les bouteilles, on monte à l'étage, on plane au-dessus du salon et on passe par la chatière.",
+    "cup": 5,
+    "level": 4,
+    "laps": 2,
+    "width": 26,
+    "glideH": 9,
+    "theme": {
+      "sky": [
+        "#ffe8c8",
+        "#fff6ea"
+      ],
+      "fog": "#f4e2c8",
+      "fogN": 300,
+      "fogF": 1500,
+      "ground": "parquet",
+      "road": "#a8243a",
+      "roadStyle": "carpet",
+      "curb": [
+        "#ffd25a",
+        "#fff6e8"
+      ],
+      "barrier": [
+        "#5ab0ff",
+        "#fff6e8"
+      ],
+      "skirt": "#8a5a3a",
+      "hemi": [
+        "#fff4e0",
+        "#a8784a",
+        1.9
+      ],
+      "sun": "#ffe8c0",
+      "sunI": 2.6,
+      "decor": "house",
+      "night": false,
+      "tunnel": "wood",
+      "music": {
+        "bpm": 112,
+        "root": 52,
+        "prog": [
+          [
+            0,
+            4,
+            7
+          ],
+          [
+            5,
+            9,
+            12
+          ],
+          [
+            2,
+            5,
+            9
+          ],
+          [
+            7,
+            11,
+            14
+          ]
+        ]
+      }
+    },
+    "boosts": [
+      [
+        0.194,
+        0
+      ],
+      [
+        0.43,
+        0.3
+      ],
+      [
+        0.68,
+        -0.3
+      ]
+    ],
+    "items": [
+      0.06,
+      0.332,
+      0.55,
+      0.808
+    ],
+    "tricks": [
+      0.1188,
+      0.8697
+    ],
+    "zones": [
+      [
+        0.14,
+        0.36,
+        "fleurs"
+      ],
+      [
+        0.56,
+        0.8,
+        "plage"
+      ]
+    ],
+    "musicStyle": "funk",
+    "obst": {
+      "pillar": "cones",
+      "roll": "beachball",
+      "walk": "sheep",
+      "kinds": [
+        "rollers",
+        "bumpers",
+        "pillars",
+        "rollers"
+      ]
+    },
+    "obstZones": 4
+  },
+  "cupUpgrade": {
+    "loop": [
+      0.0808,
+      0.1061
+    ]
+  }
+}

@@ -1,0 +1,390 @@
+{
+  "schemaVersion": 1,
+  "id": "sieste",
+  "name": "Champs de la Sieste",
+  "biome": "lavender",
+  "status": "non refait",
+  "route": {
+    "closed": true,
+    "nodes": [
+      {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          180,
+          0,
+          0
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          340,
+          2,
+          30
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          440,
+          5,
+          120
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          420,
+          8,
+          240
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          320,
+          9,
+          300
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          260,
+          5,
+          400
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          300,
+          2,
+          520
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          200,
+          4,
+          600
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          60,
+          8,
+          580
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -40,
+          10,
+          480
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -60,
+          6,
+          340
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -140,
+          2,
+          240
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -160,
+          0,
+          120
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -90,
+          0,
+          30
+        ],
+        "width": 28,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      }
+    ]
+  },
+  "specials": {
+    "glide": [],
+    "tunnels": [],
+    "warp": []
+  },
+  "alternatives": [
+    {
+      "from": 0.4214,
+      "to": 0.6967,
+      "mid": [
+        [
+          72,
+          424,
+          16
+        ]
+      ],
+      "width": 13,
+      "side": 1,
+      "narrow": true,
+      "label": "RISQUÉ",
+      "ai": 0.35,
+      "open": true,
+      "role": "risque"
+    },
+    {
+      "from": 0.1722,
+      "to": 0.3033,
+      "mid": [
+        [
+          386,
+          134,
+          5
+        ]
+      ],
+      "width": 14,
+      "side": 1,
+      "narrow": true,
+      "label": "RACCOURCI",
+      "tunnel": "fun",
+      "ai": 0.3,
+      "secret": true,
+      "role": "secret"
+    }
+  ],
+  "checkpoints": [
+    {
+      "id": "start",
+      "at": 0
+    },
+    {
+      "id": "halfway",
+      "at": 0.5
+    }
+  ],
+  "art": {
+    "zones": [],
+    "landmarks": [],
+    "scatter": {
+      "seed": 74123,
+      "minimumRoadDistance": 8
+    }
+  },
+  "legacy": {
+    "id": "sieste",
+    "name": "Champs de la Sieste",
+    "desc": "Deux collines de lavande séparées par un vallon : enchaîne les courbes au sol, ou tente le balcon et le passage sous la colline. Ici, pas de planeur imposé.",
+    "cup": 1,
+    "level": 1,
+    "laps": 3,
+    "width": 28,
+    "glideH": 9,
+    "theme": {
+      "sky": [
+        "#6aaeff",
+        "#ffe6c4"
+      ],
+      "fog": "#f4e2cc",
+      "fogN": 230,
+      "fogF": 1300,
+      "ground": "lavender",
+      "road": "#57525e",
+      "curb": [
+        "#8a5cff",
+        "#fffdf7"
+      ],
+      "barrier": [
+        "#8a5cff",
+        "#fffdf7"
+      ],
+      "skirt": "#7a6a50",
+      "hemi": [
+        "#fff4e0",
+        "#7a9a50",
+        1.75
+      ],
+      "sun": "#fff0d0",
+      "sunI": 3,
+      "decor": "provence",
+      "night": false,
+      "terrain": {
+        "h": 40,
+        "seed": 91,
+        "drop": 24
+      },
+      "music": {
+        "bpm": 124,
+        "root": 53,
+        "prog": [
+          [
+            0,
+            4,
+            7
+          ],
+          [
+            -3,
+            0,
+            4
+          ],
+          [
+            5,
+            9,
+            12
+          ],
+          [
+            7,
+            11,
+            14
+          ]
+        ]
+      }
+    },
+    "boosts": [
+      [
+        0.21,
+        0
+      ],
+      [
+        0.454,
+        0.3
+      ],
+      [
+        0.872,
+        -0.3
+      ]
+    ],
+    "items": [
+      0.06,
+      0.34,
+      0.55,
+      0.816
+    ],
+    "tricks": [
+      0.0901
+    ],
+    "zones": [
+      [
+        0.14,
+        0.36,
+        "foret"
+      ],
+      [
+        0.56,
+        0.8,
+        "desert"
+      ]
+    ],
+    "obstZones": 2
+  }
+}

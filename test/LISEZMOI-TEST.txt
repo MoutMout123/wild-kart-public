@@ -1,0 +1,4 @@
+WILD KART — VERSION TEST test-8c49bbf
+Adresse : https://moutmout123.github.io/wild-kart-public/test/
+Export de claude/integration-claude1-claude2 (8c49bbf1b9d2d2f0b618181cc886a29f1fe00ec5).
+Séparée du jeu officiel : service worker et cache propres (portée test/), stockage local préfixé « wktest: », mise à jour limitée à test/.
