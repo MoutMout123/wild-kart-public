@@ -213,6 +213,8 @@ window.WildKartLoader={
   set(p){demo=false;target=cl(p>1?p/100:p);$('preview').style.display='none';schedule()},
   finish(){demo=false;fin=true;target=1;$('preview').style.display='none';schedule()},
   restart(){restart()},
+  // Prototype C2-2 (intro en vidéo) : recale l'horloge de l'animation sur le temps de la vidéo, pour un relais sans saut.
+  horloge(t){clock=t;last=performance.now();schedule()},
   setEndingMode(mode){setEndingMode(mode)},
   setProductionMode(value=true){$('preview').style.display=value?'none':'flex';},
   ENDING_MODES,
@@ -223,4 +225,26 @@ if(new URLSearchParams(window.location.search).has('production'))$('preview').st
 $('classic').setAttribute('aria-pressed',String(endingMode==='classic'));
 $('alternative').setAttribute('aria-pressed',String(endingMode==='alt'));
 restart();
+// Prototype C2-2 (?video=1) : l'intro (2,4 s) est jouée en vidéo pré-rendue (décodée hors du fil principal : elle ne saccade pas
+// pendant le chargement du jeu), l'animation SVG continue dessous et reprend la main à la fin de la vidéo, horloge recalée
+// (relais sans saut). Fin classique inchangée. Secours : si la vidéo ne démarre pas (lecture refusée, erreur, écran en portrait),
+// on la retire et l'animation actuelle se joue seule.
+(function introVideo(){
+  const q=new URLSearchParams(location.search); if(!q.has('video')||innerWidth/innerHeight<1.5)return;
+  const DUREE=2.4,v=document.createElement('video');let fini=false;
+  v.muted=true;v.defaultMuted=true;v.playsInline=true;v.setAttribute('playsinline','');v.setAttribute('muted','');v.preload='auto';
+  v.style.cssText='position:fixed;inset:0;width:100%;height:100%;object-fit:contain;z-index:50;pointer-events:none;background:transparent';
+  for(const [src,type] of [['assets/demarrage/intro.mp4','video/mp4'],['assets/demarrage/intro.webm','video/webm']]){const e=document.createElement('source');e.src=src;e.type=type;v.appendChild(e)}
+  const retirer=()=>{if(fini)return;fini=true;v.remove();window.WK_INTRO_VIDEO={joue:false};try{parent.WK_INTRO_VIDEO=window.WK_INTRO_VIDEO}catch(e){}};
+  const relais=()=>{if(fini)return;fini=true;window.WildKartLoader.horloge(DUREE);requestAnimationFrame(()=>requestAnimationFrame(()=>v.remove()));const q=v.getVideoPlaybackQuality?v.getVideoPlaybackQuality():{};window.WK_INTRO_VIDEO={joue:true,total:q.totalVideoFrames,perdues:q.droppedVideoFrames};try{parent.WK_INTRO_VIDEO=window.WK_INTRO_VIDEO}catch(e){}};
+  v.addEventListener('ended',relais);v.addEventListener('error',retirer,true);
+  // La vidéo démarre au même instant que l'animation dessous (sinon, partie en retard, elle redessinerait le logo) ; trop tard
+  // (après 2 s) ou pas prête à 1,6 s : secours, l'animation actuelle continue seule.
+  const t0=performance.now(),ecoule=()=>(performance.now()-t0)/1e3;
+  const garde=setTimeout(()=>{if(!v.__joue)retirer()},1600);
+  v.addEventListener('canplay',()=>{if(fini||v.__lance)return;v.__lance=true;const t=ecoule();if(t>2){retirer();return}if(t>.05)try{v.currentTime=t}catch(e){}
+    const p=v.play();if(p&&p.catch)p.catch(retirer)},{once:true});
+  v.addEventListener('playing',()=>{v.__joue=true;clearTimeout(garde)});
+  document.body.appendChild(v);
+})();
 })();

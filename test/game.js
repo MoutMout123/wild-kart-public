@@ -21,7 +21,10 @@ const KEY = 'tiltkart.v1';
 const DEFAULT_SAVE = { name: 'Toi', body: 'equilibre', wheels: 'standard', pilot: 'casque', acc: 'aucun', finish: 'brillant', deco: 'aucune', trail: 'feu', skin: '#e0b08a', color: '#ff4f3a', helmet: '#ffc531', control: isTouch ? 'stick' : 'tilt', glider: 'classique', fps: 0, throttle: 'auto', botLvl: 1, laps: 0, obst: true,
   sens: 1, invert: false, calib: 0, calibrated: false, braquage: 'classique', sound: true, music: true, enhancedGraphics: true, quality: isTouch ? 'medium' : 'high', cc: 1, track: 0, records: {} };
 let SAVE = (() => { try { return Object.assign({}, DEFAULT_SAVE, JSON.parse(localStorage.getItem(KEY)) || {}); } catch (e) { return Object.assign({}, DEFAULT_SAVE); } })();
-function store() { try { acctTrack(); } catch (e) { /* pas encore prêt */ } try { localStorage.setItem(KEY, JSON.stringify(SAVE)); } catch (e) { /* stockage indisponible */ } try { acctDirty(); } catch (e) { /* pas encore prêt */ } }
+// Qualité baissée automatiquement (adaptPerf) : temporaire, pour cette session seulement ; QAUTO.choix garde le choix du joueur,
+// qui est le seul enregistré (C2-19 : avant, la baisse automatique était enregistrée et écrasait le réglage du joueur).
+const QAUTO = { choix: null };
+function store() { try { acctTrack(); } catch (e) { /* pas encore prêt */ } try { const out = QAUTO.choix ? Object.assign({}, SAVE, { quality: QAUTO.choix }) : SAVE; localStorage.setItem(KEY, JSON.stringify(out)); } catch (e) { /* stockage indisponible */ } try { acctDirty(); } catch (e) { /* pas encore prêt */ } }
 
 /* ================= Données ================= */
 const BODIES = {
@@ -937,7 +940,7 @@ function buildSamples(def) {
 /* ---- géométrie utilitaire ---- */
 function bandGeo(S, cols, opts = {}) {
   // bande le long du circuit : chaque colonne = {o: décalage latéral (nombre, ou fonction de l'échantillon), y: hauteur, abs: hauteur absolue, u}
-  if (S.heightAt && opts.world && cols.length > 1 && cols.every(c => Math.abs(c.y - cols[0].y) < .001 && typeof c.o === 'number')) {
+  if (S.heightAt && opts.world && !S.hAct && cols.length > 1 && cols.every(c => Math.abs(c.y - cols[0].y) < .001 && typeof c.o === 'number')) {
     const dense = [];
     for (let j = 0; j < cols.length - 1; j++) {
       const a = cols[j], b = cols[j + 1], steps = Math.max(1, Math.ceil(Math.abs(b.o - a.o)));
@@ -1038,16 +1041,24 @@ function instanced(scene, parts, places) {
   const m = new T.Matrix4(), q = new T.Quaternion(), s = new T.Vector3(), p = new T.Vector3(), c = new T.Color(), e = new T.Euler();
   for (const part of parts) {
     if (part.geo.attributes.color && part.mat && !part.mat.vertexColors) { part.mat = part.mat.clone(); part.mat.vertexColors = true; }
-    const im = new T.InstancedMesh(part.geo, part.mat, places.length);
-    places.forEach((pl, k) => {
+    // Découpage par zones (INST_ZONE m) : un seul groupe pour toute la carte était dessiné en entier dès qu'une copie était visible
+    // (jusqu'à 1,3 M triangles de décor par image sur les cartes chargées, C2-3) ; une zone hors champ n'est plus dessinée.
+    // Même ordre de placement et même tirage des couleurs : décor identique.
+    const zone = INST_ZONE && places.length >= 24 ? (pl) => Math.floor(pl.x / INST_ZONE) + ',' + Math.floor(pl.z / INST_ZONE) : () => '';
+    const groups = new Map(); places.forEach((pl, k) => { const z = zone(pl); if (!groups.has(z)) groups.set(z, []); groups.get(z).push(k); });
+    const mesh = new Map(), local = new Int32Array(places.length);
+    for (const [z, ks] of groups) { mesh.set(z, new T.InstancedMesh(part.geo, part.mat, ks.length)); ks.forEach((k, j) => { local[k] = j; }); }
+    places.forEach((pl, k) => { const im = mesh.get(zone(pl)), j = local[k];
       e.set(0, pl.r || 0, 0); q.setFromEuler(e); s.set(pl.sx || pl.s, pl.sy || pl.s, pl.sz || pl.s); p.set(pl.x, pl.y + (pl.g && CUR_HAT ? CUR_HAT(pl.x, pl.z) : 0), pl.z);
-      m.compose(p, q, s); if (part.off) m.multiply(part.off); im.setMatrixAt(k, m);
-      if (part.colors) { c.set(part.colors[(k * 7 + 3) % part.colors.length]); c.offsetHSL(rand(-.01, .01), 0, rand(-.04, .04)); im.setColorAt(k, c); }
+      m.compose(p, q, s); if (part.off) m.multiply(part.off); im.setMatrixAt(j, m);
+      if (part.colors) { c.set(part.colors[(k * 7 + 3) % part.colors.length]); c.offsetHSL(rand(-.01, .01), 0, rand(-.04, .04)); im.setColorAt(j, c); }
     });
-    im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true;
-    scene.add(im);
+    for (const im of mesh.values()) {
+    im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; if (mesh.size > 1 && im.computeBoundingSphere) im.computeBoundingSphere();
+    scene.add(im); }
   }
 }
+let INST_ZONE = 0; // zones de décor instancié (m) ; 0 = un groupe par décor (comportement d'origine). Mesures C2-3 : 200 m → −14 à −26 % de triangles mais +80 à +950 appels ; 400 m → −14 à −21 %, +1 à +370 appels. Désactivé en attendant Claude 1 (décor)
 const lam = (color, extra = {}) => new T.MeshLambertMaterial(Object.assign({ color }, extra));
 
 /* ---- environnement (reflets) ---- */
@@ -1249,6 +1260,7 @@ function* buildWorldSteps(ti) {
   if (def.production) { W.roles.set(W.mudMat, 'mud'); W.roles.set(railMat, 'rail'); window.WKScenery.mergeRoad(W); window.WKScenery.buildDecks(W); }
   if (!def.production) clearWarpCorridor(W);
   buildPlafondCage(W);
+  buildVivants(W);
   // Kit Nature : terrain PBR, végétation modélisée et horizon des circuits naturels (aucun effet sur les collisions).
   if (window.WKNature && window.WKNature.handles(W)) { if (window.WKNature.buildSteps) yield* window.WKNature.buildSteps(W, SAVE.quality, renderer); else window.WKNature.build(W, SAVE.quality, renderer); }
   yield* drainPixelJobs(); yield 0.85;
@@ -1277,6 +1289,10 @@ function nearTrackFn(S, cell = 24) {
 
 // géométries de décor (créées une fois, partagées entre circuits)
 const DECOR = {};
+// Essai C2-3 (ticket #27, désactivé par défaut, décor de Claude 1) : géométries allégées pour les décors copiés par milliers
+// (palmes : capsule 340 → ~50 triangles ; buissons : icosaèdre détail 2 → 1). Mesuré par scripts/perf-decor.cjs --leger.
+let DECOR_LEGER = false;
+const frondGeo = () => (DECOR_LEGER ? new T.CapsuleGeometry(.3, 3, 1, 6) : new T.CapsuleGeometry(.3, 3, 4, 10));
 const SHADE_GEO = { hill: [.8, 1.08], crown: [.6, 1.14], crown2: [.64, 1.12], bush: [.68, 1.1], pine1: [.58, 1.1], pine2: [.6, 1.1], pine3: [.64, 1.12], rock: [.7, 1.08], drybush: [.74, 1.08], cactus: [.78, 1.06] };
 function shadeGeo(g, lo, hi) {
   // dégradé sombre en bas, clair en haut + petites variations : donne du volume aux arbres et rochers
@@ -1294,7 +1310,7 @@ function decorGeoBase(name) {
     case 'crown': g = smooth(wobble(new T.IcosahedronGeometry(3.2, 2), .14, .9, 3), 80); break;
     case 'crown2': g = smooth(wobble(new T.IcosahedronGeometry(2.2, 2), .14, 1.2, 7), 80); break;
     case 'trunk': g = new T.CylinderGeometry(.38, .6, 4.4, 10); break;
-    case 'bush': g = smooth(wobble(new T.IcosahedronGeometry(1.6, 2), .16, 1.6, 5), 80); g.scale(1, .72, 1); break;
+    case 'bush': g = smooth(wobble(new T.IcosahedronGeometry(1.6, DECOR_LEGER ? 1 : 2), .16, 1.6, 5), 80); g.scale(1, .72, 1); break;
     case 'flower': g = new T.SphereGeometry(.32, 10, 8); break;
     case 'rock': g = smooth(wobble(new T.DodecahedronGeometry(1.6, 1), .2, 1.3, 9), 70); g.scale(1, .7, 1); break;
     case 'hill': g = new T.SphereGeometry(1, 28, 12, 0, TAU, 0, Math.PI / 2); break;
@@ -1589,7 +1605,7 @@ function buildBeach(W, ext, cx, cz, scatter, ring, q) {
   const parts = [];
   for (let s = 0; s < 6; s++) { const gseg = new T.CylinderGeometry(.3 - s * .025, .36 - s * .025, 1.55, 9); gseg.userData.wkDecorName = 'beachPalm'; parts.push({ geo: gseg, mat: trunkM, off: trs(s * s * .045, .78 + s * 1.45, 0, 0, 0, -s * .05) }); }
   const topX = 1.6, topY = 8.8;
-  const frond = new T.CapsuleGeometry(.3, 3, 4, 10); frond.scale(1, 1, .22); frond.rotateZ(-Math.PI / 2); frond.translate(1.7, 0, 0); frond.rotateZ(-.42); frond.userData.wkDecorName = 'beachPalm';
+  const frond = frondGeo(); frond.scale(1, 1, .22); frond.rotateZ(-Math.PI / 2); frond.translate(1.7, 0, 0); frond.rotateZ(-.42); frond.userData.wkDecorName = 'beachPalm';
   for (let f = 0; f < 7; f++) parts.push({ geo: frond, mat: leafM, off: trs(topX, topY, 0, 0, f / 7 * TAU + .3, 0), colors: leafC });
   const nut = new T.SphereGeometry(.22, 10, 8); nut.userData.wkDecorName = 'beachPalm'; for (let f = 0; f < 3; f++) parts.push({ geo: nut, mat: lam('#6b4a2b'), off: tr(topX + Math.cos(f * 2.1) * .3, topY - .3, Math.sin(f * 2.1) * .3) });
   instanced(scene, parts, scatter(110 * q, 6, 240, .8, 1.25));
@@ -1667,6 +1683,15 @@ function buildEnvolBits(W) {
     for (const [j, facing] of [[B.glideA, 1], [B.glideB, -1]]) scene.add(new T.Mesh(cliffQuad(B, j, th, B.wallD, facing), skirtM));
     for (const j of [B.glideA - 6, Math.min(B.N - 8, B.glideB + 10)]) { scene.add(new T.Mesh(quadAt(B, j, 0, B.hw * .9, 3.2, .15), padM)); W.pads.push({ i: j, lat: 0, P: B }); }
     rings = rings || new T.MeshBasicMaterial({ color: '#7ff4ff', transparent: true, opacity: .75, depthWrite: false });
+    // Anneaux turbo placés par le concepteur (B.def.anneaux : [fraction de la branche, hauteur au-dessus de la ligne, écart latéral]) : sur la vraie
+    // trajectoire de vol, à intervalles de temps égaux (scripts/concepteur-anneaux.cjs). Couleurs alternées ; chaque anneau traversé
+    // donne un petit turbo, une fois par tour, à tous les karts (bots compris).
+    if (Array.isArray(B.def.anneaux) && B.def.anneaux.length) {
+      const cols = [new T.MeshBasicMaterial({ color: '#7ff4ff', transparent: true, opacity: .85, depthWrite: false }), new T.MeshBasicMaterial({ color: '#ffd23f', transparent: true, opacity: .85, depthWrite: false })], R = Math.max(5.5, B.hw * .9);
+      B.def.anneaux.forEach(([f, h, l = 0], q) => { const j = clamp(Math.round(f * (B.N - 1)), 0, B.N - 1), r = new T.Mesh(new T.TorusGeometry(R, .5, 8, 40), cols[q % 2]);
+        r.position.set(B.px[j] + B.rx[j] * l, B.py[j] + h, B.pz[j] + B.rz[j] * l); r.rotation.y = B.hd[j]; r.name = 'Anneau turbo de l\'envol'; scene.add(r); (W.anneaux = W.anneaux || []).push({ P: B, j, y: B.py[j] + h, lat: l, r: R, q }); });
+      continue;
+    }
     const n = Math.max(2, Math.round((B.glideB - B.glideA) * B.seg / 70));
     for (let q = 1; q <= n; q++) { const j = Math.round(B.glideA + (B.glideB - B.glideA) * q / (n + 1)), r = new T.Mesh(new T.TorusGeometry(B.hw * .9, .35, 8, 40), rings);
       r.position.set(B.px[j], B.py[j] + 5, B.pz[j]); r.rotation.y = B.hd[j]; r.name = 'Anneau guide de l\'envol'; scene.add(r); }
@@ -1800,7 +1825,7 @@ function buildTunnels(W) {
 function palmParts(trunkCol, leafCols) {
   const trunkM = lam(trunkCol), leafM = lam('#ffffff', { side: T.DoubleSide }); const parts = [];
   for (let s = 0; s < 6; s++) { const gseg = new T.CylinderGeometry(.3 - s * .025, .36 - s * .025, 1.55, 9); parts.push({ geo: gseg, mat: trunkM, off: trs(s * s * .045, .78 + s * 1.45, 0, 0, 0, -s * .05) }); }
-  const frond = new T.CapsuleGeometry(.3, 3, 4, 10); frond.scale(1, 1, .22); frond.rotateZ(-Math.PI / 2); frond.translate(1.7, 0, 0); frond.rotateZ(-.42);
+  const frond = frondGeo(); frond.scale(1, 1, .22); frond.rotateZ(-Math.PI / 2); frond.translate(1.7, 0, 0); frond.rotateZ(-.42);
   for (let f = 0; f < 7; f++) parts.push({ geo: frond, mat: leafM, off: trs(1.6, 8.8, 0, 0, f / 7 * TAU + .3, 0), colors: leafCols });
   return parts;
 }
@@ -2635,6 +2660,7 @@ Object.assign(AudioSys, {
       case 'star': [72, 76, 79, 84, 88, 91].forEach((m, i) => bell(m, .14, .07, i * .05)); break;
       case 'glide': this.noise(1, .1, 700, 0, null, .5); this.note(m2f(64), .5, { vol: .06, osc: [['triangle', 0, 1]], fenv: [400, 1600, .5], rev: .4 }); break;
       case 'land': this.noise(.16, .22, 220, 0, null, .8); this.tone(95, .15, 'sine', .2, .6); break;
+      case 'avalanche': this.noise(2.2, .3, 160, 0, null, 2.4); this.tone(55, 2, 'sine', .16, .6); break;
       case 'wrong': this.note(m2f(55), .25, { vol: .08, osc: [['square', 0, .6], ['square', 8, .6]], cut: 1200 }); this.note(m2f(54), .35, { delay: .22, vol: .08, osc: [['square', 0, .6], ['square', 8, .6]], cut: 1200 }); break;
       case 'bumper': this.tone(520, .18, 'sine', .2, 2.2); this.tone(260, .25, 'triangle', .1, 1.8); bell(96, .2, .06); break;
       case 'ramp': this.noise(.5, .12, 900, 0, null, .6); this.note(m2f(60), .4, { vol: .07, osc: [['triangle', 0, 1]], fenv: [300, 2000, .35] }); break;
@@ -2749,7 +2775,10 @@ const P0 = { kick: [0, 8], snare: [4, 12], hat: 2, swing: 0, bass: 'oct', lead: 
 // style musical selon l'ambiance du circuit
 function musicSpec0(t) { const mp = RACE_OPTS.music || 'auto'; if (mp === 'off') return null; return Object.assign({ style: mp !== 'auto' ? mp : t.musicStyle || musicStyleFor(t.theme) }, t.theme.music || { bpm: 124, root: 55, prog: [[0, 4, 7], [5, 9, 12], [-3, 0, 4], [7, 11, 14]] }); }
 const wkStrHash = (s) => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0; return h; };
-function musicSpec(t) { const sp = musicSpec0(t); if (!sp) return null; const h = wkStrHash(String(t.id || '')); sp.seed = h % 9973;
+// Circuit de Wild Kart Studio : musique pré-enregistrée du circuit officiel de son biome (t.musicFrom). Sans fichier, la musique
+// était jouée en direct (notes programmées sur le fil principal : elle se taisait quand le jeu ramait) et calculée en même temps
+// en entier (OfflineAudioContext) pendant la course : lags et musique coupée au test d'un circuit du Studio (C2-17).
+function musicSpec(t) { if (t && t.musicFrom) { const s = TRACKS.find((x) => x.id === t.musicFrom && !x.studio); if (s) t = s; } const sp = musicSpec0(t); if (!sp) return null; const h = wkStrHash(String(t.id || '')); sp.seed = h % 9973;
   if ((RACE_OPTS.music || 'auto') === 'auto') { sp.root += [0, 2, -2, 3, -3, 5][h % 6]; sp.bpm += [0, 4, -4, 6, -2, 2][(h >>> 3) % 6]; } return sp; }
 function musicStyleFor(th) { const d = th.decor; return ({ prairie: 'pop', beach: 'latin', tropic: 'latin', provence: 'chill', mall: 'funk', city: 'house', safari: 'funk', fair: 'pop', snow: 'chill', glacier: 'chill', reef: 'chill', canyon: 'rock', space: 'space', volcano: 'rock', haunted: 'spooky', sky: 'space', sakura: 'chill', autumn: 'chill', antique: 'latin', forest: 'spooky', jungle: 'latin', moon: 'space', candy: 'pop', desert: 'rock', alpine: 'pop' })[d] || 'pop'; }
 
@@ -3411,7 +3440,9 @@ setInterval(() => { if (document.visibilityState === 'visible') acctPull(); }, 3
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') acctPull(); });
 // sauvegarde automatique (quelques secondes après un changement)
 function acctDirty() { if (!SAVE.acct || ACU.applying) return; clearTimeout(ACU.timer); ACU.timer = setTimeout(acctUpload, Math.max(4000, 20000 - (Date.now() - ACU.lastUp))); }
-async function acctUpload() { if (!SAVE.acct) return; clearTimeout(ACU.timer); ACU.lastUp = Date.now(); const r = await acctCall('save', { pseudo: SAVE.acct.u, tok: SAVE.acct.tok, save: acctPack() });
+async function acctUpload() { if (!SAVE.acct) return; clearTimeout(ACU.timer); ACU.lastUp = Date.now(); const tok = SAVE.acct.tok; const r = await acctCall('save', { pseudo: SAVE.acct.u, tok, save: acctPack() });
+  // Réponse arrivée après une déconnexion ou un changement de mot de passe (nouveau jeton) : ignorée, sans déconnecter le compte.
+  if (!SAVE.acct || SAVE.acct.tok !== tok) return r;
   if (r.ok) { SAVE.acct.at = r.at; if (r.name && SAVE.name !== r.name) { SAVE.name = r.name; acctRefreshUI(); frKick(); } ACU.applying = true; store(); ACU.applying = false; acctInfo(); } else if (r.status === 401) { toast('Ton compte s\'est déconnecté : reconnecte-toi.', 5000); SAVE.acct = null; store(); acctInfo(); accessTick(); } return r; }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && SAVE.acct && ACU.timer) acctUpload(); });
 function acctInfo() { const nm = $('#set-name'); if (nm) nm.textContent = SAVE.name || '—'; const t = SAVE.acct ? 'Connecté : ' + SAVE.acct.u + (SAVE.acct.at ? ' · sauvegardé ' + new Date(SAVE.acct.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : '') : 'Pas de compte sur ce téléphone.';
@@ -3448,7 +3479,7 @@ function acctWire() { const q = (s) => $('#acct ' + s), v = (s) => (q(s) ? q(s).
     const r = await acctCall('reset', { pseudo: u, code: cd, pass: p }); if (r.ok) { acctApply(r); frSyncName(); ACU.rec = r.rec; acctRender(); } return r; }); };
   const rn = q('#ac-rename'); if (rn) rn.onclick = () => { const name = v('#ac-name'); busy(async () => { const r = await acctSetName(name); if (r.ok) ACU.msg = 'Nom modifié. Tes amis et groupes sont conservés.'; return r; }); };
   const sv = q('#ac-save'); if (sv) sv.onclick = () => busy(async () => { const r = await acctUpload(); if (r && r.ok) { ACU.msg = 'Sauvegardé.'; acctRender(); } return r; });
-  const out = q('#ac-out'); if (out) out.onclick = () => busy(async () => { await acctUpload(); await acctCall('logout', { pseudo: SAVE.acct.u, tok: SAVE.acct.tok }); SAVE.acct = null; store(); ACU.tab = 'choix'; ACU.msg = 'Déconnecté. Tes données restent sur ce téléphone.'; G.locked = true; acctRender(); });
+  const out = q('#ac-out'); if (out) out.onclick = () => busy(async () => { const acc = SAVE.acct; if (!acc) return; await acctUpload(); const a2 = SAVE.acct || acc; await acctCall('logout', { pseudo: a2.u, tok: a2.tok }); SAVE.acct = null; store(); ACU.tab = 'choix'; ACU.msg = 'Déconnecté. Tes données restent sur ce téléphone.'; G.locked = true; acctRender(); });
   const pw = q('#ac-pass'); if (pw) pw.onclick = () => { const po = q('#ac-old').value, pn = q('#ac-new').value; busy(async () => { const r = await acctCall('pass', { pseudo: SAVE.acct.u, tok: SAVE.acct.tok, old: po, pass: pn }); if (r.ok) { SAVE.acct.tok = r.tok; store(); ACU.msg = 'Mot de passe changé.'; acctRender(); } return r; }); };
 }
 // au lancement : on récupère la dernière sauvegarde du compte (si un autre téléphone a joué entre-temps)
@@ -3792,9 +3823,11 @@ function runSlicedLoad(gen, onP) {
 }
 async function launchPrepared(ti, cc, who) {
   if (G.prep) return; // double appui pendant la préparation : ignoré
+  ATTRACT_ID++; // annule la construction du décor du menu en cours
+  resetPerf(); // définition et qualité du joueur pour la nouvelle course (C2-4)
   const id = ++LAUNCH_ID, yieldFrame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
   const PT = G.prepT = { ti, t0: performance.now() }, mk = (k) => { PT[k] = Math.round(performance.now() - PT.t0); };
-  RACE_LOADER.show(TRACKS[ti] && TRACKS[ti].name); G.prep = true; const cv = renderer.domElement; await yieldFrame(); cv.style.visibility = 'hidden'; mk('ecran'); // canvas 3D caché pendant la préparation : l'écran de chargement s'affiche sans recomposer la 3D
+  RACE_LOADER.show(TRACKS[ti] && TRACKS[ti].name); G.prep = true; if (ATTRACT_P) { try { await ATTRACT_P; } catch (e) { /* rien */ } } const cv = renderer.domElement; await yieldFrame(); cv.style.visibility = 'hidden'; mk('ecran'); // canvas 3D caché pendant la préparation : l'écran de chargement s'affiche sans recomposer la 3D
   try {
     RACE_OPTS.laps = SAVE.laps || 0; RACE_OPTS.obst = SAVE.obst !== false; RACE_OPTS.seed = (Math.random() * 4294967295) >>> 0; RACE_OPTS.music = SAVE.musicPick || 'auto';
     if (G.W) { disposeWorld(G.W); G.W = null; } G.race = null; // le menu derrière n'est plus rendu : mémoire libérée avant de construire
@@ -3803,7 +3836,8 @@ async function launchPrepared(ti, cc, who) {
     mk('monde'); if (id !== LAUNCH_ID) { disposeWorld(W); return; }
     G.prebuilt = { ti, W, seed: RACE_OPTS.seed }; const seed = RACE_OPTS.seed;
     { const a = performance.now(); startRace(ti, cc, who); PT.startRaceMs = Math.round(performance.now() - a); } RACE_OPTS.seed = seed; G.paused = true; RACE_LOADER.set(.8); mk('course');
-    try { if (renderer.compileAsync) await renderer.compileAsync(G.W.scene, camera); } catch (e) { /* compilation au premier rendu */ }
+    // compileAsync (three r158) ne se termine jamais si un matériau change pendant l'attente (erreur dans son minuteur) : 5 s au plus.
+    try { if (renderer.compileAsync) await Promise.race([renderer.compileAsync(G.W.scene, camera), new Promise((r) => setTimeout(r, 5000))]); } catch (e) { /* compilation au premier rendu */ }
     mk('shaders'); RACE_LOADER.set(.9);
     try { await runSlicedLoad((function* () { const seen = new Set();
       G.W.scene.traverse((o) => { for (const m of [].concat(o.material || [])) for (const k in m) { const t = m[k]; if (t && t.isTexture && !t.isRenderTargetTexture && !seen.has(t)) seen.add(t); } });
@@ -3853,6 +3887,26 @@ function startAttract(ti) {
   RACE_OPTS.laps = 0; RACE_OPTS.obst = true;
   setWorld(ti);
   attractSetup(ti);
+}
+// Décor du menu (circuit de démonstration) reconstruit par tranches, sans figer le menu (C2-1 : toucher une carte de circuit, ou
+// revenir au menu, reconstruisait tout le monde d'un bloc : 2 à 5 s de gel sur téléphone). L'ancien décor reste affiché jusqu'à ce
+// que le nouveau soit prêt ; un lancement de course (launchPrepared) ou un nouveau choix annule la construction en cours.
+let ATTRACT_ID = 0, ATTRACT_P = null, ATTRACT_TI = -1;
+function attractAsync(ti) {
+  if (ATTRACT_P && ATTRACT_TI === ti) return ATTRACT_P; // déjà en cours pour ce circuit
+  const id = ++ATTRACT_ID; ATTRACT_TI = ti;
+  const run = (async () => { if (ATTRACT_P) { try { await ATTRACT_P; } catch (e) { /* rien */ } } // une seule construction à la fois (PIXEL_JOBS partagé)
+    if (id !== ATTRACT_ID || G.prep) return;
+    const guard = function* (g) { for (;;) { if (id !== ATTRACT_ID || G.prep) return null; const r = g.next(); if (r.done) return r.value; yield r.value; } };
+    const o = { laps: RACE_OPTS.laps, obst: RACE_OPTS.obst }; RACE_OPTS.laps = 0; RACE_OPTS.obst = true;
+    PIXEL_JOBS = []; let W = null;
+    try { W = await runSlicedLoad(guard(buildWorldSteps(ti))); } finally { while (PIXEL_JOBS && PIXEL_JOBS.length) texReady({ userData: { wkFill: PIXEL_JOBS.shift() } }); PIXEL_JOBS = null; }
+    if (!W) { Object.assign(RACE_OPTS, o); return; }
+    if (id !== ATTRACT_ID || G.prep || (G.race && G.race.state !== 'attract')) { disposeWorld(W); Object.assign(RACE_OPTS, o); return; }
+    LAPS = TRACKS[ti].sections ? 1 : RACE_OPTS.laps || TRACKS[ti].laps || 3;
+    if (G.W) disposeWorld(G.W); G.W = W; G.hazards = []; G.rockets = []; G.karts = []; attractSetup(ti); })();
+  ATTRACT_P = run; run.finally(() => { if (ATTRACT_P === run) { ATTRACT_P = null; ATTRACT_TI = -1; } }).catch(() => {});
+  return run;
 }
 // Démarrage : même circuit de fond, construit par tranches (étapes de buildWorldSteps, puis un kart par tranche).
 async function startAttractSliced(ti, onP) {
@@ -3921,10 +3975,15 @@ function matchMouthHeights(q, S, i0, i1, wallD, bhw, blend = 12) {
 function smoothKinks(q, minR, iterations = 60) {
   const n = q.length; if (n < 7) return 0; let moved = 0;
   const radius = (k) => { const ax = q[k].x - q[k - 1].x, az = q[k].z - q[k - 1].z, bx = q[k + 1].x - q[k].x, bz = q[k + 1].z - q[k].z, la = Math.hypot(ax, az), lb = Math.hypot(bx, bz), t = Math.abs(Math.atan2(ax * bz - az * bx, ax * bx + az * bz)); return t < 1e-6 ? Infinity : (la + lb) / 2 / t; };
+  const touche = new Uint8Array(n);
   for (let it = 0; it < iterations; it++) { let any = false;
     for (let k = 3; k < n - 3; k++) if (radius(k) < minR) { any = true; moved++;
-      for (let d = -1; d <= 1; d++) { const j = k + d, mx = (q[j - 1].x + q[j + 1].x) / 2, mz = (q[j - 1].z + q[j + 1].z) / 2; q[j].x += (mx - q[j].x) * .5; q[j].z += (mz - q[j].z) * .5; } }
+      for (let d = -1; d <= 1; d++) { const j = k + d, mx = (q[j - 1].x + q[j + 1].x) / 2, mz = (q[j - 1].z + q[j + 1].z) / 2; q[j].x += (mx - q[j].x) * .5; q[j].z += (mz - q[j].z) * .5; touche[j] = 1; } }
     if (!any) break; }
+  // Le lissage local à 3 points laisse une oscillation pair/impair (courbure 2,5 / 6 / 3 / 6°/m en dents de scie, contrôleur du
+  // concepteur) : deux passes de lissage uniforme (¼ ½ ¼) sur les points déplacés et leurs voisins (±3), extrémités fixes.
+  if (moved) { const zone = new Uint8Array(n); for (let j = 0; j < n; j++) if (touche[j]) for (let d = -3; d <= 3; d++) if (j + d > 0 && j + d < n - 1) zone[j + d] = 1;
+    for (let pass = 0; pass < 2; pass++) { const px = q.map((v) => v.x), pz = q.map((v) => v.z); for (let j = 1; j < n - 1; j++) if (zone[j]) { q[j].x = .25 * px[j - 1] + .5 * px[j] + .25 * px[j + 1]; q[j].z = .25 * pz[j - 1] + .5 * pz[j] + .25 * pz[j + 1]; } } }
   return moved;
 }
 function buildBranches(W) {
@@ -3976,7 +4035,8 @@ function buildBranches(W) {
     // Envol (grand tremplin) : portion de branche sans route, survolée en planeur (b.glide = [début, fin] en fractions de la branche).
     // b.envol : le vol va du premier point intermédiaire (crête, lèvre du tremplin) au dernier (réception), mesurés sur la branche construite.
     if (b.envol && mids.length >= 2) { const near = (m) => { let bj = 0, bd = 1e18; for (let j = 0; j < M; j++) { const d = (B.px[j] - m.x) ** 2 + (B.pz[j] - m.z) ** 2; if (d < bd) { bd = d; bj = j; } } return bj; };
-      b.glide = [near(mids[0]) / (M - 1), near(mids[mids.length - 1]) / (M - 1)]; }
+      // b.vol : [indice du point de crête, indice du point de réception] (concepteur : corniche d'élan avant le tremplin).
+      const [va, vb] = Array.isArray(b.vol) ? b.vol : [0, mids.length - 1]; b.glide = [near(mids[va]) / (M - 1), near(mids[vb]) / (M - 1)]; }
     if (b.glide) { const g0 = Math.round(b.glide[0] * (M - 1)), g1 = Math.round(b.glide[1] * (M - 1)); B.glideA = g0; B.glideB = g1;
       for (let j = g0; j <= g1; j++) { B.glide[j] = 1; B.glideT[j] = (j - g0) / Math.max(1, g1 - g0); } }
     B.wallD = B.hw + W.curbW + 3; B.lim = B.wallD - 1.3;
@@ -3995,7 +4055,28 @@ function buildBranches(W) {
       const y0 = B.py[a], y1 = B.py[B.glideA]; for (let j = a + 1; j < B.glideA; j++) B.py[j] = y0 + (y1 - y0) * smoothstep(a, B.glideA, j); }
     if (B.glideB != null && B.glideB < jB - 8) { const a = jB - 2; let g = i1; for (let j = M - 1; j >= a; j--) { g = mainY(j, g); B.py[j] = S.py[g]; }
       const y0 = B.py[a], y1 = B.py[B.glideB]; for (let j = B.glideB + 1; j < a; j++) B.py[j] = y1 + (y0 - y1) * smoothstep(B.glideB, a, j); }
-    if (B.glideA != null) finishPath(B, false);
+    // Toutes les autres branches : tant que leur chaussée chevauche celle de la route (bouche), elles restent exactement à son niveau,
+    // puis rejoignent leur profil sur 10 échantillons. Avant, une branche qui montait dès sa bouche (ARÊTE de la Glissade) flottait
+    // jusqu'à 0,8 m au-dessus de la route encore dessinée sous elle : marche et vide visibles (« morceau invisible », Samsung).
+    let fixe = B.glideA != null;
+    // Branches à vol (ENVOL) : profil déjà raccordé plus haut ; seule leur réception épouse la route (Cascades, Plongeon) — au départ,
+    // la rampe d'envol garde son profil (sinon son vibreur traversait la route : Glissade).
+    if (!B.offroad) { const needR = W.hw + B.hw + 1, orig = Float32Array.from(B.py), envol = B.glideA != null; mi = i0; let jR = 0; while (jR < M - 1 && sep(jR) < needR) jR++; mi = i1; let jS = M - 1; while (jS > jR + 20 && sep(jS) < needR) jS--;
+      const plat = (from, to, dir, g0) => { let g = g0, y = 0; for (let j = from; dir > 0 ? j <= to : j >= to; j += dir) { g = mainY(j, g); y = S.py[g]; if (Math.abs(B.py[j] - y) > .02) fixe = true; B.py[j] = y; } return y; };
+      if (!envol && jR > 0 && jR < jS) { const yA = plat(0, jR, 1, i0); for (let j = jR + 1; j <= Math.min(jS - 1, jR + 10); j++) B.py[j] = yA + (orig[j] - yA) * smoothstep(jR, jR + 10, j); }
+      if (!envol && jS < M - 1 && jS > jR) { const yB = plat(M - 1, jS, -1, i1); for (let j = jS - 1; j >= Math.max(jR + 1, jS - 10); j--) B.py[j] = yB + (B.py[j] - yB) * smoothstep(jS, jS - 10, j); }
+      // Bouche : la chaussée de la branche (rendu ET physique) épouse la vraie surface de la route principale tant qu'elle la recouvre,
+      // puis rejoint son propre profil sur 8 m. Mise à plat seule (hauteur de l'axe) : la route principale montant dans son sens, l'écart
+      // en travers de la branche atteignait 0,36 m (ARÊTE de la Glissade : route principale au-dessus de la branche d'un côté, branche
+      // qui dépasse de l'autre ; contrôleur du concepteur). Même principe que les cartes de production (production.js, heightAt).
+      const gi = new Int32Array(M).fill(-1); if (!envol && jR > 0) { let g = i0; for (let j = 0; j <= Math.min(M - 1, jR + 12); j++) gi[j] = g = nearestOn(S, B.px[j], B.pz[j], g, 40)[0]; }
+      if (jS < M - 1) { let g = i1; for (let j = M - 1; j >= Math.max(0, jS - 12); j--) gi[j] = g = nearestOn(S, B.px[j], B.pz[j], g, 40)[0]; }
+      if (gi.some((g) => g >= 0)) B.hAct = (j) => gi[clamp(j, 0, M - 1)] >= 0, B.heightAt = (x, z, j, base) => { const g0 = gi[clamp(j, 0, M - 1)]; if (g0 < 0) return base; const m = nearestOn(S, x, z, g0, 8)[0]; if (S.wz && S.wz[m]) return base;
+        const along = (x - S.px[m]) * S.fx[m] + (z - S.pz[m]) * S.fz[m], n = along >= 0 ? (S.closed === false ? Math.min(N - 1, m + 1) : (m + 1) % N) : (S.closed === false ? Math.max(0, m - 1) : (m - 1 + N) % N);
+        const y = S.py[m] + (S.py[n] - S.py[m]) * Math.min(1, Math.abs(along) / S.seg), u = clamp((Math.abs(latOn(S, m, x, z)) - W.hw - (W.curbW || 1.6)) / 8, 0, 1), w = (1 - u * u * (3 - 2 * u)) * smoothstep(1.5, .6, Math.abs(base - y));
+        // w : poids de la route principale ; nul dès que la branche s'en écarte de plus de 1,5 m en altitude (jamais rabattue en vol).
+        return base + (y - base) * w; }; }
+    if (fixe) finishPath(B, false);
     W.branches.push(B);
   });
 }
@@ -4471,6 +4552,7 @@ function kartPhysics(k, inp, dt) { if (k.spect) return;
   const P0 = k.P || S, j0 = clamp(k.idx, 0, P0.N - 1), os0 = openSide(P0, j0);
   k.off = !k.air && (P0.offroad || (Math.abs(k.lat) > (P0.hw || W.hw) + W.curbW * .5 && !(os0 && Math.sign(k.lat) === os0)));
   const EV = zoneEnv(k); let vmax = k.maxSpeed * (k.off && k.boost <= 0 && k.star <= 0 ? k.offFactor * (EV && EV.offK || 1) : 1) * (EV ? EV.vmax : 1);
+  { const fv = vivantFactor(W, k); if (fv < 1) { vmax *= fv; if (k.speed > vmax) k.speed = lerp(k.speed, vmax, 1 - Math.exp(-dt * 3)); } } // neige d'avalanche : ralentit, ne bloque pas
   if (k.off && !(k.star > 0) && mudAt(W, k)) { vmax *= .6; if (k.speed > vmax) k.speed = lerp(k.speed, vmax, 1 - Math.exp(-dt * 4)); if (W.parts && Math.random() < .5) W.parts.emit(k.x + rand(-1, 1), k.y + .3, k.z + rand(-1, 1), rand(-2, 2), rand(1, 3), rand(-2, 2), '#5a3d22', .4); if (k.isPlayer && !k.mudMsg) { k.mudMsg = true; banner('Boue !', .9, true); } }
   if (k.boost > 0) { k.boost -= dt; vmax = k.maxSpeed * (k.nitro > 0 ? 1.46 : 1.36); if (k.speed < vmax) k.speed = Math.min(vmax, k.speed + 95 * dt); }
   if (k.star > 0) { k.star -= dt; vmax = Math.max(vmax, k.maxSpeed * 1.22); if (k.speed < vmax) k.speed += 40 * dt; }
@@ -4598,6 +4680,9 @@ function kartPhysics(k, inp, dt) { if (k.spect) return;
   if (k.squash > 0) k.squash -= dt;
   // ---- plaques turbo, tremplins, obstacles ----
   springLaunch(k, W);
+  // Anneaux turbo d'un envol (une fois par anneau et par tour) : passer au travers, au centre (85 % du rayon).
+  if (k.air && W.anneaux) for (const a of W.anneaux) { if (a.P !== P || Math.abs(k.idx - a.j) > 1 || Math.abs(k.lat - (a.lat || 0)) > a.r * .85 || Math.abs(k.y - a.y) > a.r * .85) continue;
+    const key = (k.lap || 0) + ':' + a.q; k.anneauxPris = k.anneauxPris || {}; if (k.anneauxPris[key]) continue; k.anneauxPris[key] = 1; k.boost = Math.max(k.boost, .6); if (k.isPlayer) AudioSys.sfx('boost'); }
   if (!k.air) {
     for (const p of W.pads) { if ((p.P || S) !== P) continue; let di = Math.abs(k.idx - p.i); if (P.closed) di = Math.min(di, P.N - di); if (di <= 2 && Math.abs(k.lat - p.lat) < 2.9) { if (k.boost < .9 && k.isPlayer) AudioSys.sfx('boost'); k.boost = Math.max(k.boost, 1.1); } }
     kickerLaunch(k, W, P0, j0);
@@ -4822,6 +4907,7 @@ function planObstacles(W) {
   for (const B of W.branches) { block(B.i0 - 30, 66); block(B.i1, 34); }
   for (const p of W.pads) if (!p.P) block(p.i, 12); for (const t of def.items) block(Math.floor(t * N), 14);
   for (const [a, b] of def.tunnels || []) for (let i = Math.floor(a * N); i <= Math.floor(b * N); i++) block(i % N, 6);
+  for (const v of def.vivants || []) block(Math.floor(v.at * N) % N, 60); // décor interactif (avalanche) : rien d'autre dans sa zone
   const straight = (i, r) => { let c = 0; for (let o = -r; o <= r; o += 2) c += Math.abs(S.curv[((i + o) % N + N) % N]); return c; };
   const pickSpot = (r, maxC) => { for (let tries = 0; tries < 900; tries++) { const i = Math.floor(N * (.1 + rng() * .8)); let ok = true; for (let o = -r; o <= r; o++) if (blocked[((i + o) % N + N) % N]) { ok = false; break; } if (ok && straight(i, 14) < maxC) return i; } return -1; };
   for (const b of W.bumps || []) block(b.i, 40);
@@ -4932,8 +5018,9 @@ function planBumps(W) {
   const blocked = new Uint8Array(N); const block = (i, r) => { for (let o = -r; o <= r; o++) blocked[((i + o) % N + N) % N] = 1; };
   block(0, Math.round(N * .08)); for (let i = 0; i < N; i++) if (S.glide[i]) block(i, 34);
   for (const B of W.branches) { block(B.i0, 45); block(B.i1, 40); } for (const [t] of def.boosts) block(Math.floor(t * N), 16);
-  for (const z of def.warp || []) for (let i = Math.floor(z.from * N) - 20; i <= Math.floor(z.to * N) + 20; i++) block(((i % N) + N) % N, 0); for (const t of def.tricks || []) block(Math.floor(t * N), 30); for (const t of def.items) block(Math.floor(t * N), 16);
+  for (const z of def.warp || []) for (let i = Math.floor(z.from * N) - 20; i <= Math.floor(z.to * N) + 20; i++) block(((i % N) + N) % N, 0); for (const t of def.tricks || []) block(Math.floor(clearOfJunctions(W, t) * N), 30); for (const t of def.items) block(Math.floor(t * N), 16);
   for (const [a, b] of def.tunnels || []) for (let i = Math.floor(a * N) - 8; i <= Math.floor(b * N) + 8; i++) block(((i % N) + N) % N, 0);
+  for (const v of def.vivants || []) block(Math.floor(v.at * N) % N, 60); // décor interactif (avalanche) : ni bosse ni tremplin dans sa zone
   const straight = (i) => { let c = 0; for (let o = -16; o <= 16; o += 2) c += Math.abs(S.curv[((i + o) % N + N) % N]); return c; };
   const n = S.L > 1800 ? 3 : 2, half = 9, h = 1.7;
   for (let q = 0; q < n; q++) {
@@ -5639,14 +5726,18 @@ function buildGores(W, mats) {
   const gm = new T.MeshStandardMaterial({ map: GORE_TEX, roughness: .5, side: T.DoubleSide });
   for (const G2 of W.gores) {
     const p = G2.pts; if (p.length < 2) continue; const off = G2.B.offroad;
-    if (W.def.production) for (let j = 0; j < p.length; j++) {
+    if (G2.B.heightAt) for (let j = 0; j < p.length; j++) {
       const B = G2.B, i = G2.nose === 'A' ? B.noseA + j : Math.max(0, B.jB - 4) + j;
       p[j][1] = B.heightAt(p[j][0], p[j][2], i, B.py[i]);
     }
     const pos = [], uv = [], idx = []; let L = 0;
+    // Branche ouverte plus haute que la route de plus de 2,5 m : muret sans collision (voir plus bas) → pas dessiné non plus (un mur
+    // visible mais traversable trompe le joueur ; contrôleur du concepteur, nez de l'ARÊTE de la Glissade).
+    const B0 = G2.B, sansMur = (x, z) => { if (W.def.production || !B0.def.open || !realWalls(W.def) || !B0.map) return false; let bd = 1e18, bj = 0; for (let j = 0; j < B0.N; j++) { const d = (B0.px[j] - x) ** 2 + (B0.pz[j] - z) ** 2; if (d < bd) { bd = d; bj = j; } } return B0.py[bj] - S.py[B0.map[bj]] > 2.5; };
     for (let k = 0; k < p.length; k++) { if (k) L += Math.hypot(p[k][0] - p[k - 1][0], p[k][2] - p[k - 1][2]);
       pos.push(p[k][0], p[k][1] + .05, p[k][2], p[k][0], p[k][1] + (off ? .65 : 1.15), p[k][2]); uv.push(L / 6, 0, L / 6, 1);
-      if (k) { const a = (k - 1) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); } }
+      if (k && !sansMur((p[k][0] + p[k - 1][0]) / 2, (p[k][2] + p[k - 1][2]) / 2)) { const a = (k - 1) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); } }
+    if (!idx.length) continue;
     const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new T.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
     if (realWalls(W.def)) {
       window.WKProduction.barrierStrip(g, pos, G2.B.id); for (const sg of g.userData.barriers) sg.gore = true;
@@ -5674,23 +5765,32 @@ const DIRT_TEX = (() => { const nL = fbm(4, 4, 711), nF = tileNoise(64, 721); co
     (x, w, h) => { for (let i = 0; i < 260; i++) { x.fillStyle = pick(['rgba(200,190,170,.8)', 'rgba(120,100,80,.7)', 'rgba(230,220,200,.6)']); x.beginPath(); x.ellipse(w * rand(.12, .88), Math.random() * h, rand(1, 2.6), rand(.8, 2), rand(0, 3), 0, TAU); x.fill(); } }); })();
 SHARED.add(DIRT_TEX);
 // bande d'un embranchement découpée au bord de la route principale (pas de surfaces superposées)
-function branchBand(B, hwMain, cols, y, uvMode) {
+function branchBand(B, hwMain, cols, y, uvMode, S) {
   // cols : [far, near] décalages "naturels" (unités : côté opposé à la route principale = négatif)
-  const N = B.N, openS = -B.side, pos = [], uv = [], surfaceUV = [], idx = []; let k = 0, open = false, v = 0;
+  const N = B.N, openS = -B.side, pos = [], uv = [], surfaceUV = [], idx = [], vs = new Float32Array(N), lims = [], rows = new Map();
+  // Bouche épousant la route principale (B.hAct / B.heightAt) : colonnes intermédiaires (≈ 1 m) seulement là, pour suivre la surface
+  // sans alourdir le reste de la branche (triangles mobiles).
+  const K = B.heightAt ? Math.max(1, Math.ceil(cols[1] - cols[0])) : 1, act = (j) => !!(B.hAct && B.hAct(j));
   for (let j = 0; j < N; j++) {
     const lim = B.dl[j] - hwMain; // distance (côté route principale) du bord principal au centre du raccourci
     // La découpe suit l'axe latéral du raccourci, oblique par rapport à la route principale : la distance au bord principal est
     // allongée de 1/cos(angle), plus 0,3 m de recouvrement (sinon un triangle de terrain apparaissait au nez, AUDIT-DIRECTIVE A10).
     const cs = B.cosMain ? B.cosMain[j] : 1;
     let far = cols[0], near = Math.min(cols[1], lim / cs + .3);
+    // Coupe exacte (route principale connue) : point de l'axe latéral du raccourci situé 0,3 m à l'intérieur du bord de la route
+    // principale. L'approximation 1/cos (cosinus plafonné à 0,35) s'arrêtait jusqu'à 0,9 m avant le bord, dont le vibreur est retiré à
+    // la bouche : bande sans chaussée (Coup de Soleil, Sieste ; contrôleur du concepteur).
+    if (S && B.map && (j < B.noseA || j > B.noseB)) { const g = B.map[j], d = (o) => { const oo = o * openS, x = B.px[j] + B.rx[j] * oo, z = B.pz[j] + B.rz[j] * oo; const m = nearestOn(S, x, z, g, 30)[0]; return Math.abs(latOn(S, m, x, z)) - (hwMain - .3); };
+      if (d(cols[1]) > 0) near = cols[1]; else if (d(far) <= 0) near = far; else { let lo = far, hi = cols[1]; for (let it = 0; it < 22; it++) { const mid = (lo + hi) / 2; if (d(mid) > 0) lo = mid; else hi = mid; } near = hi; } }
     const inMouth = j < B.noseA || j > B.noseB; if (!inMouth) near = cols[1];
-    const ok = near - far > .05 && !(B.glideA != null && j > B.glideA && j < B.glideB);
-    if (j) v += B.seg;
-    if (!ok) { open = false; continue; }
-    for (const [o, u] of [[far, 0], [near, 1]]) { const oo = o * openS, x = B.px[j] + B.rx[j] * oo, z = B.pz[j] + B.rz[j] * oo; pos.push(x, B.py[j] + y, z); uv.push(uvMode === 'world' ? x / 40 : (o - cols[0]) / (cols[1] - cols[0]), uvMode === 'world' ? -z / 40 : v / (uvMode || 24)); surfaceUV.push(oo / 3, v / 3); }
-    if (open) { const a2 = (k - 1) * 2; idx.push(a2, a2 + 2, a2 + 1, a2 + 1, a2 + 2, a2 + 3); }
-    open = true; k++;
+    if (j) vs[j] = vs[j - 1] + B.seg;
+    lims.push(near - far > .05 && !(B.glideA != null && j > B.glideA && j < B.glideB) ? [far, near] : null);
   }
+  const row = (j, kc) => { const key = j * 64 + kc; if (rows.has(key)) return rows.get(key); const [far, near] = lims[j], base = pos.length / 3, v = vs[j];
+    for (let c = 0; c <= kc; c++) { const o = far + (near - far) * c / kc, oo = o * openS, x = B.px[j] + B.rx[j] * oo, z = B.pz[j] + B.rz[j] * oo; pos.push(x, (B.heightAt ? B.heightAt(x, z, j, B.py[j]) : B.py[j]) + y, z); uv.push(uvMode === 'world' ? x / 40 : (o - cols[0]) / (cols[1] - cols[0]), uvMode === 'world' ? -z / 40 : v / (uvMode || 24)); surfaceUV.push(oo / 3, v / 3); }
+    rows.set(key, base); return base; };
+  for (let j = 1; j < N; j++) { if (!lims[j - 1] || !lims[j]) continue; const kc = act(j - 1) || act(j) ? K : 1, a0 = row(j - 1, kc), b0 = row(j, kc);
+    for (let c = 0; c < kc; c++) { const a = a0 + c, b = b0 + c; idx.push(a, b, a + 1, a + 1, b, b + 1); } }
   // orientation : la face doit regarder vers le haut quel que soit le côté du raccourci
   if (idx.length >= 3) { const P = (q) => [pos[q * 3], pos[q * 3 + 1], pos[q * 3 + 2]]; let ny = 0; for (let t = 0; t < idx.length; t += 3) { const A = P(idx[t]), B2 = P(idx[t + 1]), C = P(idx[t + 2]); ny += (B2[2] - A[2]) * (C[0] - A[0]) - (B2[0] - A[0]) * (C[2] - A[2]); }
     if (ny < 0) for (let t = 0; t < idx.length; t += 3) { const x = idx[t + 1]; idx[t + 1] = idx[t + 2]; idx[t + 2] = x; } }
@@ -5709,12 +5809,18 @@ function buildBranchGeo2(W, B, mats) {
   scene.add(new T.Mesh(bandGeo(B, shF, { world: true, skip: (j) => !outside(j) || B.dl[j] + hw + curbW < H + curbW + 1 || gl(j) }), mats.shoulder));
   // chaussée découpée au bord de la route principale
   const roadMat = OFF ? mats.path : mats.road; if (W.roles) W.roles.set(roadMat, 'road');
-  scene.add(new T.Mesh(W.def.production && !OFF ? window.WKProduction.branchMesh(B) : branchBand(B, H, [-(hw + (OFF ? curbW : 0)), hw + (OFF ? curbW : 0)], OFF ? .112 : .115, OFF ? 16 : 24), roadMat));
+  scene.add(new T.Mesh(W.def.production && !OFF ? window.WKProduction.branchMesh(B) : branchBand(B, H, [-(hw + (OFF ? curbW : 0)), hw + (OFF ? curbW : 0)], OFF ? .112 : .115, OFF ? 16 : 24, S), roadMat));
   if (!OFF) {
     const cf = openS > 0 ? [{ o: -hw - curbW, y: .09 }, { o: -hw - curbW * .5, y: .21 }, { o: -hw, y: .12 }] : [{ o: hw, y: .12 }, { o: hw + curbW * .5, y: .21 }, { o: hw + curbW, y: .09 }];
     const cn = openS > 0 ? [{ o: hw, y: .12 }, { o: hw + curbW * .5, y: .21 }, { o: hw + curbW, y: .09 }] : [{ o: -hw - curbW, y: .09 }, { o: -hw - curbW * .5, y: .21 }, { o: -hw, y: .12 }];
-    scene.add(new T.Mesh(bandGeo(B, cf, { vScale: 6, skip: (j) => !outside(j) || gl(j) }), mats.curb));
-    scene.add(new T.Mesh(bandGeo(B, cn, { vScale: 6, skip: (j) => mouth(j) || gl(j) }), mats.curb));
+    // Vibreur posé sur la chaussée d'une AUTRE route (branches qui se croisent à niveau, Rond-Point) : pas dessiné à cet endroit (avant :
+    // bande orange en travers de l'autre route ; contrôleur du concepteur, X « bordure qui traverse une autre chaussée »).
+    const surAutre = (cols) => { const o = (cols[0].o + cols[2].o) / 2, m = new Uint8Array(B.N); for (let j = 0; j < B.N; j++) { const x = B.px[j] + B.rx[j] * o, z = B.pz[j] + B.rz[j] * o;
+      for (const Q of [S, ...W.branches]) { if (Q === B || Q === S && mouth(j)) continue; let bd = 1e18, bq = -1; for (let q = 0; q < Q.N; q += 2) { const d = (Q.px[q] - x) ** 2 + (Q.pz[q] - z) ** 2; if (d < bd) { bd = d; bq = q; } }
+        if (bq < 0 || bd > (Q.hw || H) ** 2 + 16) continue; const lat = Math.abs((x - Q.px[bq]) * Q.rx[bq] + (z - Q.pz[bq]) * Q.rz[bq]); if (lat < (Q.hw || H) - .2 && Math.abs(Q.py[bq] - B.py[j]) < 1.5) { m[j] = 1; break; } } } return m; };
+    const mF = surAutre(cf), mN = surAutre(cn);
+    scene.add(new T.Mesh(bandGeo(B, cf, { vScale: 6, skip: (j) => !outside(j) || gl(j) || mF[j] || mF[Math.min(B.N - 1, j + 1)] }), mats.curb));
+    scene.add(new T.Mesh(bandGeo(B, cn, { vScale: 6, skip: (j) => mouth(j) || gl(j) || mN[j] || mN[Math.min(B.N - 1, j + 1)] }), mats.curb));
   }
   for (const sgn of [-1, 1]) {
     const d = sgn * wD, inner = sgn === openS, sk0 = (j) => (inner ? nearMain(j) : !outside(j) || B.dl[j] + wD < W.wallD) || wBlk(B, j, sgn) || wBlk(B, j + 1, sgn) || gl(j), sk = (j) => sk0(j) || !!(B.nowall && B.nowall[j]);
@@ -5747,6 +5853,10 @@ function clearOfJunctions(W, t) { const S = W.S, N = S.N; let i = Math.floor(t *
 // ---------- anti-gravité : la piste se tord (inclinaisons, murs, loopings) ----------
 // La physique reste sur la piste « dépliée » (2D) ; le rendu replie la piste selon un repère local par échantillon.
 // def.warp : [{ from, to, type: 'loop', r } | { from, to, type: 'wall' | 'bank', angle (degrés), side: 1|-1, lift }]
+// Hauteur de l'axe d'une route qui tourne sur elle-même (vrille, plafond) : au moins le cercle de rayon R0 et assez pour que le bord
+// le plus bas reste au-dessus du sol. Avant : max() des deux, cassure de pente au point de bascule (14,8°/m) → chaussée repliée
+// et triangle retourné au retournement du plafond (laboratoire du concepteur, scène « plafond »). Norme 4 : raccord lisse (≤ 3°/m).
+function levage(a, u, R0, hw) { const A = (1 - Math.cos(a)) * R0, B = Math.abs(Math.sin(a)) * hw + .5 * smoothstep(0, .125, u) * smoothstep(0, .125, 1 - u); return Math.pow(A ** 4 + B ** 4, .25); }
 function buildWarp(S, def, hw) {
   const N = S.N; if (!def.warp || !def.warp.length) return;
   const wo = new Float32Array(N * 3), wr = new Float32Array(N * 3), wu = new Float32Array(N * 3), wf = new Float32Array(N * 3), roll = new Float32Array(N); S.wz = new Uint8Array(N); S.wscale = new Float32Array(N).fill(1); S.ag = new Uint8Array(N);
@@ -5758,9 +5868,10 @@ function buildWarp(S, def, hw) {
       // pendant la rotation (cercle de rayon r constant), puis rattrapée à l'entrée et à la sortie : la sortie coïncide avec la
       // route logique. Rotation régulière à accélération continue ; décalage latéral antisymétrique pour que l'entrée et la
       // sortie se croisent côte à côte, jamais l'une dans l'autre.
-      const F0 = [S.fx[i0 % N], 0, S.fz[i0 % N]], R0 = [S.rx[i0 % N], S.rz[i0 % N]], L = n * (S.seg || 2), r = Math.max(z.r || 18, 22), shift = z.shift != null ? z.shift : hw + 16.5, K = .85;
+      const F0 = [S.fx[i0 % N], 0, S.fz[i0 % N]], R0 = [S.rx[i0 % N], S.rz[i0 % N]], L = n * (S.seg || 2), r = Math.max(z.r || 18, 22), shift = (z.shiftDonne === undefined ? z.shift != null : z.shiftDonne) && z.shift != null ? z.shift : hw + 16.5, K = .85;
       const spin = (u) => { const t = clamp((u - .12) / .76, 0, 1); return .6 * t + .4 * t * t * t * (t * (t * 6 - 15) + 10); };
-      z.r = r; z.shift = shift;
+      // Décalage imposé par les données (sinon recherché) : mémorisé avant la première construction, car z.shift reçoit la valeur retenue.
+      if (z.shiftDonne === undefined) z.shiftDonne = z.shift != null; z.r = r;
       // Entrée et sortie (2 novembre) : l'avance du cercle (df) et le décalage latéral (dl) ne s'appliquent que pendant la rotation
       // (v de 0 à 1 entre u = 0,12 et 0,88) et partent d'une pente nulle (fenêtre w : smoothstep sur un quart de la rotation). Avant, sin(2πu) variait le plus vite
       // aux extrémités : sur la partie plate, la route affichée virait de 26 à 40° sur le côté alors que la route physique restait
@@ -5772,32 +5883,62 @@ function buildWarp(S, def, hw) {
       // virage affiché que le joueur n'a pas demandé ; avant : jusqu'à 32-36° à l'entrée). Le moteur vérifie l'écart entre les surfaces
       // de l'entrée et de la sortie (≥ 4,5 m) et prend le premier réglage qui le respecte, du plus aligné au plus décalé ; sinon
       // l'ancienne formule (fenêtre sur la rotation). z.ta/z.tb/z.ancien imposent un réglage.
-      const prof = (c) => { const o = []; for (let q = 0; q <= n; q++) { const u = q / n, th = TAU * spin(u), v = clamp((u - A0) / (1 - 2 * A0), 0, 1), w = smoothstep(0, WR, v) * smoothstep(0, WR, 1 - v), thd = th * 180 / Math.PI;
-        o.push([Lr * KR * Math.sin(TAU * v) / TAU * w + r * Math.sin(th), r * (1 - Math.cos(th)), c.ancien ? shift * Math.sin(TAU * v) * w : shift * c.s * (smoothstep(c.ta, c.tb, thd) - 2 * smoothstep(160, 200, thd) + smoothstep(360 - c.tb, 360 - c.ta, thd))]); } return o; };
+      const prof = (c) => { const o = [], wr = c.wr || WR, kr = c.kr != null ? c.kr : KR, sh = c.sh != null ? c.sh : shift; for (let q = 0; q <= n; q++) { const u = q / n, th = TAU * spin(u), v = clamp((u - A0) / (1 - 2 * A0), 0, 1), w = smoothstep(0, wr, v) * smoothstep(0, wr, 1 - v), thd = th * 180 / Math.PI;
+        // c.doux : bascule progressive pendant toute la partie retournée (tb → 360 − tb) au lieu de 160-200° (2 novembre, 548bb8f :
+        // saut latéral au sommet → looping tordu, chaussées qui se croisent, constaté sur Samsung).
+        o.push([Lr * kr * Math.sin(TAU * v) / TAU * w + r * Math.sin(th), r * (1 - Math.cos(th)), c.ancien ? sh * Math.sin(TAU * v) * w : sh * c.s * (smoothstep(c.ta, c.tb, thd) - 2 * smoothstep(c.tb, 360 - c.tb, thd) + smoothstep(360 - c.tb, 360 - c.ta, thd))]); } return o; };
       // Écart entre surfaces avec le même repère que le rendu (tangente par différences, droite horizontale orthogonalisée) : la route
       // pivote là où le décalage change en pleine pente, ses bords se rapprochent alors plus que l'axe.
       const gap = (o) => { let m = Infinity; const c = (q) => { const k = clamp(q, 0, n), i = (i0 + k) % N, [df, dy, dl] = o[k]; return [S.px[i] + F0[0] * df + R0[0] * dl, S.py[i] + dy, S.pz[i] + F0[2] * df + R0[1] * dl]; };
         const pts = []; for (let q = 0; q <= n; q++) { const p = c(q), a = c(q - 1), b = c(q + 1); let fx = b[0] - a[0], fy = b[1] - a[1], fz = b[2] - a[2]; const fl = Math.hypot(fx, fy, fz) || 1; fx /= fl; fy /= fl; fz /= fl;
           let rx = R0[0], ry = 0, rz = R0[1]; const d = rx * fx + rz * fz; rx -= fx * d; ry -= fy * d; rz -= fz * d; const rl = Math.hypot(rx, ry, rz) || 1;
-          pts.push([-hw, 0, hw].map((l) => [p[0] + rx / rl * l, p[1] + ry / rl * l, p[2] + rz / rl * l])); }
-        for (let a = 0; a <= n; a++) for (let b = a + 15; b <= n; b++) for (const p of pts[a]) for (const q of pts[b]) m = Math.min(m, Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2])); return m; };
-      const cands = z.ancien ? [{ ancien: true }] : z.ta != null ? [{ ta: z.ta, tb: z.tb, s: 1 }] : [{ ta: 35, tb: 80, s: 1 }, { ta: 35, tb: 80, s: 1.25 }, { ta: 30, tb: 75, s: 1.25 }, { ta: 35, tb: 80, s: 1.5 }, { ta: 40, tb: 90, s: 1.5 }, { ta: 30, tb: 75, s: 1.5 }, { ta: 35, tb: 80, s: 1.8 }, { ta: 40, tb: 90, s: 1.8 }, { ta: 25, tb: 70, s: 1.5 }, { ancien: true }];
-      let best = null; for (const c of cands) { const o = prof(c), g = gap(o); if (!best || g > best.g) best = { c, o, g }; if (g >= 4.5) { best = { c, o, g }; break; } }
-      z.reglage = Object.assign({ ecart: +best.g.toFixed(1) }, best.c);
+          // 7 points en travers de la chaussée (avant : 3 points sur 24 m, un croisement entre deux points passait inaperçu ; contrôleur).
+          const E = hw; pts.push([-hw, -E, -E * 2 / 3, -E / 3, 0, E / 3, E * 2 / 3, E, hw].map((l) => [p[0] + rx / rl * l, p[1] + ry / rl * l, p[2] + rz / rl * l])); }
+        for (let a = 0; a <= n; a++) for (let b = a + 15; b <= n; b++) for (let x = 1; x < 8; x++) { const p = pts[a][x]; for (let y = 1; y < 8; y++) { const q = pts[b][y]; m = Math.min(m, Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2])); } }
+        // Repli : avance d'un bord rapportée à celle de l'axe entre deux échantillons. < 0 : le bord recule, la chaussée se replie sur
+        // elle-même (triangles retournés, Gravité Zéro, contrôleur du concepteur) ; on exige ≥ 0,2 (marge pour l'interpolation du rendu).
+        let rp = Infinity; for (let q = 0; q < n; q++) { const A = pts[q], B = pts[q + 1], cx = B[4][0] - A[4][0], cy = B[4][1] - A[4][1], cz = B[4][2] - A[4][2], c2 = cx * cx + cy * cy + cz * cz || 1;
+          for (const e of [0, 8]) rp = Math.min(rp, ((B[e][0] - A[e][0]) * cx + (B[e][1] - A[e][1]) * cy + (B[e][2] - A[e][2]) * cz) / c2); }
+        o.repli = rp; return m; };
+      // Par défaut : ancienne formule (looping rond, validé visuellement) tant que le profil doux n'est pas validé sur téléphone (z.doux).
+      // Profil doux (entrée alignée, bascule progressive pendant la partie retournée) retenu seulement s'il garde ≥ 4,5 m entre les
+      // surfaces ET une forme saine : variation latérale par échantillon ≤ 1,25 × celle de l'ancienne formule (looping rond). Sinon :
+      // ancienne formule. Contrôle de forme ajouté après 548bb8f (saut latéral au sommet : looping tordu sur Samsung).
+      const pente = (o) => { let m = 0; for (let q = 1; q < o.length; q++) m = Math.max(m, Math.abs(o[q][2] - o[q - 1][2])); return m; };
+      const oA = prof({ ancien: true }), refP = pente(oA);
+      // Écart d'angle (°) entre la route affichée et la route physique sur les 14 premiers et derniers échantillons (partie quasi
+      // horizontale), comme le banc pilotage-transitions : 32° avec l'ancienne formule par défaut (braquage « retenu » à l'entrée).
+      const angle = (o) => { let m = 0; const c = (q) => { const k = clamp(q, 0, n), i = (i0 + k) % N, [df, dy, dl] = o[k]; return [S.px[i] + F0[0] * df + R0[0] * dl, S.py[i] + dy, S.pz[i] + F0[2] * df + R0[1] * dl]; };
+        for (let q = 0; q <= n; q++) { if (q > 14 && q < n - 14) continue; const a = c(q - 1), b = c(q + 1), dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2], hl = Math.hypot(dx, dz); if (hl < .85 * Math.hypot(dx, dy, dz)) continue;
+          const i = (i0 + q) % N; m = Math.max(m, Math.acos(clamp((dx * S.fx[i] + dz * S.fz[i]) / hl, -1, 1)) * 57.3); } return m; };
+      // Candidats : profil doux puis ancienne formule (premier sain retenu). Une recherche sur une grille de réglages de l'ancienne formule
+      // (fenêtre, amplitude, avance) a été essayée le 2 novembre : angle 25-32° au mieux, et la coque du looping passait alors à moins de
+      // 2 m au-dessus de l'entrée (contrôleur) → abandonnée. L'écart d'angle de l'ancienne formule (≈ 32°) reste un défaut ouvert.
+      const cands = z.ancien ? [{ ancien: true }] : [{ ta: z.ta != null ? z.ta : 25, tb: z.tb != null ? z.tb : 90, s: z.s || 1 }, { ancien: true }];
+      if (z.forcer) cands.length = 1; // laboratoire du concepteur uniquement : profil imposé même s'il échoue aux contrôles (défaut volontaire)
+      const essais = []; let best = null;
+      for (const c of cands) { const o = c.ancien ? oA : prof(c), g = gap(o), forme = c.ancien || pente(o) <= refP * 1.25, a = angle(o); essais.push({ c, g: +g.toFixed(1), repli: +o.repli.toFixed(2), angle: +a.toFixed(0) });
+        if (z.forcer || g >= 4.5 && forme && o.repli >= .2) { best = { c, o, g, a }; break; } }
+      // Aucun réglage sain : l'ancienne formule par défaut (jamais une chaussée repliée si elle ne l'est pas).
+      if (!best) best = { c: { ancien: true }, o: oA, g: gap(oA), a: angle(oA) };
+      z.shift = shift;
+      z.reglage = Object.assign({ ecart: +best.g.toFixed(1), pente: +pente(best.o).toFixed(2), penteAncien: +refP.toFixed(2), repli: +best.o.repli.toFixed(2), angle: +best.a.toFixed(0), essais: essais.length }, best.c);
       for (let q = 0; q <= n; q++) { const i = (i0 + q) % N, [df, dy, dl] = best.o[q];
         wo[i * 3] += F0[0] * df + R0[0] * dl; wo[i * 3 + 1] += dy; wo[i * 3 + 2] += F0[2] * df + R0[1] * dl; S.wz[i] = 1; S.ag[i] = 1; }
     } else if (z.type === 'spiral') {
       // tire-bouchon : la route fait un tour complet sur elle-même (on roule la tête en bas au milieu)
       const turns = z.turns || 1, sd = z.side || 1, R0 = hw * .6 + 3;
       for (let q = 0; q <= n; q++) { const i = (i0 + q) % N, u = q / n, e = smoothstep(0, 1, u), a = TAU * turns * e * sd;
-        roll[i] = a; wo[i * 3 + 1] += Math.max((1 - Math.cos(a)) * R0, Math.abs(Math.sin(a)) * hw + .5 * Math.min(1, u * 8, (1 - u) * 8)) + (z.rise || 0) * Math.sin(Math.PI * u); S.wz[i] = 1; S.ag[i] = 1; }
+        roll[i] = a; wo[i * 3 + 1] += levage(a, u, R0, hw) + (z.rise || 0) * Math.sin(Math.PI * u); S.wz[i] = 1; S.ag[i] = 1; }
     } else if (z.type === 'plafond') {
       // Route à l'envers (anti-gravité) : demi-tour sur son axe pendant la première part « twist » de la zone, longue portion au
       // plafond (≈ 2·R0 au-dessus du sol), puis retour à l'endroit. Retournements à pente nulle (smoothstep) : le kart et la caméra
       // suivent sans à-coup ; la route physique reste droite, comme dans les vrilles (aucun écart affichage/physique).
-      const sd = z.side || 1, R0 = hw * .6 + 3, tw = z.twist || .18;
+      // Retournement d'au moins 50 m (cassures ≤ 5°/m au départ du levage et du roulis) : sur une zone courte (Gravité Zéro, 160 m),
+      // 18 % ne laissaient que 29 m pour un demi-tour → cassure de 10,7°/m signalée par le contrôleur du concepteur.
+      const sd = z.side || 1, R0 = hw * .6 + 3, tw = Math.min(.4, Math.max(z.twist || .18, 50 / (n * (S.seg || 2))));
       for (let q = 0; q <= n; q++) { const i = (i0 + q) % N, u = q / n, a = Math.PI * sd * (smoothstep(0, tw, u) - smoothstep(1 - tw, 1, u));
-        roll[i] = a; wo[i * 3 + 1] += Math.max((1 - Math.cos(a)) * R0, Math.abs(Math.sin(a)) * hw + .5 * Math.min(1, u * 8, (1 - u) * 8)) + (z.rise || 0) * Math.sin(Math.PI * u); S.wz[i] = 1; S.ag[i] = 1; }
+        roll[i] = a; wo[i * 3 + 1] += levage(a, u, R0, hw) + (z.rise || 0) * Math.sin(Math.PI * u); S.wz[i] = 1; S.ag[i] = 1; }
     } else {
       const A = (z.angle || 60) * DEG * (z.side || 1), lift = z.lift != null ? z.lift : 1;
       for (let q = 0; q <= n; q++) { const i = (i0 + q) % N, u = q / n, ramp = u < .25 ? smoothstep(0, .25, u) : u > .75 ? 1 - smoothstep(.75, 1, u) : 1;
@@ -5883,6 +6024,47 @@ function buildPlafondCage(W) {
     segs.forEach(([A, B], k) => { d.subVectors(B, A); const L = d.length(); q.setFromUnitVectors(up, d.normalize()); m.compose(p.addVectors(A, B).multiplyScalar(.5), q, new T.Vector3(1, L, 1)); im.setMatrixAt(k, m); }); g.add(im); }
   W.scene.add(g); W.plafondCage = { anneaux: rings.length, longerons: segs.length };
 }
+// ---------- décors interactifs (specials.vivants, concepteur) ----------
+// Avalanche : annoncée (panneau clignotant à 80 m, grondement, coulée qui dévale la pente) `preavis` secondes avant ; la neige couvre
+// ensuite `part` de la largeur côté montagne pendant `duree` s : ralentit (`ralenti` × vitesse max), ne bloque jamais, puis fond.
+// Les bots sont prévenus (côté libre). Période fixe : même cycle pour tous, en ligne comme hors ligne (W.clock).
+function vivantPhase(v, t) { const c = ((t + v.ph) % v.periode + v.periode) % v.periode; return c < v.preavis ? { etat: 'alerte', u: c / v.preavis } : c < v.preavis + v.duree ? { etat: 'neige', u: (c - v.preavis) / v.duree } : { etat: 'calme', u: 0 }; }
+function buildVivants(W) {
+  const S = W.S, N = S.N; W.vivants = []; const defs = W.def.vivants || (W.def.sourceData && W.def.sourceData.specials && W.def.sourceData.specials.vivants) || [];
+  for (const d of defs) { if (d.type !== 'avalanche') continue;
+    const i = Math.floor(d.at * N) % N, side = d.cote || ((W.hAt ? W.hAt(S.px[i] + S.rx[i] * (W.wallD + 25), S.pz[i] + S.rz[i] * (W.wallD + 25)) : 0) >= (W.hAt ? W.hAt(S.px[i] - S.rx[i] * (W.wallD + 25), S.pz[i] - S.rz[i] * (W.wallD + 25)) : 0) ? 1 : -1);
+    const v = { type: 'avalanche', i, side, part: d.part || .5, periode: d.periode || 20, preavis: d.preavis || 2.5, duree: d.duree || 5, ralenti: d.ralenti || .55, demi: Math.round((d.longueur || 40) / 2 / (S.seg || 2)), ph: d.phase || 0, bruit: false };
+    const g = new T.Group(); g.name = 'Avalanche'; W.scene.add(g);
+    // panneau d'alerte, 80 m avant, côté droit de la route
+    const si = ((i - Math.round(80 / (S.seg || 2))) % N + N) % N, sd = W.wallD + 2, sx = S.px[si] + S.rx[si] * sd, sz = S.pz[si] + S.rz[si] * sd, sy = W.hAt ? Math.max(S.py[si], W.hAt(sx, sz)) : S.py[si];
+    const signM = new T.MeshBasicMaterial({ color: '#ffb000' }), sign = new T.Mesh(new T.CircleGeometry(1.8, 3), signM); sign.position.set(sx, sy + 4.2, sz); sign.rotation.set(0, S.hd[si] + Math.PI, Math.PI / 2); g.add(sign);
+    const post = new T.Mesh(new T.CylinderGeometry(.12, .12, 4, 6), new T.MeshLambertMaterial({ color: '#d8dde6' })); post.position.set(sx, sy + 2, sz); g.add(post);
+    // coulée : boules de neige qui dévalent la pente vers la route
+    const n = 44, balls = new T.InstancedMesh(new T.IcosahedronGeometry(1, 1), new T.MeshLambertMaterial({ color: '#f4f8ff' }), n); balls.frustumCulled = false; g.add(balls);
+    const seeds = Array.from({ length: n }, (_, q) => ({ o: (q / n * 2 - 1) * v.demi * 1.3, l: Math.random(), s: 2 + Math.random() * 3.5, d: Math.random() * .3, h: 35 + Math.random() * 25 }));
+    // amas de neige sur la moitié de la route côté montagne (demi-ellipsoïde)
+    const lat0 = side * W.hw * (1 - v.part), lat1 = side * (W.hw + 1), mid = (lat0 + lat1) / 2, half = Math.abs(lat1 - lat0) / 2 + .6;
+    const drift = new T.Mesh(new T.SphereGeometry(1, 20, 10, 0, TAU, 0, Math.PI / 2), new T.MeshLambertMaterial({ color: '#f6f9ff' }));
+    drift.position.set(S.px[i] + S.rx[i] * mid, S.py[i], S.pz[i] + S.rz[i] * mid); drift.rotation.y = S.hd[i]; drift.scale.set(half, .01, v.demi * (S.seg || 2)); drift.visible = false; g.add(drift);
+    Object.assign(v, { g, signM, balls, seeds, drift, half, lat0, lat1, mid }); W.vivants.push(v); }
+}
+const _vm = new T.Matrix4(), _vq = new T.Quaternion(), _vs = new T.Vector3(), _vp = new T.Vector3();
+function updateVivants(W, t) {
+  const S = W.S; for (const v of W.vivants || []) { const ph = vivantPhase(v, t);
+    v.signM.color.set(ph.etat === 'alerte' ? ((t * 4) % 1 < .5 ? '#ff3b1f' : '#ffd23f') : ph.etat === 'neige' ? '#ff3b1f' : '#ffb000');
+    if (ph.etat === 'alerte' && !v.bruit) { v.bruit = true; const k = G.race && G.race.player; if (k && (k.x - S.px[v.i]) ** 2 + (k.z - S.pz[v.i]) ** 2 < 260 * 260 && !G.autopilot) AudioSys.sfx('avalanche'); }
+    if (ph.etat !== 'alerte') v.bruit = false;
+    // coulée : de la pente (55 m de côté, 35 à 60 m plus haut) jusqu'à la route pendant l'alerte, puis s'éparpille dans l'amas
+    v.seeds.forEach((s, q) => { const j = ((v.i + Math.round(s.o)) % S.N + S.N) % S.N; let u = ph.etat === 'alerte' ? clamp((ph.u - s.d) / (1 - s.d), 0, 1) : ph.etat === 'neige' ? 1 : -1;
+      if (u < 0) { _vm.makeScale(0, 0, 0); v.balls.setMatrixAt(q, _vm); return; }
+      const e = u * u, lat = v.side * (W.wallD + 55) * (1 - e) + (v.lat0 + (v.lat1 - v.lat0) * s.l) * e, hy = s.h * (1 - e) + (ph.etat === 'neige' ? .4 - ph.u * .4 : 1);
+      _vp.set(S.px[j] + S.rx[j] * lat, S.py[j] + hy, S.pz[j] + S.rz[j] * lat); const sc = s.s * (ph.etat === 'neige' ? 1 - ph.u * .8 : 1); _vs.set(sc, sc, sc); _vq.identity(); _vm.compose(_vp, _vq, _vs); v.balls.setMatrixAt(q, _vm); });
+    v.balls.instanceMatrix.needsUpdate = true;
+    v.drift.visible = ph.etat === 'neige'; if (v.drift.visible) v.drift.scale.y = 1.6 * Math.min(1, ph.u * 6) * (1 - smoothstep(.8, 1, ph.u)); }
+}
+function vivantFactor(W, k) { if (!W.vivants || k.air || (k.P && k.P !== W.S)) return 1; for (const v of W.vivants) { const ph = vivantPhase(v, W.clock || 0); if (ph.etat !== 'neige' || ph.u > .9) continue;
+    let di = Math.abs(k.idx - v.i); di = Math.min(di, W.S.N - di); if (di > v.demi) continue; const l = k.lat * v.side; if (l >= Math.min(v.lat0, v.lat1) * v.side - 1.2 && l <= Math.max(Math.abs(v.lat0), Math.abs(v.lat1)) + 1.5) return v.ralenti; } return 1; }
+function vivantAhead(W, ci) { if (!W.vivants) return null; for (const v of W.vivants) { const ph = vivantPhase(v, W.clock || 0); if (ph.etat === 'calme') continue; const d = ((v.i - ci) % W.S.N + W.S.N) % W.S.N; if (d * (W.S.seg || 2) <= 70 + v.demi * (W.S.seg || 2)) return v; } return null; }
 // bandes lumineuses bleues le long des zones anti-gravité
 function buildWarpGlow(W) {
   const S = W.S; if (!S.ag) return; const m = new T.MeshBasicMaterial({ color: '#5ff2ff', transparent: true, opacity: .85, blending: T.AdditiveBlending, depthWrite: false, side: T.DoubleSide });
@@ -5984,7 +6166,19 @@ function obstVisual11(o, t) {
     u.petals.rotation.z += o.st === 'rest' ? .001 : .004; u.petals.scale.setScalar(p.warn ? 1 + .12 * p.w : 1);
     // Halo de la zone visée : s'allume et clignote de plus en plus vite pendant l'alerte, rouge plein pendant la frappe.
     u.glow.material.opacity = p.warn ? .3 + .25 * p.w + .3 * Math.abs(Math.sin(t * (10 + 16 * p.w))) : p.strike ? .85 : 0; u.glow.scale.setScalar(p.warn ? .7 + .3 * p.w : 1);
-    if (u.eyes) u.eyes.scale.y = o.st === 'rest' ? .25 : 1; return true; }
+    // Plante vivante (C2-6, apparence seulement : attaque, portée et collisions inchangées) : respiration de la tige, feuilles qui
+    // ondulent, pétales qui frémissent (plus fort en alerte, lueur qui pulse), clignement des yeux, mastication après la frappe,
+    // pétales et pollen projetés au moment où elle croque.
+    const veille = o.st === 'idle' || o.st === 'back';
+    u.pivot.scale.y = 1 + Math.sin(t * 1.9 + o.ph) * (o.st === 'rest' ? .015 : .035);
+    if (u.leaves) for (let q = 0; q < u.leaves.length; q++) u.leaves[q].rotation.z = Math.sin(t * 2.1 + q * 1.3 + o.ph) * (p.warn ? .22 : .1);
+    const pk = u.petals.children; for (let q = 0; q < pk.length; q++) pk[q].rotation.y = Math.sin(t * (p.warn ? 9 : 3) + q * .9 + o.ph) * (p.warn ? .3 : .12);
+    if (u.petalM) u.petalM.emissiveIntensity = p.warn ? .25 + .45 * Math.abs(Math.sin(t * (8 + 10 * p.w))) : p.strike ? .6 : .05;
+    if (o.st === 'back' || o.st === 'rest') u.jaw.rotation.x = .08 + .22 * Math.abs(Math.sin(t * 9 + o.ph)) * (o.st === 'back' ? 1 : .3); // mastication
+    if (p.strike && !o.__croc && G.W && G.W.parts && u.head) { o.__croc = true; const v = (u.__v = u.__v || new T.Vector3()); u.head.getWorldPosition(v);
+      for (let q = 0; q < 14; q++) G.W.parts.emit(v.x, v.y, v.z, rand(-5, 5), rand(1, 6), rand(-5, 5), pick([u.petalM ? '#' + u.petalM.color.getHexString() : '#ff5fa0', '#fff2a0', '#fffdf7']), .7); }
+    if (!p.strike) o.__croc = false;
+    if (u.eyes) u.eyes.scale.y = o.st === 'rest' ? .25 : veille && Math.sin(t * .9 + o.ph * 3) > .985 ? .15 : 1; return true; }
   if (o.kind === 'jet') { const f = m.userData; const on = o.down ? 1 : 0; if (f.flame) { f.flame.scale.set(1, on ? 1 + Math.sin(t * 40) * .08 : .02, 1); f.flame.visible = on > 0; }
     if (f.glow) f.glow.material.opacity = o.warn ? .35 + .35 * Math.abs(Math.sin(t * 18)) : on ? .9 : .12; return true; }
   if (o.kind === 'traffic' || o.kind === 'ball') { m.position.set(o.x, o.y + (o.kind === 'ball' ? o.r * o.fade : 0), o.z); m.rotation.y = o.h; m.visible = !(o.P.glide && o.P.glide[o.i]) && (o.kind !== 'ball' || o.fade > .05); if (o.kind === 'ball') m.scale.setScalar(Math.max(.05, o.fade)); if (o.kind === 'ball' && m.userData.inner) m.userData.inner.rotation.x += o.speed / o.r / 60 * (o.dir > 0 ? 1 : -1); return true; }
@@ -6017,7 +6211,7 @@ function obstMesh11(o, W) {
     const pal = { daisy: ['#3f9a3a', '#ff5fa0', '#fff2a0'], ember: ['#5a7a2a', '#ff7a2a', '#ffd23a'], lilac: ['#4f8a4a', '#a77bff', '#fff6d0'], jungle: ['#2f8a3a', '#ff3a5a', '#ffe06a'], gloom: ['#3a4a3a', '#7a2a8a', '#c8ff6a'] }[o.style] || ['#3f9a3a', '#ff5fa0', '#fff2a0'];
     const P = o.P, i = o.i, base = new T.Group(); base.position.set(P.px[i] + P.rx[i] * o.lat, P.py[i], P.pz[i] + P.rz[i] * o.lat); base.rotation.y = Math.atan2(-P.rx[i] * o.side, -P.rz[i] * o.side); base.scale.setScalar(1.5); g.add(base);
     const stemM = stdMat(pal[0], .7, 0), petalM = new T.MeshStandardMaterial({ color: pal[1], roughness: .55, side: T.DoubleSide }), mouthM = stdMat('#5a0f2a', .6, 0), toothM = stdMat('#fffdf7', .3, 0);
-    for (let q = 0; q < 5; q++) { const lf = new T.Mesh(new T.SphereGeometry(1, 12, 6), stemM); lf.scale.set(1.5, .12, .55); lf.position.set(Math.cos(q * 1.26) * 1.1, .15, Math.sin(q * 1.26) * 1.1); lf.rotation.y = -q * 1.26; base.add(lf); }
+    const leaves = []; for (let q = 0; q < 5; q++) { const lf = new T.Mesh(new T.SphereGeometry(1, 12, 6), stemM); lf.scale.set(1.5, .12, .55); lf.position.set(Math.cos(q * 1.26) * 1.1, .15, Math.sin(q * 1.26) * 1.1); lf.rotation.y = -q * 1.26; base.add(lf); leaves.push(lf); }
     // Bulbe racine (volume au sol) : la plante paraît plantée et non posée.
     const bulb = new T.Mesh(new T.SphereGeometry(1, 16, 10), stemM); bulb.scale.set(1.15, .7, 1.15); bulb.position.y = .25; base.add(bulb);
     const pivot = new T.Group(); pivot.position.y = .3; base.add(pivot);
@@ -6037,7 +6231,8 @@ function obstMesh11(o, W) {
     // Alerte au sol : halo qui clignote sur le bord de la voie avant la frappe.
     const glow = new T.Mesh(new T.CircleGeometry(2.4, 24), new T.MeshBasicMaterial({ color: '#ff4f6a', transparent: true, opacity: 0, depthWrite: false })); glow.rotation.x = -Math.PI / 2;
     const gl = o.lat - o.side * o.reach; glow.position.set(P.px[i] + P.rx[i] * gl, P.py[i] + .16, P.pz[i] + P.rz[i] * gl); g.add(glow);
-    g.userData = { pivot, jaw, petals, glow, eyes }; g.traverse((m) => { if (m.isMesh && m !== glow) m.castShadow = true; }); return g; }
+    petalM.emissive = new T.Color(pal[1]); petalM.emissiveIntensity = .05;
+    g.userData = { pivot, jaw, petals, glow, eyes, leaves, head, petalM }; g.traverse((m) => { if (m.isMesh && m !== glow) m.castShadow = true; }); return g; }
   if (o.kind === 'jet') { const lava = o.style !== 'steam';
     const base = new T.Mesh(new T.CylinderGeometry(R * .9, R, .5, 16), stdMat('#3a3440', .5, .6)); base.position.y = .25; g.add(base);
     const glow = new T.Mesh(new T.CircleGeometry(R * .8, 20), new T.MeshBasicMaterial({ color: lava ? '#ff6a1a' : '#bfefff', transparent: true, opacity: .2 })); glow.rotation.x = -Math.PI / 2; glow.position.y = .52; g.add(glow);
@@ -6080,7 +6275,9 @@ function obstHit11(k, o, R, nx, nz, vn) {
 function planKickers(W) {
   const S = W.S, N = S.N, def = W.def; W.kickers = [];
   const raise = (P, i0, n, h) => { for (let q = 0; q < n; q++) { const j = P.closed ? ((i0 + q) % P.N + P.N) % P.N : i0 + q, u = (q + 1) / n; P.py[j] += h * Math.pow(u, 1.6); } };
-  for (const t of def.tricks || []) { const i = Math.floor(t * N); raise(S, i - 7, 7, 1.2); W.kickers.push({ i, lip: i % N, trick: true }); }
+  // Tremplins à figures : jamais dans une jonction (même règle que turbos, boîtes et dos d'âne). Plongeon : tremplin posé sur la
+  // réception de l'ENVOL, route principale relevée de 0,8 m sous la branche qui la rejoint (trou détecté par le contrôleur).
+  for (const t of def.tricks || []) { const i = Math.floor(clearOfJunctions(W, t) * N); raise(S, i - 7, 7, 1.2); W.kickers.push({ i, lip: i % N, trick: true }); }
   // lèvre de rampe avant chaque gouffre de planeur
   for (const [a] of def.glide || []) { const i0 = Math.floor(a * N); raise(S, i0 - 8, 8, 1.4); W.kickers.push({ i: i0, lip: i0, glide: true }); }
   for (const B of W.branches || []) if (B.glideA != null) { raise(B, B.glideA - 8, 8, 1.4); W.kickers.push({ P: B, i: B.glideA, lip: B.glideA, glide: true }); }
@@ -6129,18 +6326,32 @@ function sectionOf(k) { const S = G.W.S; if (!(k.lap >= 1)) return 1; return cla
 // ---------- rendu des karts et caméra dans les zones tordues ----------
 const _wa = new T.Vector3(), _wb = new T.Vector3(), _qa = new T.Quaternion(), _qb = new T.Quaternion();
 function warpSeg(k) { const S = G.W.S, N = S.N, i = clamp(k.idx, 0, N - 1), a = k.along || 0; let j = a >= 0 ? (i + 1) % N : (i - 1 + N) % N; const t = clamp(Math.abs(a) / (S.seg || 2), 0, 1); return [i, j, t]; }
-function warpAtK(k, lat, h, out) { const S = G.W.S, [i, j, t] = warpSeg(k); warpAt(S, i, lat, h, _wa); warpAt(S, j, lat, h, _wb); return out.copy(_wa).lerp(_wb, t); }
+// Position et repère du kart sur la MÊME courbe lisse (Catmull-Rom) que la chaussée dessinée. Avant : interpolation linéaire entre
+// échantillons, trajectoire en ligne brisée (cassure tous les 2-3 m affichés) : à cadence irrégulière, saccade du kart 10 à 15 fois
+// celle d'une route ordinaire et caméra à 6°/image (banc rendu-loopings, zone témoin).
+function warpParam(k) { const S = G.W.S, [i, j, t] = warpSeg(k), a = k.along || 0; return a >= 0 ? [i, t] : [j, 1 - t]; }
+// Cap physique de la route interpolé entre échantillons (le cap de l'échantillon entier sautait à chaque échantillon : caméra à 8,8 m
+// derrière le kart déviée par à-coups).
+function warpHd(k) { const S = G.W.S, [lo, tt] = warpParam(k), n = S.closed === false ? Math.min(S.N - 1, lo + 1) : (lo + 1) % S.N; return S.hd[lo] + angDiff(S.hd[lo], S.hd[n]) * tt; }
+function warpAtK(k, lat, h, out) { const S = G.W.S, [lo, tt] = warpParam(k); return warpCurve(S, lo, tt, lat, h, out); }
+const _wcv = [0, 0, 0, 0];
+function warpVecCurve(S, A, lo, t, out) { const N = S.N, at = (q) => (S.closed === false ? clamp(q, 0, N - 1) : ((q % N) + N) % N), t2 = t * t, t3 = t2 * t;
+  for (let c = 0; c < 3; c++) { for (let m = 0; m < 4; m++) _wcv[m] = A[at(lo - 1 + m) * 3 + c]; const [p0, p1, p2, p3] = _wcv; out.setComponent(c, .5 * (2 * p1 + (p2 - p0) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (3 * p1 - p0 + p3 - 3 * p2) * t3)); }
+  return out.normalize(); }
+const _wsU = new T.Vector3(), _wsF = new T.Vector3(), _wsR = new T.Vector3(), _wsM = new T.Matrix4();
+function warpFrameSmooth(S, lo, t, yawRel, extraRoll, out) { warpVecCurve(S, S.wu, lo, t, _wsU); warpVecCurve(S, S.wf, lo, t, _wsF); _wsF.addScaledVector(_wsU, -_wsF.dot(_wsU)).normalize(); _wsR.crossVectors(_wsU, _wsF).normalize();
+  _wsM.makeBasis(_wsR, _wsU, _wsF); out.setFromRotationMatrix(_wsM); _we.set(0, yawRel, extraRoll || 0); _wq.setFromEuler(_we); return out.multiply(_wq); }
 const _wp = new T.Vector3(), _wf2 = new T.Vector3(), _wu2 = new T.Vector3(), _camUp = new T.Vector3(0, 1, 0);
 function warpKartPose(k, M) {
   // remplace position/orientation du kart par celles de la piste repliée ; renvoie true si appliqué
   if (!inWarp(k)) return false; const S = G.W.S, [i, j, t] = warpSeg(k), h = Math.max(0, k.y - k.groundY);
   warpAtK(k, k.lat, h + .1, M.g.position);
-  const yaw = angDiff(S.hd[i], k.h) + k.spinAng + (k.driftVis || 0), rl = k.trickT > 0 ? (k.trickDir || 1) * (1 - k.trickT / .45) * TAU : 0;
-  warpFrameQuat(S, i, yaw, rl, _qa); warpFrameQuat(S, j, yaw, rl, _qb); M.g.quaternion.copy(_qa).slerp(_qb, t);
+  const yaw = angDiff(warpHd(k), k.h) + k.spinAng + (k.driftVis || 0), rl = k.trickT > 0 ? (k.trickDir || 1) * (1 - k.trickT / .45) * TAU : 0;
+  const [lo, tt] = warpParam(k); warpFrameSmooth(S, lo, tt, yaw, rl, M.g.quaternion);
   return true;
 }
-function warpDir(k, outF, outU) { const S = G.W.S, [i0, i1, t] = warpSeg(k), a = i0 * 3, b = i1 * 3, d = angDiff(S.hd[i0], k.vh), L = (A, o) => A[a + o] + (A[b + o] - A[a + o]) * t;
-  outU.set(L(S.wu, 0), L(S.wu, 1), L(S.wu, 2)).normalize(); outF.set(L(S.wf, 0), L(S.wf, 1), L(S.wf, 2)).normalize().multiplyScalar(Math.cos(d)).addScaledVector(_wx.set(L(S.wr, 0), L(S.wr, 1), L(S.wr, 2)).normalize(), -Math.sin(d)).normalize(); }
+function warpDir(k, outF, outU) { const S = G.W.S, [lo, tt] = warpParam(k), d = angDiff(warpHd(k), k.vh);
+  warpVecCurve(S, S.wu, lo, tt, outU); warpVecCurve(S, S.wf, lo, tt, outF).multiplyScalar(Math.cos(d)).addScaledVector(warpVecCurve(S, S.wr, lo, tt, _wx), -Math.sin(d)).normalize(); }
 function warpCamera(k, dt, portrait) {
   if (!inWarp(k)) { _camUp.lerp(_wu2.set(0, 1, 0), 1 - Math.exp(-dt * 4)); camera.up.copy(_camUp); return false; }
   warpAtK(k, k.lat, Math.max(0, k.y - k.groundY) + 1.4, _wp); warpDir(k, _wf2, _wu2);
@@ -6533,6 +6744,14 @@ function spawnOil(x, z, y, owner, id, kind = 'oil') {
   G.W.scene.add(m); warpObject(m, x, y + .16, z); G.hazards.push({ x, z, y, life: kind === 'mine' ? 30 : 25, mesh: m, owner, age: 0, id, kind });
 }
 function disposeObj(o) { G.W.scene.remove(o); o.traverse((c) => { if (c.geometry && !c.geometry.userData.keep && c.geometry !== rocketGeo) c.geometry.dispose(); if (c.material && ![...matCache.values()].includes(c.material)) c.material.dispose(); }); }
+// Visibilité des objets lancés (C2-14) : uniquement l'apparence (taille, halo, éclat au départ, traînée, impact) ; trajectoire,
+// vitesse, portée, rayon de touche et équilibrage inchangés (les collisions utilisent les positions, pas les maillages).
+const PROJ_HALO = (() => { const g = new T.SphereGeometry(1, 12, 8); g.userData.keep = true; return g; })();
+function projVisible(g, color, scale, x, y, z, h) {
+  g.scale.setScalar(scale);
+  const halo = new T.Mesh(PROJ_HALO, new T.MeshBasicMaterial({ color, transparent: true, opacity: .32, depthWrite: false, blending: T.AdditiveBlending })); halo.scale.setScalar(.75); g.add(halo);
+  const W = G.W; if (W && W.parts) for (let m = 0; m < 12; m++) W.parts.emit(x + Math.sin(h) * 1.5, y + 1, z + Math.cos(h) * 1.5, Math.sin(h) * rand(4, 9) + rand(-2, 2), rand(.5, 3), Math.cos(h) * rand(4, 9) + rand(-2, 2), pick([color, '#fffdf7']), .45, .2);
+}
 function spawnRocket(x, z, y, h, sp, owner, target, id, kind = 'rocket') {
   if (KIND13.has(kind)) return spawn13(x, z, y, h, sp, owner, target, id, kind);
   const S = G.W.S, N = S.N; let best = owner ? owner.idx : 0, bd = Infinity;
@@ -6540,6 +6759,7 @@ function spawnRocket(x, z, y, h, sp, owner, target, id, kind = 'rocket') {
   const g = new T.Group();
   if (kind === 'boule') { const b = new T.Mesh(new T.SphereGeometry(.6, 18, 14), stdMat('#38b6ff', .25, .3)); g.add(b); const ring = new T.Mesh(new T.TorusGeometry(.6, .1, 8, 24), stdMat('#fffdf7', .3, .2)); ring.rotation.x = Math.PI / 2; g.add(ring); g.userData.spin = b; }
   else { g.add(new T.Mesh(rocketGeo, stdMat('#ff4f3a', .3, .3))); const fl = new T.Mesh(new T.SphereGeometry(.35, 8, 6), new T.MeshBasicMaterial({ color: '#ffc531' })); fl.position.z = -.8; g.add(fl); }
+  projVisible(g, kind === 'boule' ? '#7fd4ff' : '#ffb347', kind === 'boule' ? 1.35 : 1.7, x, y, z, h);
   G.W.scene.add(g);
   G.rockets.push({ x, z, y, h, idx: best, lat: (x - S.px[best]) * S.rx[best] + (z - S.pz[best]) * S.rz[best], speed: sp, target, owner, life: kind === 'boule' ? 6 : 7, age: 0, mesh: g, id, kind });
 }
@@ -6562,8 +6782,9 @@ function updateItems(dt) {
     const h = G.hazards[n];
     // Piège lancé devant : trajectoire en cloche, sans effet avant l'atterrissage.
     if (h.fly) { const f = h.fly; f.t += dt; const u = Math.min(1, f.t / f.T), arc = Math.sin(u * Math.PI) * (2.5 + f.T * 5);
+      if (W.parts && Math.random() < .85) W.parts.emit(h.mesh.position.x, h.mesh.position.y + .4, h.mesh.position.z, rand(-.5, .5), rand(0, .6), rand(-.5, .5), '#fffdf7', .45, 0); // traînée du vol (C2-14)
       h.mesh.position.set(lerp(f.x0, f.end.x, u), lerp(f.y0, f.end.y, u) + arc, lerp(f.z0, f.end.z, u));
-      if (u >= 1) { h.fly = null; h.mesh.position.copy(f.end); for (let m = 0; m < 8; m++) W.parts.emit(f.end.x, f.end.y + .3, f.end.z, rand(-3, 3), rand(1, 4), rand(-3, 3), '#fffdf7', .4); }
+      if (u >= 1) { h.fly = null; h.mesh.position.copy(f.end); for (let m = 0; m < 18; m++) W.parts.emit(f.end.x, f.end.y + .3, f.end.z, rand(-4, 4), rand(1, 5), rand(-4, 4), pick(['#fffdf7', '#ffd23a']), .55); }
       continue; }
     h.life -= dt; h.age += dt; if (HZ13.has(h.kind)) { if (h.life <= 0 || hazard13(h, dt)) { disposeObj(h.mesh); G.hazards.splice(n, 1); } continue; } let gone = h.life <= 0; const rad2 = h.kind === 'mine' ? 8.4 : h.kind === 'leurre' ? 6 : 6.4;
     if (h.mesh.userData.spin) { h.mesh.userData.spin.rotation.y += dt * 1.4; h.mesh.position.y = h.y + 1.5 + Math.sin(now * 2.5 + h.mesh.userData.bob) * .25; }
@@ -6595,9 +6816,10 @@ function updateItems(dt) {
       if (r.kind === 'boule') { const dx = Math.sin(r.h), dz = Math.cos(r.h), dl = (dx * S.rx[best] + dz * S.rz[best]); if (dl * s > 0) { r.h = Math.atan2(dx - 2 * dl * S.rx[best], dz - 2 * dl * S.rz[best]); AudioSys.sfx('bump'); } }
     }
     r.y = lerp(r.y, S.py[best] + (S.glide && S.glide[best] ? 3 : 0), .3); r.mesh.position.set(r.x, r.y + (r.kind === 'boule' ? .6 : 1), r.z); r.mesh.rotation.y = r.h; if (S.wz && S.wz[best]) warpObject(r.mesh, r.x, r.y + 1, r.z);
-    if (r.kind !== 'boule' && Math.random() < .8) W.parts.emit(r.x - Math.sin(r.h) * 1, r.y + 1, r.z - Math.cos(r.h) * 1, rand(-1, 1), rand(0, 1), rand(-1, 1), '#ff9a2e', .35, 0);
+    if (r.kind !== 'boule') { for (let q = 0; q < 2; q++) W.parts.emit(r.x - Math.sin(r.h) * (1.2 + q * .8), r.y + 1, r.z - Math.cos(r.h) * (1.2 + q * .8), rand(-.6, .6), rand(0, .8), rand(-.6, .6), q ? '#ffd23a' : '#ff9a2e', .8, 0); } // traînée plus longue et plus dense (C2-14)
+    else if (Math.random() < .7) W.parts.emit(r.x - Math.sin(r.h) * 1, r.y + .6, r.z - Math.cos(r.h) * 1, rand(-.5, .5), rand(0, .5), rand(-.5, .5), '#bfe9ff', .5, 0);
     if (!gone) for (const k of G.karts) { if (k.isRemote || (k === r.owner && r.age < (r.kind === 'boule' ? .8 : .6))) continue; if ((k.x - r.x) ** 2 + (k.z - r.z) ** 2 < 10.5 && Math.abs(k.y - r.y) < 3) { if (k.mirror > 0 && mirror13(r, k)) break; hitKart(k, r.owner); netHitReport(k, r.owner, r.id); gone = true; break; } }
-    if (gone) { for (let m = 0; m < 16; m++) W.parts.emit(r.x, r.y + 1, r.z, rand(-7, 7), rand(2, 9), rand(-7, 7), pick(['#ff4f3a', '#ffc531', '#fffdf7']), .7); disposeObj(r.mesh); G.rockets.splice(n, 1); }
+    if (gone) { for (let m = 0; m < 28; m++) W.parts.emit(r.x, r.y + 1, r.z, rand(-9, 9), rand(2, 11), rand(-9, 9), pick(['#ff4f3a', '#ffc531', '#fffdf7']), .85); disposeObj(r.mesh); G.rockets.splice(n, 1); }
   }
 }
 
@@ -6694,7 +6916,7 @@ function mesh13(kind) {
 function spawn13(x, z, y, h, sp, owner, target, id, kind) {
   const S = G.W.S, N = S.N; let best = owner ? owner.idx : 0, bd = Infinity;
   for (let o = -40; o <= 40; o++) { const i = ((owner ? owner.idx : 0) + o + N) % N; const d = (x - S.px[i]) ** 2 + (z - S.pz[i]) ** 2; if (d < bd) { bd = d; best = i; } }
-  const m = mesh13(kind); m.position.set(x, y + 1, z); G.W.scene.add(m);
+  const m = mesh13(kind); m.position.set(x, y + 1, z); if (kind === 'boomerang') projVisible(m, '#ffcf6a', 1.3, x, y, z, h); /* C2-14 : visible à l'aller et au retour */ G.W.scene.add(m);
   const r = { k13: true, x, z, y, h, idx: best, lat: (x - S.px[best]) * S.rx[best] + (z - S.pz[best]) * S.rz[best], speed: sp, target, owner, life: kind === 'comete' ? 16 : kind === 'boomerang' ? 4.2 : 6.5, age: 0, mesh: m, id, kind, hits: new Set() };
   if (kind === 'comete') G.lastComete = G.race ? G.race.t : 0;
   if (INIT13X[kind]) INIT13X[kind](r);
@@ -7144,6 +7366,8 @@ function aiControl(k, dt) {
   if (!wb && CP === S) for (const B of W.branches) { const d = B.i0 - ci; if (B.hasBridge && d > -6 && d < 45 && ai.br && ai.br[B.id] && !ai.br[B.id].take) lat = B.side > 0 ? Math.min(lat, -thw * .35) : Math.max(lat, thw * .35); }
   lat = clamp(lat, -thw * .82, thw * .82);
   let tx = TP.px[ti] + TP.rx[ti] * lat, tz = TP.pz[ti] + TP.rz[ti] * lat;
+  // décors interactifs (avalanche annoncée ou neige sur la route, 0 à 70 m devant) : côté libre
+  if (CP === S) { const va = vivantAhead(W, ci); if (va) lat = va.side > 0 ? Math.min(lat, -thw * .45) : Math.max(lat, thw * .45); }
   // obstacles : on vise le côté libre au niveau de l'obstacle le plus proche
   { let av = null; const clock = G.W.clock || 0;
     for (const o of G.W.obst || []) {
@@ -7240,7 +7464,7 @@ function simStep(dt) {
     kartPhysics(k, inp, dt);
   }
   Input.itemEdge = false;
-  W.clock = (W.clock || 0) + dt; updateObstacles(W.clock); updateGates(W, W.clock); updateWeather(W, W.clock, dt); updateChameleon(W, W.clock, dt); updateZones(W, dt); policeUpdate(dt);
+  W.clock = (W.clock || 0) + dt; updateObstacles(W.clock); updateVivants(W, W.clock); updateGates(W, W.clock); updateWeather(W, W.clock, dt); updateChameleon(W, W.clock, dt); updateZones(W, dt); policeUpdate(dt);
   if (racing) { collideKarts(); updateItems(dt); updateBoxes(dt); }
   // classement
   updateRaceOrder();
@@ -9108,7 +9332,7 @@ function openStudio() {
   toast('Ouverture du Studio…', 1500);
   load(studioSrc('studio-core.js')).then(() => load(studioSrc('studio.js'))).then(() => window.WKStudio.open()).catch(() => toast('Le Studio n\'a pas pu se charger (connexion ?).'));
 }
-function toMenu() { if (Net.peer) netReset(); UI.quiz = null; UI.party = null; UI.mode = 'quick'; G.race = null; G.paused = false; showHud(false); AudioSys.engine(0, false); AudioSys.stopMusic(); UI.gp = null; show('title'); const back = UI.afterMenu; UI.afterMenu = null; if (back) back(); }
+function toMenu() { resetPerf(); if (Net.peer) netReset(); UI.quiz = null; UI.party = null; UI.mode = 'quick'; G.race = null; G.paused = false; showHud(false); AudioSys.engine(0, false); AudioSys.stopMusic(); UI.gp = null; show('title'); const back = UI.afterMenu; UI.afterMenu = null; if (back) back(); }
 
 function drawTrackThumb(c, def) {
   const S = buildSamples(def), x = c.getContext('2d'), w = c.width, h = c.height;
@@ -9187,12 +9411,12 @@ function swatchGroup(el, key, list) {
   el.innerHTML = ''; for (const c of list) { const b = document.createElement('button'); b.type = 'button'; b.style.background = c; b.setAttribute('aria-label', 'Couleur ' + c); b.setAttribute('aria-pressed', String(SAVE[key] === c));
     b.onclick = () => { AudioSys.sfx('click'); SAVE[key] = c; store(); swatchGroup(el, key, list); refreshGarageKart(); }; el.appendChild(b); }
 }
-function leaveGarage() { if (G.race && G.race.state === 'attract') startAttract(G.W.ti); }
+function leaveGarage() { if (G.race && G.race.state === 'attract') attractAsync(G.W.ti); }
 { const gp = $('#g-pseudo'); if (gp && gp.closest('.g-row')) gp.closest('.g-row').hidden = true; }   // le nom = le pseudo du compte (Réglages > Compte)
 
 /* réglages */
 $$('#set-ctrl button').forEach((b) => (b.onclick = () => { AudioSys.sfx('click'); SAVE.control = b.dataset.v; store(); syncSettings(); if (SAVE.control === 'tilt' && isTouch) ensureMotion().then((ok) => { if (!ok) toast('Capteur non autorisé. Sur iPhone, ouvre le jeu dans Safari en https.'); }); }));
-$$('#set-q button').forEach((b) => (b.onclick = () => { AudioSys.sfx('click'); SAVE.quality = b.dataset.v; store(); syncSettings(); applyQuality(); toast({ high: 'Haut : ombres et décor complet, à la prochaine course.', medium: 'Moyen : bon compromis, à la prochaine course.', low: 'Bas : le plus fluide, à la prochaine course.' }[SAVE.quality]); }));
+$$('#set-q button').forEach((b) => (b.onclick = () => { AudioSys.sfx('click'); QAUTO.choix = null; SAVE.quality = b.dataset.v; store(); syncSettings(); applyQuality(); toast({ high: 'Haut : ombres et décor complet, à la prochaine course.', medium: 'Moyen : bon compromis, à la prochaine course.', low: 'Bas : le plus fluide, à la prochaine course.' }[SAVE.quality]); }));
 $('#set-enhanced').onclick = () => { SAVE.enhancedGraphics = !enhancedGraphics(); store(); syncSettings(); if (Graphics && G.W) Graphics.applyMode(G.W, enhancedGraphics(), renderer); AudioSys.sfx('click'); };
 $('#set-sens').oninput = (e) => { SAVE.sens = +e.target.value; store(); $('#set-sens-o').textContent = SAVE.sens.toFixed(1); };
 for (const [id, key] of [['#set-inv', 'invert'], ['#set-snd', 'sound'], ['#set-mus', 'music'], ['#set-perf', 'showPerf']]) $(id).onclick = () => { SAVE[key] = !SAVE[key]; store(); syncSettings(); AudioSys.init(); AudioSys.setVolumes(); AudioSys.sfx('click'); };
@@ -9285,12 +9509,16 @@ function buildTrackCards() {
     const h = document.createElement('div'); h.className = 'cup'; h.textContent = name; wrap.appendChild(h);
     for (const i of list) { const def = TRACKS[i];
       const b = document.createElement('button'); b.className = 'card panel' + (i === UI.track ? ' sel' : ''); b.type = 'button'; const rec = SAVE.records[def.id] || {};
-      b.innerHTML = '<canvas></canvas><h3></h3><p></p><div class="meta"><span class="lvl"></span><span class="rec"></span></div>';
+      b.innerHTML = '<div class="thumb"><canvas></canvas></div><h3></h3><p></p><div class="meta"><span class="lvl"></span><span class="rec"></span></div>'; b.dataset.ti = i;
+      // Aperçu du circuit (C2-8) : image légère pré-rendue (scripts/apercus.cjs), chargée quand la carte devient visible ; le plan 2D
+      // passe en incrustation. Rien n'est construit au toucher. Sans image (circuit du Studio, hors ligne) : plan 2D seul, comme avant.
+      if (!def.studio) { const th = b.querySelector('.thumb'), im = new Image(); im.className = 'apercu'; im.alt = ''; im.loading = 'lazy'; im.decoding = 'async';
+        im.onload = () => th.classList.add('photo'); im.onerror = () => im.remove(); im.src = 'assets/apercus/' + def.id + '.webp'; th.prepend(im); }
       b.querySelector('h3').textContent = def.name; b.querySelector('p').textContent = def.desc;
       b.querySelector('.lvl').innerHTML = [1, 2, 3].map((n) => '<i class="' + (n <= def.level ? 'on' : '') + '"></i>').join('');
       b.querySelector('.rec').textContent = rec.lap ? 'Record ' + fmtTime(rec.lap) : '';
       thumbInto(b.querySelector('canvas'), i);
-      b.onclick = () => { AudioSys.sfx('click'); UI.track = i; SAVE.track = i; store(); $$('#track-cards .card').forEach((c) => c.classList.remove('sel')); b.classList.add('sel'); if (G.race && G.race.state === 'attract' && G.W.ti !== i) startAttract(i); };
+      b.onclick = () => { AudioSys.sfx('click'); UI.track = i; SAVE.track = i; store(); $$('#track-cards .card').forEach((c) => c.classList.remove('sel')); b.classList.add('sel'); if (!G.race || G.race.state === 'attract') { if (G.W.ti !== i || ATTRACT_P) attractAsync(i); } };
       wrap.appendChild(b); }
   }
   syncCC();
@@ -9301,14 +9529,14 @@ function refreshTitle() {
   chip.classList.toggle('warn', c === 'tilt' && Input.listening && !Input.tiltSeen && isTouch);
   chip.querySelector('span').textContent = !isTouch ? 'Commandes : clavier' : 'Commandes : ' + ({ stick: 'joystick', tilt: 'inclinaison', touch: 'boutons' }[c] || 'joystick');
   $('#b-install').hidden = isStandalone();
-  if (!G.race || G.race.state !== 'attract') startAttract(UI.track);
+  if ((!G.race || G.race.state !== 'attract') && !(ATTRACT_P && ATTRACT_TI === UI.track)) { if (G.W) attractAsync(UI.track); else startAttract(UI.track); }
   AudioSys.stopMusic();
 }
 /* ---- réglages ---- */
 function syncSettings() {
   $('#set-enhanced').setAttribute('aria-pressed', String(enhancedGraphics()));
   $$('#set-ctrl button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === SAVE.control)));
-  $$('#set-q button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === SAVE.quality)));
+  $$('#set-q button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === (QAUTO.choix || SAVE.quality))));
   $$('#set-fps button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === SAVE.fps)));
   $('#set-sens').value = SAVE.sens; $('#set-sens-o').textContent = (+SAVE.sens).toFixed(1);
   $('#set-inv').setAttribute('aria-pressed', String(!!SAVE.invert)); $('#set-snd').setAttribute('aria-pressed', String(!!SAVE.sound)); $('#set-mus').setAttribute('aria-pressed', String(!!SAVE.music)); $('#set-perf').setAttribute('aria-pressed', String(!!SAVE.showPerf)); try { syncVol(); } catch (e) { /* rien */ }
@@ -9368,16 +9596,23 @@ function fpsCap() { return SAVE.fps === 0 ? 0 : SAVE.fps === 30 ? 30 : 60; }
 let last = performance.now(), lastTick = last, acc = 0; const STEP = 1 / 60;
 // Interpolation d'affichage (« Fix Your Timestep ») : état avant le dernier pas, mélange pour le rendu, puis restauration.
 const KART_POSE = ['x', 'y', 'z', 'lat', 'groundY', 'airH'], KART_ANG = ['h', 'vh'];
-function snapKarts() { for (const k of G.karts || []) { const p = k._pv || (k._pv = {}); for (const f of KART_POSE) p[f] = k[f] || 0; for (const f of KART_ANG) p[f] = k[f] || 0; p.P = k.P; p.idx = k.idx; p.ok = true; } }
+function snapKarts() { for (const k of G.karts || []) { const p = k._pv || (k._pv = {}); for (const f of KART_POSE) p[f] = k[f] || 0; for (const f of KART_ANG) p[f] = k[f] || 0; p.P = k.P; p.idx = k.idx; p.along = k.along || 0; p.ok = true; } }
 // Objets de sauvegarde réutilisés (un par kart) et tableau réutilisé : aucune allocation par image.
 const BLEND_SAVED = [];
 function blendKarts(a) {
   const saved = BLEND_SAVED; saved.length = 0;
   for (const k of G.karts || []) { const p = k._pv; if (!p || !p.ok || p.P !== k.P || Math.abs(p.idx - k.idx) > 6 || (k.x - p.x) ** 2 + (k.z - p.z) ** 2 > 64) continue;
-    const s = k._sv || (k._sv = { k }); s.k = k; for (const f of KART_POSE) { s[f] = k[f]; k[f] = lerp(p[f], k[f] || 0, a); } for (const f of KART_ANG) { s[f] = k[f]; k[f] = p[f] + angDiff(p[f], k[f]) * a; } saved.push(s); }
+    const s = k._sv || (k._sv = { k }); s.k = k; s.idx = null; s.along = null; // objet réutilisé (Claude 2), remis à zéro
+    for (const f of KART_POSE) { s[f] = k[f]; k[f] = lerp(p[f], k[f] || 0, a); } for (const f of KART_ANG) { s[f] = k[f]; k[f] = p[f] + angDiff(p[f], k[f]) * a; }
+    // Sections spéciales (loopings, vrilles, plafond) : le rendu place le kart et la caméra d'après la position le long de la route
+    // (idx + along), pas d'après x/z. Sans l'interpoler, à 120 Hz ou à cadence irrégulière, kart et caméra avançaient par à-coups
+    // d'un pas de physique (≈ 1 m logique, 2 à 3 m affichés dans un looping).
+    const P = k.P, seg = (P && P.seg) || 2, N = P && P.N; if (N) { const u0 = p.idx + (p.along || 0) / seg; let u1 = k.idx + (k.along || 0) / seg; if (P.closed !== false) { if (u1 - u0 > N / 2) u1 -= N; else if (u0 - u1 > N / 2) u1 += N; }
+      let u = u0 + (u1 - u0) * a; if (P.closed !== false) u = ((u % N) + N) % N; s.idx = k.idx; s.along = k.along; k.idx = Math.floor(u); k.along = (u - k.idx) * seg; }
+    saved.push(s); }
   return saved;
 }
-function restoreKarts(saved) { for (const s of saved) { for (const f of KART_POSE) s.k[f] = s[f]; for (const f of KART_ANG) s.k[f] = s[f]; } }
+function restoreKarts(saved) { for (const s of saved) { for (const f of KART_POSE) s.k[f] = s[f]; for (const f of KART_ANG) s.k[f] = s[f]; if (s.idx != null) { s.k.idx = s.idx; s.k.along = s.along; } } }
 function frame(now) {
   requestAnimationFrame(frame);
   const iv = fpsCap() ? 1000 / fpsCap() : 0, el = now - last; if (el < iv - 2.5) return;
@@ -9386,11 +9621,13 @@ function frame(now) {
   if (UI.screen === 'garage' && GS.kart) { renderGarage(dt); return; }
   if (!G.W || !G.race || G.prep) return;
   if (window.WK_LOADER && window.WK_LOADER.couvre && window.WK_LOADER.couvre()) return; // animation de démarrage au premier plan
+  { const st = window.WKStudio && window.WKStudio.state; if (st && st.el && !st.el.hidden) return; } // Wild Kart Studio plein écran : la 3D cachée derrière n'est ni calculée ni dessinée (éditeur plus fluide au téléphone)
   const racing = !!G.race.player && G.race.state !== 'attract';
   // en menu derrière un écran plein (roulette, questions…), on rafraîchit la 3D moins souvent
   const overlay = !racing && ['mini', 'card', 'wheel', 'wedit', 'party', 'online', 'settings', 'install', 'results'].includes(UI.screen);
   if (overlay && (frameN++ % 3)) return;
   if (REPLAY.on) { replayFrame(dt); renderer.render(G.W.scene, camera); return; }
+  const DG = window.WK_DIAG && window.WK_DIAG.image, tA = DG ? performance.now() : 0; // relevé ?diag=1 : logique et rendu de chaque image
   if (!G.paused) {
     const ts = G.testSpeed || 1; acc += dt * ts; let n = 0; while (acc >= STEP && n < 6 * ts) { snapKarts(); simStep(STEP); acc -= STEP; n++; } if (n === 6 * ts) acc = 0;
     // Affichage interpolé entre les deux derniers pas fixes (α = acc / STEP) : plus de saccades ni d'à-coups « en arrière »
@@ -9400,10 +9637,16 @@ function frame(now) {
     if (Net.inRace && G.race.online) { Net.sendT += dt; if (Net.sendT >= 1 / 15) { Net.sendT = 0; netSendStates(); } }
   }
   if (racing) adaptPerf(dt);
+  const tB = DG ? performance.now() : 0;
   renderer.render(G.W.scene, camera);
+  if (DG) DG(tB - tA, performance.now() - tB, renderer.info.render.calls, renderer.info.render.triangles, racing);
 }
 // résolution dynamique : baisse la définition si le téléphone rame, la remonte quand ça va mieux
 let frameN = 0; const PERF = { avg: 1 / 60, slowT: 0, fastT: 0, scale: 1, warned: false };
+// Affichage flou (C2-4) : la baisse automatique de définition ou de qualité ne vaut que pour la course en cours ; au retour au menu
+// et à chaque lancement, définition normale et qualité choisie par le joueur (avant : le menu et les courses suivantes restaient
+// à 60 % de la définition, ou en qualité basse, jusqu'à une course assez fluide pour remonter).
+function resetPerf() { if (QAUTO.choix) { SAVE.quality = QAUTO.choix; QAUTO.choix = null; } PERF.scale = 1; PERF.slowT = 0; PERF.fastT = 0; PERF.avg = 1 / 60; applyQuality(); }
 function adaptPerf(dt) {
   PERF.avg += (dt - PERF.avg) * .05; const base = Math.min(window.devicePixelRatio || 1, qual().pr);
   const cap = fpsCap() || 60; if (PERF.avg > 1.33 / cap) { PERF.slowT += dt; PERF.fastT = 0; } else if (PERF.avg < 1.05 / cap) { PERF.fastT += dt; PERF.slowT = 0; } else { PERF.slowT = 0; PERF.fastT = 0; }
@@ -9411,8 +9654,8 @@ function adaptPerf(dt) {
     PERF.slowT = 0;
     if (PERF.scale > .62) { PERF.scale = Math.max(.6, PERF.scale - .12); renderer.setPixelRatio(Math.max(.75, base * PERF.scale)); }
     else if (enhancedGraphics() && G.W.gfx) { if (G.W.gfx.budget > 0) Graphics.setBudget(G.W, G.W.gfx.budget - 1, renderer); }
-    else if (SAVE.quality === 'high') { SAVE.quality = 'medium'; store(); applyQuality(); if (G.W.sun) G.W.sun.castShadow = false; G.W.scene.traverse((o) => { if (o.material && !Array.isArray(o.material)) o.material.needsUpdate = true; }); for (const k of G.karts) if (k.mesh.g.children[2]) k.mesh.g.children.forEach((c) => { if (c.material && c.material.map === SHADOW_TEX) c.visible = true; }); if (!PERF.warned) { PERF.warned = true; toast('Graphismes passés en Moyen pour plus de fluidité.'); } }
-    else if (SAVE.quality === 'medium') { SAVE.quality = 'low'; PERF.scale = 1; store(); applyQuality(); toast('Graphismes passés en Bas pour plus de fluidité.'); }
+    else if (SAVE.quality === 'high') { if (!QAUTO.choix) QAUTO.choix = SAVE.quality; SAVE.quality = 'medium'; applyQuality(); if (G.W.sun) G.W.sun.castShadow = false; G.W.scene.traverse((o) => { if (o.material && !Array.isArray(o.material)) o.material.needsUpdate = true; }); for (const k of G.karts) if (k.mesh.g.children[2]) k.mesh.g.children.forEach((c) => { if (c.material && c.material.map === SHADOW_TEX) c.visible = true; }); if (!PERF.warned) { PERF.warned = true; toast('Graphismes passés en Moyen pour plus de fluidité.'); } }
+    else if (SAVE.quality === 'medium') { if (!QAUTO.choix) QAUTO.choix = SAVE.quality; SAVE.quality = 'low'; PERF.scale = 1; applyQuality(); toast('Graphismes baissés pour cette partie (ton réglage est gardé).'); }
   } else if (PERF.fastT > 4 && PERF.scale < 1) { PERF.fastT = 0; PERF.scale = Math.min(1, PERF.scale + .1); renderer.setPixelRatio(Math.max(.75, base * PERF.scale)); }
 }
 
@@ -9476,6 +9719,6 @@ if (window.TK_TEST) (function testPanel() {
 })();
 
 // accès pour les tests automatisés
-window.__TK = { buildWorldSteps, disposeWorld, startAttract, simStep, netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, updateItems, throwFwd, FRONT_TRAPS, onNetEvent, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, videoReady, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner, progOpen, weekDefs, updateObstacles, bridgeAvoid, brAt, raftsAvoid, playerEmote, kartEmote, aiControl, collideKarts, openStudio, toMenu, zoneEnv, studioSurfAt, obstacleHits };
+window.__TK = { buildWorldSteps, disposeWorld, QAUTO, adaptPerf, PERF, setInstZone: (v) => { INST_ZONE = v; }, setDecorLeger: (v) => { DECOR_LEGER = !!v; delete DECOR.bush; }, startAttract, simStep, netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, updateItems, throwFwd, FRONT_TRAPS, onNetEvent, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, videoReady, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner, progOpen, weekDefs, updateObstacles, bridgeAvoid, brAt, raftsAvoid, playerEmote, kartEmote, aiControl, collideKarts, openStudio, toMenu, zoneEnv, studioSurfAt, obstacleHits };
 Object.assign(window.__TK, { Graphics, adaptPerf, enhancedGraphics });
 })();

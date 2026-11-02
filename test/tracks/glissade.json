@@ -3,7 +3,7 @@
   "id": "glissade",
   "name": "Pic de la Glissade",
   "biome": "snow",
-  "status": "relief refait",
+  "status": "refonte concepteur",
   "route": {
     "closed": true,
     "nodes": [
@@ -250,8 +250,8 @@
   "specials": {
     "glide": [
       [
-        0.5477,
-        0.5877
+        0.565,
+        0.605
       ]
     ],
     "tunnels": [
@@ -306,24 +306,53 @@
         "falaise": 14,
         "toit": 30
       }
+    ],
+    "vivants": [
+      {
+        "type": "avalanche",
+        "at": 0.478,
+        "part": 0.5,
+        "periode": 18,
+        "preavis": 2.5,
+        "duree": 5,
+        "ralenti": 0.55,
+        "longueur": 40
+      }
     ]
   },
   "alternatives": [
     {
-      "from": 0.6861,
-      "to": 0.8607,
+      "from": 0.645,
+      "to": 0.875,
       "mid": [
         [
-          -230,
-          400,
-          18
+          -191,
+          573,
+          31
+        ],
+        [
+          -233,
+          483,
+          20
+        ],
+        [
+          -257,
+          385,
+          11
+        ],
+        [
+          -263,
+          283,
+          5
         ]
       ],
-      "width": 16,
+      "width": 13,
       "side": 1,
-      "offroad": true,
-      "label": "POUDREUSE · TURBO",
-      "boost": true
+      "offroad": false,
+      "label": "POUDREUSE",
+      "boost": false,
+      "narrow": true,
+      "ai": 0.4
     },
     {
       "from": 0.1689,
@@ -355,18 +384,33 @@
       "boost": true
     },
     {
-      "from": 0.442,
-      "to": 0.535,
+      "from": 0.412,
+      "to": 0.548,
       "mid": [
         [
-          251.8,
-          495.7,
-          71.5
+          360,
+          455,
+          66
         ],
         [
-          187.4,
-          534.5,
-          67.5
+          315,
+          465,
+          71
+        ],
+        [
+          283,
+          481,
+          82
+        ],
+        [
+          218,
+          516,
+          74
+        ],
+        [
+          179,
+          532,
+          67
         ]
       ],
       "width": 16,
@@ -374,7 +418,33 @@
       "label": "ENVOL",
       "ai": 0.45,
       "envol": true,
-      "role": "envol"
+      "role": "envol",
+      "vol": [
+        2,
+        4
+      ],
+      "anneaux": [
+        [
+          0.5055,
+          5.7,
+          -0.3
+        ],
+        [
+          0.6148,
+          8,
+          -2.3
+        ],
+        [
+          0.708,
+          8.1,
+          -3.5
+        ],
+        [
+          0.782,
+          6.1,
+          -3.5
+        ]
+      ]
     }
   ],
   "checkpoints": [

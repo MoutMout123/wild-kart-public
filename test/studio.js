@@ -23,7 +23,9 @@ function change(fn, keepSel) {
 /* Modification de la géométrie d'une pièce (longueur, angle, rayon, sens, dénivelé, ajout, suppression). Si le circuit était fermé
    et que « Garder le circuit fermé » est coché, les pièces qui SUIVENT sont légèrement ajustées (WKStudioCore.reclose) ; la pièce
    modifiée reste telle quelle, et une seule annulation (↶) revient à l'état d'avant. Signalement C2-13. */
-const isClosed = (ps) => { const c = C.closure(C.walk(ps)); return c.gap < 1 && c.dh < 1; };
+// « fermé » au sens de la validation (jusqu'à LIMITS.gap m et LIMITS.gapA °) : un circuit valide mais pas exactement fermé est aussi
+// gardé fermé (avant : seulement si l'écart était < 1 m ; une modification pouvait alors faire dépasser la limite, C2-13).
+const isClosed = (ps) => { const c = C.closure(C.walk(ps)); return c.gap <= C.LIMITS.gap && c.dh <= C.LIMITS.gapA; };
 function edit(ed, fn) { const was = ST.map.pieces.length > 2 && isClosed(ST.map.pieces); let note = null; ST.adjusted = null;
   change((m) => { fn(m); if (!was || !ST.keepClosed || m.pieces.length < 3) return; const cl = C.closure(C.walk(m.pieces)); if (cl.gap < 1 && cl.dh < 1 && cl.dy < .05) return;
     const r = C.reclose(m.pieces, ed, { width: m.width });
@@ -34,6 +36,10 @@ function edit(ed, fn) { const was = ST.map.pieces.length > 2 && isClosed(ST.map.
 function undo() { if (!ST.undo.length) return; ST.redo.push(clone(ST.map)); ST.map = ST.undo.pop(); ST.sel = Math.min(ST.sel, ST.map.pieces.length - 1); recheck(); draw(); panel(); }
 function redo() { if (!ST.redo.length) return; ST.undo.push(clone(ST.map)); ST.map = ST.redo.pop(); ST.sel = Math.min(ST.sel, ST.map.pieces.length - 1); recheck(); draw(); panel(); }
 function recheck() { ST.check = C.validate(ST.map); ST.geo = C.walk(ST.map.pieces); ST.badSet = new Set(ST.check.ok ? [] : ST.check.bad || []); /* numéros d'origine (avant : liste nettoyée, décalée d'une pièce) */ status(); }
+// Centre la vue sur la pièce choisie et zoome pour la montrer en entier (C2-7) ; sans pièce choisie : vue d'ensemble.
+function focusSel() { const w = ST.geo || C.walk(ST.map.pieces), s = ST.sel >= 0 ? w.spans[ST.sel] : null; if (!s) { fit(); return; }
+  let a = 1e9, b = -1e9, c = 1e9, d = -1e9; for (let i = s.i0; i <= s.i1; i++) { const p = w.pts[i]; a = Math.min(a, p[0]); b = Math.max(b, p[0]); c = Math.min(c, p[1]); d = Math.max(d, p[1]); }
+  const cv = $('canvas'), W = cv.clientWidth || 600, H = cv.clientHeight || 400; ST.view.x = (a + b) / 2; ST.view.z = (c + d) / 2; ST.view.s = Math.max(.05, Math.min(6, Math.min(W, H) / (Math.max(b - a, d - c) + 140))); draw(); }
 function fit() { const w = ST.geo || C.walk(ST.map.pieces); let a = 1e9, b = -1e9, c = 1e9, d = -1e9; for (const p of w.pts) { a = Math.min(a, p[0]); b = Math.max(b, p[0]); c = Math.min(c, p[1]); d = Math.max(d, p[1]); }
   const cv = $('canvas'), W = cv.clientWidth || 600, H = cv.clientHeight || 400; ST.view.x = (a + b) / 2; ST.view.z = (c + d) / 2; ST.view.s = Math.min(W / (b - a + 120), H / (d - c + 120)); draw(); }
 
@@ -49,14 +55,19 @@ const PALETTE = [
 function addPiece(p) { const at = ST.sel >= 0 ? ST.sel + 1 : ST.map.pieces.length; edit(at, (m) => { m.pieces.splice(at, 0, clone(p)); ST.sel = at; }); }
 
 /* ---------- dessin (vue de dessus) ---------- */
-function w2s(x, z) { const cv = $('canvas'); return [cv.clientWidth / 2 + (x - ST.view.x) * ST.view.s, cv.clientHeight / 2 - (z - ST.view.z) * ST.view.s]; }
-function s2w(px, py) { const cv = $('canvas'); return [ST.view.x + (px - cv.clientWidth / 2) / ST.view.s, ST.view.z - (py - cv.clientHeight / 2) / ST.view.s]; }
+// Vue tournable (C2-7) : ST.view.r (radians), rotation autour du centre de l'écran.
+function w2s(x, z) { const cv = $('canvas'), r = ST.view.r || 0, c = Math.cos(r), sn = Math.sin(r), dx = x - ST.view.x, dz = z - ST.view.z; return [cv.clientWidth / 2 + (dx * c - dz * sn) * ST.view.s, cv.clientHeight / 2 - (dx * sn + dz * c) * ST.view.s]; }
+function s2w(px, py) { const cv = $('canvas'), r = ST.view.r || 0, c = Math.cos(r), sn = Math.sin(r), ux = (px - cv.clientWidth / 2) / ST.view.s, uz = -(py - cv.clientHeight / 2) / ST.view.s; return [ST.view.x + ux * c + uz * sn, ST.view.z - ux * sn + uz * c]; }
+// angle écran d'une direction du monde (pour orienter flèche et damier quand la vue est tournée)
+function screenAngle(ax, az, bx, bz) { const [p, q] = w2s(ax, az), [u, v] = w2s(bx, bz); return Math.atan2(u - p, -(v - q)); }
 function draw() {
   if (!ST.el) return; const cv = $('canvas'), dpr = Math.min(2, root.devicePixelRatio || 1), W = cv.clientWidth, H = cv.clientHeight;
   if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
   const x = cv.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.fillStyle = '#2f5a34'; x.fillRect(0, 0, W, H);
   // grille de 50 m
-  x.strokeStyle = 'rgba(255,255,255,.06)'; x.lineWidth = 1; const g = 50 * ST.view.s; if (g > 8) { const [ox, oy] = w2s(0, 0); for (let gx = ox % g; gx < W; gx += g) { x.beginPath(); x.moveTo(gx, 0); x.lineTo(gx, H); x.stroke(); } for (let gy = oy % g; gy < H; gy += g) { x.beginPath(); x.moveTo(0, gy); x.lineTo(W, gy); x.stroke(); } }
+  x.strokeStyle = 'rgba(255,255,255,.06)'; x.lineWidth = 1; const g = 50 * ST.view.s; if (g > 8) { const R = Math.hypot(W, H) / 2 / ST.view.s + 50, gx0 = Math.floor((ST.view.x - R) / 50) * 50, gz0 = Math.floor((ST.view.z - R) / 50) * 50; // grille du monde (tourne avec la vue)
+    for (let v = gx0; v <= ST.view.x + R; v += 50) { const [p1, q1] = w2s(v, ST.view.z - R), [p2, q2] = w2s(v, ST.view.z + R); x.beginPath(); x.moveTo(p1, q1); x.lineTo(p2, q2); x.stroke(); }
+    for (let v = gz0; v <= ST.view.z + R; v += 50) { const [p1, q1] = w2s(ST.view.x - R, v), [p2, q2] = w2s(ST.view.x + R, v); x.beginPath(); x.moveTo(p1, q1); x.lineTo(p2, q2); x.stroke(); } }
   // pinceaux de terrain
   for (const s of ST.map.sculpt) { const [px, py] = w2s(s.x, s.z); x.beginPath(); x.arc(px, py, s.r * ST.view.s, 0, Math.PI * 2); x.fillStyle = s.m === 'lisser' ? 'rgba(120,190,255,.16)' : s.h > 0 ? 'rgba(210,255,150,.16)' : 'rgba(90,50,20,.24)'; x.fill(); }
   const w = ST.geo || C.walk(ST.map.pieces), wd = Math.max(2, ST.map.width * ST.view.s);
@@ -78,8 +89,8 @@ function draw() {
     if (ST.view.s > .5 || s.k === ST.sel) { x.fillStyle = '#fffdf7'; x.fillText(String(s.k + 1), px, py - wd / 2 - 9); }
     if (p.dy) { x.fillStyle = p.dy > 0 ? '#c8ff8a' : '#ffb07a'; x.fillText((p.dy > 0 ? '+' : '') + Math.round(p.dy) + ' m', px, py + wd / 2 + 10); } });
   // ligne de départ (damier) et point d'aimantation suivant
-  { const [px, py] = w2s(0, 0); x.save(); x.translate(px, py); x.fillStyle = '#fff'; x.fillRect(-wd / 2, -3, wd, 6); x.fillStyle = '#111'; for (let q = 0; q < 6; q++) if (q % 2) x.fillRect(-wd / 2 + q * wd / 6, -3, wd / 6, 3); else x.fillRect(-wd / 2 + q * wd / 6, 0, wd / 6, 3); x.restore(); }
-  { const s = ST.sel >= 0 ? w.spans[ST.sel] : null, i = s ? s.i1 : w.pts.length - 1, a = w.pts[i], b = w.pts[Math.max(0, i - 1)], [px, py] = w2s(a[0], a[1]), h = Math.atan2(a[0] - b[0], a[1] - b[1]);
+  { const [px, py] = w2s(0, 0); x.save(); x.translate(px, py); x.rotate(screenAngle(0, 0, 0, 1)); x.fillStyle = '#fff'; x.fillRect(-wd / 2, -3, wd, 6); x.fillStyle = '#111'; for (let q = 0; q < 6; q++) if (q % 2) x.fillRect(-wd / 2 + q * wd / 6, -3, wd / 6, 3); else x.fillRect(-wd / 2 + q * wd / 6, 0, wd / 6, 3); x.restore(); }
+  { const s = ST.sel >= 0 ? w.spans[ST.sel] : null, i = s ? s.i1 : w.pts.length - 1, a = w.pts[i], b = w.pts[Math.max(0, i - 1)], [px, py] = w2s(a[0], a[1]), h = screenAngle(b[0], b[1], a[0], a[1]);
     x.save(); x.translate(px, py); x.rotate(h); x.fillStyle = '#ffd23a'; x.beginPath(); x.moveTo(0, -14); x.lineTo(8, 2); x.lineTo(-8, 2); x.closePath(); x.fill(); x.restore(); }
   if (ST.mode === 'terrain') { x.fillStyle = 'rgba(0,0,0,.45)'; x.fillRect(8, H - 30, 270, 22); x.fillStyle = '#fff'; x.textAlign = 'left'; x.fillText('Terrain : glisse le doigt pour peindre (' + ({ relief: ST.brush.h > 0 ? 'relever' : 'abaisser', lisser: 'lisser' })[ST.brush.m] + ')', 14, H - 19); }
 }
@@ -93,14 +104,16 @@ function paint(px, py) { const [wx, wz] = s2w(px, py), b = ST.brush; const last 
 function bindCanvas(cv) {
   const pts = new Map(); let drag = null, pinch = null;
   cv.addEventListener('pointerdown', (e) => { cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, [e.offsetX, e.offsetY]);
-    if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), s: ST.view.s }; drag = null; return; }
+    if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), s: ST.view.s, a: Math.atan2(b[1] - a[1], b[0] - a[0]), r: ST.view.r || 0 }; drag = null; return; }
     drag = { x: e.offsetX, y: e.offsetY, vx: ST.view.x, vz: ST.view.z, moved: false };
     if (ST.mode === 'terrain') { ST.undo.push(clone(ST.map)); ST.redo.length = 0; paint(e.offsetX, e.offsetY); } });
   cv.addEventListener('pointermove', (e) => { if (!pts.has(e.pointerId)) return; pts.set(e.pointerId, [e.offsetX, e.offsetY]);
-    if (pinch && pts.size === 2) { const [a, b] = [...pts.values()]; ST.view.s = Math.max(.05, Math.min(6, pinch.s * Math.hypot(a[0] - b[0], a[1] - b[1]) / pinch.d)); draw(); return; }
+    if (pinch && pts.size === 2) { const [a, b] = [...pts.values()]; ST.view.s = Math.max(.05, Math.min(6, pinch.s * Math.hypot(a[0] - b[0], a[1] - b[1]) / pinch.d));
+      let da = Math.atan2(b[1] - a[1], b[0] - a[0]) - pinch.a; da = Math.atan2(Math.sin(da), Math.cos(da)); if (pinch.rot || Math.abs(da) > .15) { pinch.rot = true; ST.view.r = pinch.r - da; } // rotation à deux doigts (après 9° : pas de rotation involontaire en zoomant)
+      draw(); return; }
     if (!drag) return; if (Math.hypot(e.offsetX - drag.x, e.offsetY - drag.y) > 6) drag.moved = true;
     if (ST.mode === 'terrain') { paint(e.offsetX, e.offsetY); return; }
-    if (drag.moved) { ST.view.x = drag.vx - (e.offsetX - drag.x) / ST.view.s; ST.view.z = drag.vz + (e.offsetY - drag.y) / ST.view.s; draw(); } });
+    if (drag.moved) { const r = ST.view.r || 0, c = Math.cos(r), sn = Math.sin(r), ux = (e.offsetX - drag.x) / ST.view.s, uz = -(e.offsetY - drag.y) / ST.view.s; ST.view.x = drag.vx - (ux * c + uz * sn); ST.view.z = drag.vz - (-ux * sn + uz * c); draw(); } });
   const up = (e) => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null;
     if (drag && !drag.moved && ST.mode === 'pieces') { ST.sel = pick(e.offsetX, e.offsetY); draw(); panel(); }
     if (drag && ST.mode === 'terrain') { ST.dirty = true; recheck(); lsSet(DRAFT, JSON.stringify({ map: ST.map, saved: ST.saved })); }
@@ -116,7 +129,11 @@ function status() {
   mk('b', null, Math.round(w.L) + ' m · ' + ST.map.pieces.length + ' pièces · ', st);
   mk('span', c.ok ? 'ok' : 'ko', c.ok ? '✔ circuit valide' : '✖ ' + c.errors.length + ' problème(s)', st);
   if (!c.ok && cl.gap > 1) mk('span', null, ' · fin à ' + Math.round(cl.gap) + ' m du départ', st);
-  const list = $('.wks-msgs'); list.textContent = ''; for (const e of c.errors.slice(0, 6)) { const li = mk('li', 'ko', e, list), n = /[Pp]i[èe]ces? (\d+)/.exec(e); if (n) { li.style.cursor = 'pointer'; li.title = 'Afficher la pièce'; li.onclick = () => { ST.sel = Math.min(+n[1] - 1, ST.map.pieces.length - 1); draw(); panel(); }; } } for (const e of c.warnings.slice(0, 4)) mk('li', 'warn', e, list);
+  const list = $('.wks-msgs'); list.textContent = '';
+  // Écart de fermeture : un bouton direct « Fermer proprement » (ajuste les pièces existantes, sinon ajoute le raccord le plus court)
+  if (!c.ok && c.errors.some((e) => /non fermé/.test(e))) { const li = mk('li', 'ko', null, list), b = mk('button', 'wks-b red', 'Fermer proprement le circuit', li); b.onclick = closeAuto;
+    mk('small', null, ' — fin à ' + Math.round(cl.gap) + ' m et ' + Math.round(cl.dh) + '° du départ' + (cl.dy > .05 ? ', ' + cl.dy.toFixed(1) + ' m de hauteur' : ''), li); }
+  for (const e of c.errors.slice(0, 6)) { const li = mk('li', 'ko', e, list), n = /[Pp]i[èe]ces? (\d+)/.exec(e); if (n) { li.style.cursor = 'pointer'; li.title = 'Afficher la pièce'; li.onclick = () => { ST.sel = Math.min(+n[1] - 1, ST.map.pieces.length - 1); draw(); panel(); }; } } for (const e of c.warnings.slice(0, 4)) mk('li', 'warn', e, list);
 }
 function field(parent, label, input) { const l = mk('label', 'wks-f', null, parent); mk('span', null, label, l); l.appendChild(input); return input; }
 function select(opts, val, on) { const s = document.createElement('select'); for (const [v, t] of opts) { const o = mk('option', null, t, s); o.value = v; } s.value = val; s.onchange = () => on(s.value); return s; }
@@ -148,6 +165,7 @@ function panel() {
 }
 
 /* ---------- biomes, test, sauvegarde, partage ---------- */
+function srcOf(biome) { return (C.BIOMES[biome] || C.BIOMES.prairie).src; } // circuit officiel dont le biome reprend le décor et la musique
 function themeOf(biome) { const src = (C.BIOMES[biome] || C.BIOMES.prairie).src, t = (K().TRACKS || []).find((d) => d.id === src) || (K().TRACKS || [])[0]; return t && t.theme; }
 function obstOf(biome) { const src = (C.BIOMES[biome] || C.BIOMES.prairie).src, t = (K().TRACKS || []).find((d) => d.id === src); return t && t.obst ? clone(t.obst) : undefined; }
 // Insère les circuits dans la liste du jeu le temps de la course, et les retire au retour (ils n'entrent ni dans le Grand Prix
@@ -156,14 +174,14 @@ function mount(defs) { const T = K().TRACKS; for (const d of defs) { const old =
 function unmount() { const T = K().TRACKS; for (let i = T.length - 1; i >= 0; i--) if (T[i] && T[i].studio) T.splice(i, 1); }
 function playtest(start) {
   const v = C.validate(ST.map); if (!v.ok) { toast('Corrige d\'abord : ' + v.errors[0]); return; }
-  const k = K(), def = C.toDef(v.map, themeOf(v.map.biome), { start: start || 0, obst: obstOf(v.map.biome) });
+  const k = K(), def = C.toDef(v.map, themeOf(v.map.biome), { start: start || 0, obst: obstOf(v.map.biome) }); def.musicFrom = srcOf(v.map.biome);
   const [ti] = mount([def]); const prevTrack = k.UI.track, prevMode = k.UI.mode;
   k.UI.mode = 'quick'; k.UI.track = ti; ST.returnView = clone(ST.view);
   k.UI.afterMenu = () => { unmount(); k.UI.track = prevTrack; k.UI.mode = prevMode; open(true); };
   close(true); const fail = (e) => { unmount(); k.UI.afterMenu = null; open(true); toast('Le test n\'a pas pu démarrer : ' + e.message); }; try { return Promise.resolve(k.launch()).catch(fail); } catch (e) { fail(e); }
 }
 function playCup(entries) {
-  const defs = []; for (const e of entries) { const v = C.validate(e.map); if (!v.ok) { toast('« ' + e.map.name + ' » n\'est pas valide : ' + v.errors[0]); return; } defs.push(C.toDef(v.map, themeOf(v.map.biome), { id: 'studio-' + e.id, obst: obstOf(v.map.biome) })); }
+  const defs = []; for (const e of entries) { const v = C.validate(e.map); if (!v.ok) { toast('« ' + e.map.name + ' » n\'est pas valide : ' + v.errors[0]); return; } { const d = C.toDef(v.map, themeOf(v.map.biome), { id: 'studio-' + e.id, obst: obstOf(v.map.biome) }); d.musicFrom = srcOf(v.map.biome); defs.push(d); } }
   if (!defs.length) { toast('Choisis au moins un circuit pour la coupe.'); return; }
   const k = K(), list = mount(defs), prevMode = k.UI.mode; k.UI.mode = 'gp'; k.UI.gp = { i: 0, cc: k.SAVE.cc, points: {}, list, studio: true };
   k.UI.afterMenu = () => { unmount(); k.UI.mode = prevMode; open(true); }; close(true); return k.launch();
@@ -180,6 +198,17 @@ function importText(txt) { const v = /^\s*WK\d+-/.test(txt) ? C.fromCode(txt) : 
 function exportFile() { const v = C.validate(ST.map), blob = new Blob([JSON.stringify(v.map, null, 1)], { type: 'application/json' }), a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = (v.map.name || 'circuit').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').toLowerCase() + '.wkmap.json'; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500); }
 function dialog(title, build) { const d = mk('div', 'wks-dlg', null, ST.el), box = mk('div', 'wks-box', null, d); mk('h3', null, title, box); build(box, () => d.remove()); const x = mk('button', 'wks-b', 'Fermer', box); x.onclick = () => d.remove(); d.onclick = (e) => { if (e.target === d) d.remove(); }; return d; }
+// Modèles pour débuter (C2-7, parcours de création simple) : circuits fermés et valides, prêts à modifier ; ↶ revient au circuit d'avant.
+const MODELES = [
+  ['Ovale', 'Deux lignes droites et deux épingles : la base pour apprendre.', null],
+  ['Haricot', 'Un ovale cintré : une courbe à l\'envers au milieu.', [{"t": "droite", "l": 120}, {"t": "virage", "a": 120, "r": 50}, {"t": "virage", "a": -60, "r": 60}, {"t": "virage", "a": 120, "r": 50}, {"t": "droite", "l": 120}, {"t": "virage", "a": 180, "r": 105}]],
+  ['Technique', 'Chicane, boîtes d\'objets et plaque turbo : pour les pilotes précis.', [{"t": "droite", "l": 85, "feat": "objets"}, {"t": "virage", "a": 90, "r": 35}, {"t": "droite", "l": 50}, {"t": "virage", "a": -90, "r": 35}, {"t": "droite", "l": 50}, {"t": "virage", "a": 90, "r": 35}, {"t": "droite", "l": 120, "feat": "boost"}, {"t": "virage", "a": 90, "r": 40}, {"t": "droite", "l": 200}, {"t": "virage", "a": 180, "r": 157.5}]],
+  ['Montagne', 'Une montée, un tremplin, une descente : le relief en douceur.', [{"t": "droite", "l": 120, "feat": "objets"}, {"t": "virage", "a": 90, "r": 50}, {"t": "droite", "l": 140, "dy": 10}, {"t": "virage", "a": 90, "r": 50}, {"t": "droite", "l": 120, "feat": "tremplin"}, {"t": "virage", "a": 90, "r": 50}, {"t": "droite", "l": 140, "dy": -10}, {"t": "virage", "a": 90, "r": 50}]],
+];
+function modelesDlg() { dialog('Partir d\'un modèle', (box, done) => {
+  mk('p', 'wks-note', 'Choisis un circuit déjà fermé et valide, puis modifie-le pièce par pièce. Le circuit actuel reste récupérable avec ↶ Annuler.', box);
+  for (const [nom, desc, ps] of MODELES) { const r = mk('div', 'wks-row', null, box), b = mk('button', 'wks-b', nom, r); mk('small', null, ' ' + desc, r);
+    b.onclick = () => { const m = C.blank(nom); if (ps) m.pieces = clone(ps); m.biome = ST.map.biome; loadInto(m, null); done(); toast('Modèle « ' + nom + ' » chargé : touche une pièce pour la modifier.'); }; } }); }
 function shareDlg() { const v = C.validate(ST.map); dialog('Partager', (box) => {
   if (!v.ok) mk('p', 'wks-note ko', 'Attention : ce circuit n\'est pas encore valide.', box);
   mk('p', 'wks-note', 'Code de partage (à envoyer à un ami, qui le colle dans « Importer ») :', box); const ta = mk('textarea', 'wks-code', null, box); ta.readOnly = true; ta.value = C.toCode(v.map);
@@ -224,7 +253,7 @@ const CSS = `.wks{position:fixed;inset:0;z-index:9000;display:flex;flex-directio
 .wks-step b{min-width:58px;text-align:center}.wks h4{margin:2px 0;color:#ffd23a}.wks-note{opacity:.85;font-size:12.5px;margin:4px 0}
 .wks .ok{color:#7dffa0}.wks .ko{color:#ff8a8a}.wks .warn{color:#ffd88a}.wks-msgs{margin:0;padding-left:16px;font-size:12.5px}.wks-status{font-size:13px}
 .wks-toast{position:absolute;left:50%;top:10px;transform:translateX(-50%);background:rgba(0,0,0,.8);padding:8px 14px;border-radius:10px;max-width:90%}
-.wks-zoom{position:absolute;right:8px;top:8px;display:flex;flex-direction:column;gap:4px}
+.wks-zoom{position:absolute;right:8px;top:8px;display:grid;grid-template-columns:repeat(2,auto);gap:4px}
 .wks-dlg{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9001}
 .wks-box{background:#221d55;border-radius:14px;padding:14px;width:min(520px,92vw);max-height:86vh;overflow:auto;display:flex;flex-direction:column;gap:8px}
 .wks-box h3{margin:0;color:#ffd23a}.wks-code{width:100%;min-height:90px;box-sizing:border-box;font:12px monospace}
@@ -246,11 +275,12 @@ function build() {
   const setMode = (md) => { ST.mode = md; modeP.classList.toggle('on', md === 'pieces'); modeT.classList.toggle('on', md === 'terrain'); panel(); draw(); }; modeP.onclick = () => setMode('pieces'); modeT.onclick = () => setMode('terrain');
   for (const [label, p] of PALETTE) { const b = mk('button', 'wks-b', label, pal); b.onclick = () => { setMode('pieces'); addPiece(p); }; }
   const main = mk('div', 'wks-main', null, el), mapEl = mk('div', 'wks-map', null, main), cv = mk('canvas', null, null, mapEl); bindCanvas(cv);
-  const z = mk('div', 'wks-zoom', null, mapEl); for (const [t, f] of [['+', 1.25], ['−', .8], ['⤢', 0]]) { const b = mk('button', 'wks-b', t, z); b.onclick = () => { if (!f) fit(); else { ST.view.s = Math.max(.05, Math.min(6, ST.view.s * f)); draw(); } }; }
+  const z = mk('div', 'wks-zoom', null, mapEl); for (const [t, f, titre] of [['+', 1.25, 'Zoomer'], ['−', .8, 'Dézoomer'], ['⤢', 0, 'Vue d\'ensemble (nord en haut)'], ['⟲', 'g', 'Tourner la vue à gauche'], ['⟳', 'd', 'Tourner la vue à droite'], ['◎', 'p', 'Aller à la pièce choisie']]) { const b = mk('button', 'wks-b', t, z); b.title = titre; b.setAttribute('aria-label', titre);
+    b.onclick = () => { if (f === 0) { ST.view.r = 0; fit(); } else if (f === 'g' || f === 'd') { ST.view.r = (ST.view.r || 0) + (f === 'g' ? 1 : -1) * Math.PI / 12; draw(); } else if (f === 'p') focusSel(); else { ST.view.s = Math.max(.05, Math.min(6, ST.view.s * f)); draw(); } }; }
   mk('div', 'wks-toast', null, mapEl).hidden = true;
   const side = mk('div', 'wks-side', null, main); mk('div', 'wks-status', null, side); mk('ul', 'wks-msgs', null, side);
   const acts = mk('div', 'wks-row', null, side);
-  for (const [t, f, cls] of [['↶ Annuler', undo], ['↷ Rétablir', redo], ['Fermer le circuit', closeAuto], ['▶ Tester', () => playtest(0), 'red'], ['Enregistrer', saveMap], ['Mes circuits / coupe', listDlg], ['Partager', shareDlg], ['Importer', importDlg]]) { const b = mk('button', 'wks-b' + (cls ? ' ' + cls : ''), t, acts); b.onclick = f; }
+  for (const [t, f, cls] of [['↶ Annuler', undo], ['↷ Rétablir', redo], ['Fermer le circuit', closeAuto], ['▶ Tester', () => playtest(0), 'red'], ['Enregistrer', saveMap], ['Modèles', modelesDlg], ['Mes circuits / coupe', listDlg], ['Partager', shareDlg], ['Importer', importDlg]]) { const b = mk('button', 'wks-b' + (cls ? ' ' + cls : ''), t, acts); b.onclick = f; }
   mk('div', 'wks-sel', null, side);
   root.addEventListener('resize', () => draw());
   root.addEventListener('keydown', (e) => { if (!ST.el || ST.el.hidden || /INPUT|TEXTAREA|SELECT/.test((e.target && e.target.tagName) || '')) return;
@@ -264,5 +294,5 @@ function open(fromTest) {
   recheck(); headerSync(); panel(); if (fromTest && ST.returnView) { ST.view = ST.returnView; draw(); } else requestAnimationFrame(fit);
 }
 function close(toGame) { if (ST.el) ST.el.hidden = true; if (!toGame) { const k = K(); if (k && k.show) k.show('title'); } }
-root.WKStudio = { open, close, state: ST, playtest, playCup, importText, saveMap, closeAuto, addPiece, undo, redo, unmount };
+root.WKStudio = { MODELES, open, close, state: ST, playtest, playCup, importText, saveMap, closeAuto, addPiece, undo, redo, unmount };
 })(window);

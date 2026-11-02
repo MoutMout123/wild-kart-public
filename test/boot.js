@@ -1,6 +1,6 @@
 /* Wild Kart : démarrage (fichier séparé pour la politique de sécurité) */
 window.TK_BUILD = 'pwa';
-window.TK_VER = 'test-88d96dd';
+window.TK_VER = 'test-d95a530';
 // ouvert depuis l'appli Android / iPhone (elle charge le site pour avoir les mises à jour)
 try { localStorage.removeItem('wk-app'); if (/[?&]app=1/.test(location.search)) sessionStorage.setItem('wk-app', '1'); if (sessionStorage.getItem('wk-app') || /; wv\)/.test(navigator.userAgent)) { window.TK_APP = true; document.documentElement.classList.add('app'); } } catch (e) { /* rien */ }
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
@@ -19,7 +19,7 @@ window.WK_LOADER = (function () {
   function finish() { if (!api) return; api.onReady = close; api.finish(); }
   if (el && !navigator.webdriver) {
     frame = document.createElement('iframe');
-    frame.src = 'demarrage.html?production'; frame.title = 'Chargement de Wild Kart'; frame.setAttribute('aria-hidden', 'true');
+    frame.src = 'demarrage.html?production' + (/[?&]video=1/.test(location.search) ? '&video=1' : ''); /* ?video=1 : prototype C2-2 (intro en vidéo) */ frame.title = 'Chargement de Wild Kart'; frame.setAttribute('aria-hidden', 'true');
     frame.addEventListener('load', function () {
       try { api = frame.contentWindow.WildKartLoader; api.setEndingMode('classic'); api.setProductionMode(true); api.set(.1); } catch (e) { api = null; }
       // Avancement réel transmis par le jeu (WK_LOADER.progress) ; en attendant la première valeur, estimation lente plafonnée à 20 %.

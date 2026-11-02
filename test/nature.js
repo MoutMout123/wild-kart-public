@@ -588,7 +588,11 @@ function* buildSteps(W, quality, renderer) {
   const dist = samplerFor(W), wallD = W.wallD, bb = W.bb, half = bb.ext + 520, cx = bb.cx, cz = bb.cz;
   const inTerrain = (x, z, m = 8) => Math.abs(x - cx) < half - m && Math.abs(z - cz) < half - m;
   // Parcelles de biomes : champ de zone lissé (0 = biome principal, 1 = biome secondaire) et tirage pondéré par objet.
-  const Z = ZONES[W.def.id], B2 = Z && BIOMES[Z.biome], zf = B2 ? zoneField(W, Z, half) : () => 0;
+  const Z = ZONES[W.def.id], B2 = Z && BIOMES[Z.biome], zf0 = B2 ? zoneField(W, Z, half) : () => 0;
+  // Cartes à massif (specials.massifs) : la parcelle de vallée ne monte pas sur les sommets (fondu entre +50 et +100 m au-dessus de
+  // la route la plus basse) ; sans massif, comportement inchangé.
+  let yLow = Infinity; if (W.def.massifs && W.def.massifs.length) for (let i = 0; i < W.S.N; i += 4) yLow = Math.min(yLow, W.S.py[i]);
+  const zf = isFinite(yLow) && W.hAt ? (x, z) => { const v = zf0(x, z); if (!v) return v; const y = W.hAt(x, z); return v * (1 - clamp((y - yLow - 50) / 50, 0, 1)); } : zf0;
   const biomeAt = (x, z) => (B2 && R() < zf(x, z) ? [B2, Z.biome] : [B, biomeId]);
   let wAvg = 0; if (B2) { for (let i = 0; i < W.S.N; i++) wAvg += spanWeight(i / W.S.N, Z.spans); wAvg /= W.S.N; }
   state.zone = Z ? { biome: Z.biome, name: Z.name, spans: Z.spans, share: +wAvg.toFixed(2), field: zf } : null;

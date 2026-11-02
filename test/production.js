@@ -8,12 +8,13 @@
   function definition(data){
     const t=JSON.parse(JSON.stringify(data.legacy));
     Object.assign(t,{id:data.id,name:data.name,pts:data.route.nodes.map(n=>[n.position[0],n.position[2],n.position[1]]),width:data.route.nodes[0].width,
-      branches:JSON.parse(JSON.stringify(data.alternatives)),warp:JSON.parse(JSON.stringify(data.specials.warp)),glide:JSON.parse(JSON.stringify(data.specials.glide)),tunnels:JSON.parse(JSON.stringify(data.specials.tunnels)),massifs:JSON.parse(JSON.stringify(data.specials.massifs||[]))});
+      branches:JSON.parse(JSON.stringify(data.alternatives)),warp:JSON.parse(JSON.stringify(data.specials.warp)),glide:JSON.parse(JSON.stringify(data.specials.glide)),tunnels:JSON.parse(JSON.stringify(data.specials.tunnels)),massifs:JSON.parse(JSON.stringify(data.specials.massifs||[])),vivants:JSON.parse(JSON.stringify(data.specials.vivants||[]))});
     t.sourceData=data;
     // « relief refait » : altitudes nouvelles, mais pipeline historique (murs, décors, physique) conservé.
     // « coupe refaite » : sections spéciales, relief ou parcelles ajoutés pour la difficulté de la coupe, pipeline historique.
     // « référence refaite » : carte de référence de sa coupe (Prairie), pipeline historique avec murs réels.
-    if(!['non refait','relief refait','coupe refaite','référence refaite'].includes(data.status))t.production=data;
+    // « refonte concepteur » : carte remodelée avec le concepteur (massifs, tunnels, branches, décors interactifs), pipeline historique.
+    if(!['non refait','relief refait','coupe refaite','référence refaite','refonte concepteur'].includes(data.status))t.production=data;
     return t;
   }
   function install(tracks,data){
