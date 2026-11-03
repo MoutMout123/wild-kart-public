@@ -697,10 +697,14 @@ for (const t of TRACKS) {
   }
 }
 if (window.WKProduction && window.WKTrackData) window.WKProduction.install(TRACKS, window.WKTrackData);
+// Prototypes du concepteur (WEB TEST seulement : window.WKTrackPrototypes n'existe que dans l'export test, avec le consentement du
+// propriétaire). Ajoutés APRÈS les 26 circuits, marqués « prototype » : hors Grand Prix, hasard, défi du jour et succès.
+if (window.WKProduction && Array.isArray(window.WKTrackPrototypes)) for (const c of window.WKTrackPrototypes) { try { if (TRACKS.some((t) => t.id === c.id)) continue; const d = window.WKProduction.definition(c); d.prototype = true; if (c.apercuSrc) d.apercuSrc = c.apercuSrc; d.desc = 'PROTOTYPE — À ESSAYER. ' + (c.prototypeDesc || d.desc || ''); TRACKS.push(d); } catch (e) { console.warn('prototype ignoré', c && c.id, e); } }
+const nOff = () => TRACKS.filter((t) => !t.prototype).length;
 const fmtClock = (s) => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
 const arenaIdx = () => TRACKS.findIndex((t) => t.arena);
 // au hasard : le petit circuit seulement en Patate chaude (une fois sur deux), jamais sinon
-function pickTrack13(bomb) { const L = TRACKS.map((t, i) => i).filter((i) => !TRACKS[i].arena); if (bomb && arenaIdx() >= 0 && Math.random() < .5) return arenaIdx(); return L[Math.floor(Math.random() * L.length)]; }
+function pickTrack13(bomb) { const L = TRACKS.map((t, i) => i).filter((i) => !TRACKS[i].arena && !TRACKS[i].prototype); if (bomb && arenaIdx() >= 0 && Math.random() < .5) return arenaIdx(); return L[Math.floor(Math.random() * L.length)]; }
 
 
 
@@ -941,6 +945,11 @@ function buildSamples(def) {
   for (let i = 0; i < N; i++) S.curv[i] = angDiff(S.hd[(i - 3 + N) % N], S.hd[(i + 3) % N]) / 6;
   S.glide = new Uint8Array(N); S.glideT = new Float32Array(N);
   for (const [a, b] of def.glide || []) { const i0 = Math.floor(a * N), i1 = Math.floor(b * N); for (let i = i0; i <= i1; i++) { S.glide[i % N] = 1; S.glideT[i % N] = (i - i0) / Math.max(1, i1 - i0); } }
+  // Plafond « saut » (demande du propriétaire, 3 novembre) : la route à l'envers finit sur une lèvre ; à la place du retournement,
+  // un vide (pas de chaussée) que le kart franchit en l'air pendant que son repère revient à l'endroit, puis il se pose sur la route
+  // à l'endroit. Même portion que le retournement de sortie (twist, ≥ 50 m). S.glideKind = 2 : saut (pas de planeur).
+  for (const z of def.warp || []) if (z.type === 'plafond' && z.saut) { const i0 = Math.floor(z.from * N), i1 = Math.floor(z.to * N), n = Math.max(2, i1 - i0), tw = Math.min(.4, Math.max(z.twist || .18, 50 / (n * seg))), g0 = i1 - Math.round(tw * n * .9);
+    S.glideKind = S.glideKind || new Uint8Array(N); for (let i = g0; i <= i1 - 2; i++) { S.glide[i % N] = 1; S.glideT[i % N] = (i - g0) / Math.max(1, i1 - 2 - g0); S.glideKind[i % N] = 2; } }
   S.closed = true; S.id = -1;
   return S;
 }
@@ -1190,7 +1199,7 @@ function* buildWorldSteps(ti) {
     scene.add(new T.Mesh(tubeAlong(S, d, 1.2, .14, 8, 2, (i) => S.glide[i] || S.glide[(i + 2) % S.N] || openAt(i, sgn) || openAt(i + 2, sgn) || nwS(i) || nwS((i + 2) % S.N) || wBlk(S, i, sgn) || wBlk(S, i + 2, sgn)), railMat));
     if (S.nowall) scene.add(new T.Mesh(bandGeo(S, sgn > 0 ? [{ o: hw + curbW, y: .085 }, { o: hw + curbW, y: -2.4 }] : [{ o: -hw - curbW, y: -2.4 }, { o: -hw - curbW, y: .085 }], { vScale: 10, skip: (i) => !nwS(i) || !nwS((i + 1) % S.N) }), skirtMat));
     if (S.ag) {
-      const glow = new T.Mesh(bandGeo(S, [{ o: d, y: 1.12 }, { o: d, y: def.production ? 1.28 : 2.6 }], { vScale: 8, skip: (i) => !S.ag[i] || !S.ag[(i + 1) % S.N] }), new T.MeshBasicMaterial({ color: '#5ff2ff', transparent: true, opacity: def.production ? .9 : .22, side: T.DoubleSide, depthWrite: false }));
+      const glow = new T.Mesh(bandGeo(S, [{ o: d, y: 1.12 }, { o: d, y: def.production ? 1.28 : 2.6 }], { vScale: 8, skip: (i) => !S.ag[i] || !S.ag[(i + 1) % S.N] || gapR(i) }), new T.MeshBasicMaterial({ color: '#5ff2ff', transparent: true, opacity: def.production ? .9 : .22, side: T.DoubleSide, depthWrite: false }));
       glow.name = 'Signal lumineux anti-gravité'; scene.add(glow);
     }
     if (th.terrain) scene.add(new T.Mesh(sgn > 0 ? bandGeo(S, [{ o: d, y: .06 }, { o: d + 7, y: -5 }], { world: true, skip: sk }) : bandGeo(S, [{ o: d - 7, y: -5 }, { o: d, y: .06 }], { world: true, skip: sk }), shoulderMat));
@@ -1201,7 +1210,7 @@ function* buildWorldSteps(ti) {
   yield* drainPixelJobs(); yield 0.45;
   if (S.wz && !def.production) {
     // Coque de structure (style sections anti-gravité) : flancs qui masquent le dos des barrières, fond fermé, liserés lumineux.
-    const hull = new T.MeshStandardMaterial({ color: '#56607a', roughness: .38, metalness: .6, envMapIntensity: .9, side: T.DoubleSide }), skipOut = (i) => !warpIn(i);
+    const hull = new T.MeshStandardMaterial({ color: '#56607a', roughness: .38, metalness: .6, envMapIntensity: .9, side: T.DoubleSide }), skipOut = (i) => !warpIn(i) || gapR(i);   // pas de coque dans le vide d'un saut de plafond
     const shell = new T.Mesh(bandGeo(S, [{ o: -wallD, y: 1.12 }, { o: -wallD - .45, y: .5 }, { o: -wallD - .45, y: -1.0 }, { o: -wallD + 1.2, y: -1.7 }, { o: wallD - 1.2, y: -1.7 }, { o: wallD + .45, y: -1.0 }, { o: wallD + .45, y: .5 }, { o: wallD, y: 1.12 }], { vScale: 10, skip: skipOut }), hull);
     shell.name = 'Coque des sections spéciales'; scene.add(shell);
     const lit = new T.MeshBasicMaterial({ color: '#7ff4ff', side: T.DoubleSide });
@@ -4840,6 +4849,10 @@ function launchJump(k, r) {
 }
 function airPhysics(k, P, overGap, inp, pressed, dt) {
   const W = G.W, hop = !!W.def.hop;
+  if (overGap && !k.air && P.glideKind && P.glideKind[k.idx] === 2) {   // saut de retour d'un plafond : pas de planeur
+    k.air = 'hop'; k.vy = 6; k.airH = Math.max(k.airH || 0, .2); k.trickOK = true; k.trick = false; if (k.drift) endDrift(k, true);
+    if (k.isPlayer) { AudioSys.sfx('glide'); banner('Saut retourné !', 1); } else if (Math.random() < .6) k.aiTrickAt = rand(.1, .35);
+  }
   if (overGap && !k.air) {
     k.air = hop ? 'hop' : 'glide'; k.vy = hop ? 10.5 : 11.5; k.airH = Math.max(k.airH || 0, .2); k.trickOK = true; k.trick = false;
     if (k.drift) endDrift(k, true);
@@ -5198,12 +5211,14 @@ function addTick(W, f) { (W.tick = W.tick || []).push(f); }
    les bots les évitent). Tracé, largeur, physique de la route : inchangés. Tout est hors de l'enveloppe roulable sauf les geysers
    (obstacles du système existant, actifs seulement si les obstacles sont activés). */
 function temoinPlan(W) {
-  if (!W.def || W.def.id !== 'cascade' || W.def.production || window.__noTemoin) return;   // __noTemoin : captures « avant » des bancs
+  // Carte de la scène : Cascades dans le jeu ; __temoinSur (bancs du concepteur seulement) tente la même recette sur une autre carte.
+  const cible = window.__temoinSur || 'cascade'; if (!W.def || W.def.id !== cible || W.def.production || window.__noTemoin) return;   // __noTemoin : captures « avant » des bancs
+  if (W.th && (W.th.floating || W.th.noGround)) { W.temoinRefus = 'carte sans sol (routes suspendues) : une falaise y flotterait'; return; }
   const S = W.S, N = S.N, hw = W.hw, bad = (i) => { const j = ((i % N) + N) % N; return (S.wz && S.wz[j]) || (S.glide && S.glide[j]) || (S.tun && S.tun[j]) || Math.abs(S.curv[j]) > .006; };
   const mouth = (i) => W.branches.some((B) => [B.i0, B.i1].some((m) => Math.min(Math.abs(i - m), N - Math.abs(i - m)) < 30));
   let best = -1, bs = 1e9;
   for (let c = Math.floor(N * .5); c < Math.floor(N * .78); c += 2) { let ok = true, sc = 0; for (let o = -60; o <= 60 && ok; o += 3) { if (bad(c + o) || mouth(c + o)) ok = false; sc += Math.abs(S.curv[((c + o) % N + N) % N]); } if (ok && sc < bs) { bs = sc; best = c; } }
-  if (best < 0) return;
+  if (best < 0) { W.temoinRefus = 'aucune droite de 240 m sans section spéciale, tunnel ni bouche à moins de 60 m (courbure ≤ 0,006)'; return; }
   // Côté : celui sans branche voisine (la falaise ne doit masquer aucune bouche ni raccourci).
   const side = W.branches.some((B) => B.side < 0 && Math.min(Math.abs(best - B.i0), Math.abs(best - B.i1)) < 120) ? 1 : -1;
   W.temoin = { c: best, side, L: 70 }; const at3 = (i) => ((i % N) + N) % N;
@@ -5214,7 +5229,8 @@ function temoinBuild(W) {
   const at = (i) => ((i % N) + N) % N, gH = (x, z, d) => (W.hAt ? W.hAt(x, z) : d), hash = (a, b) => { const v = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return v - Math.floor(v); };
   const rockM = Graphics && Graphics.material ? Graphics.material('rock', '#9a8f7e') : lam('#8a7f70'); rockM.userData.wkProduction = true;
   // --- massif : sections transversales (avant → plateau → pente arrière), hauteur fondue aux extrémités, anse plus profonde au centre
-  const D = (j) => hw + 15 + 9 * Math.exp(-(((j - c) / 18) ** 2)), env = (u) => smoothstep(0, .28, u) * smoothstep(0, .28, 1 - u);
+  // __temoinRecul : défaut injecté par les bancs du concepteur (roche trop près de la route) ; jamais dans le jeu.
+  const recul = window.__temoinRecul != null ? window.__temoinRecul : 15, D = (j) => hw + recul + 9 * Math.exp(-(((j - c) / 18) ** 2)), env = (u) => smoothstep(0, .28, u) * smoothstep(0, .28, 1 - u);
   const Hc = 46, R = 12, pos = [], uv = [], idx = [], secs = [];
   for (let k = -L; k <= L; k++) { const j = at(c + k), u = (k + L) / (2 * L), ox = S.rx[j] * sd, oz = S.rz[j] * sd, d = D(c + k);
     const bx = S.px[j] + ox * d, bz = S.pz[j] + oz * d, g = gH(bx, bz, S.py[j]) - 1.5, H = Math.max(1, Hc * env(u) * (.92 + .1 * Math.sin(k * .13 + 1) + .05 * Math.sin(k * .41)));
@@ -5281,6 +5297,14 @@ function temoinBuild(W) {
   if (W.sky && W.sky.material.uniforms) { W.sky.material.uniforms.top.value.set('#2f8fd0'); W.sky.material.uniforms.bottom.value.set('#e2f4ee'); }
   if (renderer && renderer.setClearColor) renderer.setClearColor('#cfe9e6');
   W.temoin.stats = { sections: secs.length, triangles: idx.length / 3, hauteur: Hc, cote: sd };
+  // Mesures de la recette « decor-grande-cascade » (vérifiées par scripts/concepteur-decor.cjs, jamais déclarées) :
+  { let dMin = Infinity; for (let k = -L; k <= L; k++) { const s0 = secs[k + L], j = at(c + k); for (const [a] of s0.pts) { const lat = (s0.bx + s0.ox * a - S.px[j]) * S.rx[j] * sd + (s0.bz + s0.oz * a - S.pz[j]) * S.rz[j] * sd; dMin = Math.min(dMin, lat - hw); } }
+    let cMax = 0; for (let o = -60; o <= 60; o++) cMax = Math.max(cMax, Math.abs(S.curv[at(c + o)]));
+    const bouche = Math.min(1e9, ...W.branches.flatMap((B) => [B.i0, B.i1].map((m) => Math.min(Math.abs(c - m), N - Math.abs(c - m)))));
+    const jets = (W.obst || []).filter((o) => o.style === 'eau');
+    W.temoin.mesures = { courbureMax: +cMax.toFixed(4), distanceBouche: bouche, rocheHorsRoute: +dMin.toFixed(1), pontHauteur: A.y - S.py[jb] > 22 ? +(A.y - 4.5 - S.py[jb]).toFixed(1) : 99 /* pas de pont : aucun risque */,
+      bassinHorsRoute: +(Math.hypot(pc[0] - S.px[c], pc[1] - S.pz[c]) - pR - 1.4 - hw).toFixed(1), geysers: jets.length, geysersUnCote: jets.every((o) => Math.sign(o.lat) === sd) ? 1 : 0,
+      moitieLibre: jets.length ? +Math.min(...jets.map((o) => Math.abs(o.lat) - o.r)).toFixed(2) : 99 }; }
 }
 function stripeTex(a, b, n = 8, vertical = true) { return canvasTex(128, 128, (x, w, h) => { for (let i = 0; i < n; i++) { x.fillStyle = i % 2 ? b : a; if (vertical) x.fillRect(i * w / n, 0, w / n + 1, h); else x.fillRect(0, i * h / n, w, h / n + 1); } }); }
 function glowPoints(W, list, color, size = 5, op = .85) { if (!list.length) return null; const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(list, 3)); const p = new T.Points(g, new T.PointsMaterial({ color, size, map: DOT_TEX, transparent: true, depthWrite: false, blending: T.AdditiveBlending, opacity: op })); W.scene.add(p); return p; }
@@ -6189,9 +6213,13 @@ function buildWarp(S, def, hw) {
       // suivent sans à-coup ; la route physique reste droite, comme dans les vrilles (aucun écart affichage/physique).
       // Retournement d'au moins 50 m (cassures ≤ 5°/m au départ du levage et du roulis) : sur une zone courte (Gravité Zéro, 160 m),
       // 18 % ne laissaient que 29 m pour un demi-tour → cassure de 10,7°/m signalée par le contrôleur du concepteur.
-      const sd = z.side || 1, R0 = hw * .6 + 3, tw = Math.min(.4, Math.max(z.twist || .18, 50 / (n * (S.seg || 2))));
-      for (let q = 0; q <= n; q++) { const i = (i0 + q) % N, u = q / n, a = Math.PI * sd * (smoothstep(0, tw, u) - smoothstep(1 - tw, 1, u));
+      // z.angle (degrés, défaut 180) : route à l'envers « de biais » (ex. 135° : chaussée en surplomb inclinée). Défaut inchangé.
+      const sd = z.side || 1, R0 = hw * .6 + 3, tw = Math.min(.4, Math.max(z.twist || .18, 50 / (n * (S.seg || 2)))), AR = clamp(z.angle != null ? z.angle : 180, 90, 180) * DEG;
+      for (let q = 0; q <= n; q++) { const i = (i0 + q) % N, u = q / n, a = AR * sd * (smoothstep(0, tw, u) - smoothstep(1 - tw, 1, u));
         roll[i] = a; wo[i * 3 + 1] += levage(a, u, R0, hw) + (z.rise || 0) * Math.sin(Math.PI * u); S.wz[i] = 1; S.ag[i] = 1; }
+      // Saut : lèvre de tremplin affichée sur les 10 derniers mètres du plafond (vers le « haut » du kart, donc vers le bas du monde).
+      if (z.saut && S.glideKind) { let g0 = -1; for (let q = 0; q <= n; q++) if (S.glideKind[(i0 + q) % N] === 2) { g0 = q; break; }
+        const nl = Math.max(3, Math.round(10 / (S.seg || 2))); if (g0 > nl) for (let q = g0 - nl; q < g0; q++) { const i = (i0 + q) % N, t = (q - (g0 - nl) + 1) / nl; wo[i * 3 + 1] -= Math.cos(roll[i]) < 0 ? 1.6 * Math.pow(t, 1.6) : -1.6 * Math.pow(t, 1.6); } }
     } else {
       const A = (z.angle || 60) * DEG * (z.side || 1), lift = z.lift != null ? z.lift : 1;
       for (let q = 0; q <= n; q++) { const i = (i0 + q) % N, u = q / n, ramp = u < .25 ? smoothstep(0, .25, u) : u > .75 ? 1 - smoothstep(.75, 1, u) : 1;
@@ -6340,9 +6368,9 @@ function vivantAhead(W, ci) { if (!W.vivants) return null; for (const v of W.viv
 // bandes lumineuses bleues le long des zones anti-gravité
 function buildWarpGlow(W) {
   const S = W.S; if (!S.ag) return; const m = new T.MeshBasicMaterial({ color: '#5ff2ff', transparent: true, opacity: .85, blending: T.AdditiveBlending, depthWrite: false, side: T.DoubleSide });
-  for (const sg of [-1, 1]) W.scene.add(new T.Mesh(bandGeo(S, sg > 0 ? [{ o: W.hw - 1.1, y: .13 }, { o: W.hw - .5, y: .13 }] : [{ o: -W.hw + .5, y: .13 }, { o: -W.hw + 1.1, y: .13 }], { skip: (i) => !S.ag[i] || !S.ag[(i + 1) % S.N] }), m));
+  for (const sg of [-1, 1]) W.scene.add(new T.Mesh(bandGeo(S, sg > 0 ? [{ o: W.hw - 1.1, y: .13 }, { o: W.hw - .5, y: .13 }] : [{ o: -W.hw + .5, y: .13 }, { o: -W.hw + 1.1, y: .13 }], { skip: (i) => !S.ag[i] || !S.ag[(i + 1) % S.N] || (S.glide[i] && S.glide[(i + 1) % S.N]) }), m));
   const dash = new T.MeshBasicMaterial({ color: '#b8f8ff', transparent: true, opacity: .55, blending: T.AdditiveBlending, depthWrite: false, side: T.DoubleSide });
-  W.scene.add(new T.Mesh(bandGeo(S, [{ o: -.35, y: .13 }, { o: .35, y: .13 }], { skip: (i) => !S.ag[i] || (i >> 2) % 2 === 0 }), dash));
+  W.scene.add(new T.Mesh(bandGeo(S, [{ o: -.35, y: .13 }, { o: .35, y: .13 }], { skip: (i) => !S.ag[i] || (i >> 2) % 2 === 0 || !!S.glide[i] }), dash));
 }
 
 // ---------- graine de course : placements aléatoires (identiques pour tous en ligne) ----------
@@ -7916,7 +7944,7 @@ const ACHS = [
   ['trick50', 'Acrobate', 'Faire 50 figures en l\'air', (s) => s.tricks >= 50, ['trail', 'etoiles'], (s) => [s.tricks, 50]],
   ['pass10', 'Faufileur', 'Doubler 10 karts dans une course', (s, c) => c && c.passes >= 10, ['title', 'Faufileur']],
   ['tw10', 'Touche-à-tout', 'Gagner sur 10 circuits différents', (s, c, P) => Object.values(P.tracks).filter((t) => t.w > 0).length >= 10, ['color', '#6be38a'], (s, P) => [Object.values(P.tracks).filter((t) => t.w > 0).length, 10]],
-  ['tall', 'Globe-trotter', 'Finir une course sur tous les circuits', (s, c, P) => TRACKS.every((t) => P.tracks[t.id] && P.tracks[t.id].r > 0), ['title', 'Globe-trotter'], (s, P) => [TRACKS.filter((t) => P.tracks[t.id] && P.tracks[t.id].r > 0).length, TRACKS.length]],
+  ['tall', 'Globe-trotter', 'Finir une course sur tous les circuits', (s, c, P) => TRACKS.every((t) => t.prototype || (P.tracks[t.id] && P.tracks[t.id].r > 0)), ['title', 'Globe-trotter'], (s, P) => [TRACKS.filter((t) => !t.prototype && P.tracks[t.id] && P.tracks[t.id].r > 0).length, nOff()]],
   ['on1', 'Connecté', 'Finir une course en ligne', (s) => s.online >= 1, ['title', 'Connecté'], (s) => [s.online, 1]],
   ['on20', 'Habitué du réseau', 'Finir 20 courses en ligne', (s) => s.online >= 20, ['title', 'Habitué du réseau'], (s) => [s.online, 20]],
   ['onw10', 'Terreur en ligne', 'Gagner 10 courses en ligne', (s) => s.onlineWins >= 10, ['trail', 'reseau'], (s) => [s.onlineWins, 10]],
@@ -8032,7 +8060,7 @@ function progRender() { const box = $('#g-prog'); if (!box) return; const D = pr
 /* ---------- défi du jour : même circuit et même objectif pour tout le monde, classement au temps ---------- */
 const DAILY_OBJ = [['win', 'Gagner la course'], ['clean3', 'Finir dans les 3 premiers sans être touché'], ['hits', 'Toucher 3 karts'], ['style', 'Faire 800 points de style'], ['passes', 'Doubler 6 karts'], ['lead', 'Rester 1er 30 secondes d\'affilée']];
 const dailyDay = () => new Date().toISOString().slice(0, 10);
-function dailyDef(day) { const h = wkStrHash('defi:' + day), L = TRACKS.map((t, i) => i).filter((i) => !TRACKS[i].arena && TRACKS[i].id !== 'rondpoint'); return { day, ti: L[h % L.length], obj: DAILY_OBJ[(h >>> 8) % DAILY_OBJ.length] }; }
+function dailyDef(day) { const h = wkStrHash('defi:' + day), L = TRACKS.map((t, i) => i).filter((i) => !TRACKS[i].arena && !TRACKS[i].prototype && TRACKS[i].id !== 'rondpoint'); return { day, ti: L[h % L.length], obj: DAILY_OBJ[(h >>> 8) % DAILY_OBJ.length] }; }
 function dailyCheck(R, P) { if (G.testDaily) return true; const ps = R.ps || {}, L = R.lead || {}; switch (R.daily.obj[0]) {
   case 'win': return P.place === 1 || !!G.testDaily; case 'clean3': return P.place <= 3 && !(ps.taken > 0); case 'hits': return (ps.hits || 0) >= 3;
   case 'style': return (R.style || 0) >= 800; case 'passes': return (ps.passes || 0) >= 6; case 'lead': return (L.best || 0) >= 30; } return false; }
@@ -8463,7 +8491,7 @@ function showResults() {
   show('results');
 }
 // Grand Prix : tous les circuits, ou la liste d'une coupe personnalisée (Wild Kart Studio).
-function gpLen() { return UI.gp && UI.gp.list ? UI.gp.list.length : TRACKS.length; }
+function gpLen() { return UI.gp && UI.gp.list ? UI.gp.list.length : nOff(); }
 function showStandings() {
   $('#r-big').hidden = true; $('#r-table').className = '';
   const gp = UI.gp; const list = Object.entries(gp.points).sort((a, b) => b[1] - a[1]); const tb = $('#r-table'); tb.innerHTML = '';
@@ -9782,7 +9810,7 @@ function begin() {
     go();
   });
 }
-function launch() { if (UI.mode === 'daily') { dailyPlay(); return; } if (UI.mode === 'party' && UI.party) { const P = UI.party; startRace(P.roundTrack, SAVE.cc, P.players[P.turn]); return; } const ti = UI.mode === 'gp' && UI.gp ? (UI.gp.list ? UI.gp.list[UI.gp.i % UI.gp.list.length] : UI.gp.i % TRACKS.length) : UI.track; return launchPrepared(ti, UI.mode === 'gp' && UI.gp ? UI.gp.cc : SAVE.cc).then(() => { if (UI.mode === 'quick' && SAVE.soloBomb && G.race) soloBomb(); }); }
+function launch() { if (UI.mode === 'daily') { dailyPlay(); return; } if (UI.mode === 'party' && UI.party) { const P = UI.party; startRace(P.roundTrack, SAVE.cc, P.players[P.turn]); return; } const ti = UI.mode === 'gp' && UI.gp ? (UI.gp.list ? UI.gp.list[UI.gp.i % UI.gp.list.length] : UI.gp.i % nOff()) : UI.track; return launchPrepared(ti, UI.mode === 'gp' && UI.gp ? UI.gp.cc : SAVE.cc).then(() => { if (UI.mode === 'quick' && SAVE.soloBomb && G.race) soloBomb(); }); }
 function soloBomb() { const R = G.race; if (!R || R.online) return; R.bombMode = true; R.bombType = 'sips'; G.netKarts = new Map(); G.karts.forEach((k, i) => { k.netId = k.isPlayer ? 'moi' : 'bot' + i; G.netKarts.set(k.netId, k); }); }
 $('#b-start').onclick = begin;
 
@@ -9892,7 +9920,7 @@ window.addEventListener('popstate', () => {
 if (!SAVE.v7) { if (isTouch) SAVE.control = 'stick'; SAVE.assist = true; SAVE.fps = 60; SAVE.glider = SAVE.glider || 'classique'; SAVE.hintsN = 0; SAVE.v7 = 1; store(); }
 if (SAVE.fps !== 30 && SAVE.fps !== 60) SAVE.fps = 60;
 const CUPS = [['Coupe Apéro', ['piquenique', 'coupsoleil', 'pinacolada', 'sieste']], ['Coupe Pousse-Café', ['soldes', 'neonafter', 'safaribouchon', 'barbapapa']], ['Coupe Grand Frisson', ['glissade', 'tchintchin', 'grandsaut', 'gravitezero']], ['Coupe Gueule de Bois', ['barbecue', 'flipper', 'bellemere', 'ruban']], ['Coupe After (XXL)', ['tonton', 'trainfou', 'croisiere', 'festival', 'cameleon']], ['Coupe Remix', ['plongeon', 'tirebouchon', 'cascade', 'deuxroutes']]];
-function cupOrder() { const out = []; for (const [name, ids] of CUPS) { const list = ids.map((id) => TRACKS.findIndex((t) => t.id === id)).filter((i) => i >= 0); out.push([name, list]); } const seen = new Set(out.flatMap((c) => c[1])); const rest = TRACKS.map((t, i) => i).filter((i) => !seen.has(i)); if (rest.length) out.push(['Autres', rest]); return out; }
+function cupOrder() { const out = []; for (const [name, ids] of CUPS) { const list = ids.map((id) => TRACKS.findIndex((t) => t.id === id)).filter((i) => i >= 0); out.push([name, list]); } const seen = new Set(out.flatMap((c) => c[1])); const rest = TRACKS.map((t, i) => i).filter((i) => !seen.has(i) && !TRACKS[i].prototype), proto = TRACKS.map((t, i) => i).filter((i) => TRACKS[i].prototype); if (rest.length) out.push(['Autres', rest]); if (proto.length) out.push(['PROTOTYPES — À ESSAYER (non validés)', proto]); return out; }
 // onglets génériques
 function wireTabs(box) {
   const btns = Array.from(box.querySelectorAll('button[data-t]')); const panes = Array.from(box.parentElement.querySelectorAll(':scope > .tabpane'));
@@ -9926,7 +9954,7 @@ function buildTrackCards() {
       // Aperçu du circuit (C2-8) : image légère pré-rendue (scripts/apercus.cjs), chargée quand la carte devient visible ; le plan 2D
       // passe en incrustation. Rien n'est construit au toucher. Sans image (circuit du Studio, hors ligne) : plan 2D seul, comme avant.
       if (!def.studio) { const th = b.querySelector('.thumb'), im = new Image(); im.className = 'apercu'; im.alt = ''; im.decoding = 'async';
-        im.onload = () => th.classList.add('photo'); im.onerror = () => im.remove(); im.src = 'assets/apercus/' + def.id + '.webp'; th.prepend(im); }
+        im.onload = () => th.classList.add('photo'); im.onerror = () => im.remove(); im.src = def.apercuSrc || 'assets/apercus/' + def.id + '.webp'; th.prepend(im); }
       b.querySelector('h3').textContent = def.name; b.querySelector('p').textContent = def.desc;
       b.querySelector('.lvl').innerHTML = [1, 2, 3].map((n) => '<i class="' + (n <= def.level ? 'on' : '') + '"></i>').join('');
       b.querySelector('.rec').textContent = rec.lap ? 'Record ' + fmtTime(rec.lap) : '';
@@ -9941,7 +9969,7 @@ function buildTrackCards() {
 // Aperçus des circuits (26 images, ~380 Ko) préchargés une fois, au repos, après l'arrivée au menu : l'écran Entraînement les
 // affiche aussitôt (et le service worker les garde pour le hors-ligne). Rien n'est construit en 3D.
 let APERCUS_OK = false;
-function prechargerApercus() { if (APERCUS_OK) return; APERCUS_OK = true; const go = () => { for (const def of TRACKS) if (!def.studio) { const im = new Image(); im.decoding = 'async'; im.src = 'assets/apercus/' + def.id + '.webp'; } };
+function prechargerApercus() { if (APERCUS_OK) return; APERCUS_OK = true; const go = () => { for (const def of TRACKS) if (!def.studio) { const im = new Image(); im.decoding = 'async'; im.src = def.apercuSrc || 'assets/apercus/' + def.id + '.webp'; } };
   setTimeout(() => (window.requestIdleCallback ? requestIdleCallback(go, { timeout: 4000 }) : go()), 2500); }
 function refreshTitle() {
   prechargerApercus();

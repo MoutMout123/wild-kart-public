@@ -539,18 +539,30 @@
     "base": "glissade",
     "corrections": [
       {
+        "recette": "branche-cassure",
         "quoi": "ENVOL : point de passage 5 lissé (cassure 6.1°/m fr 0.8553)",
         "avant": 1,
         "apres": 2,
         "bloquantsApres": 0,
-        "gardee": false
+        "gardee": false,
+        "pos": [
+          153.9,
+          65.81,
+          510.54
+        ]
       },
       {
-        "quoi": "ENVOL : raccord de retour allongé (to + 0,01) (cassure 6.1°/m fr 0.8553)",
+        "recette": "branche-cassure",
+        "quoi": "ENVOL : raccord de retour allongé (to + 0.01) (cassure 6.1°/m fr 0.8553)",
         "avant": 1,
         "apres": 1,
         "bloquantsApres": 0,
-        "gardee": false
+        "gardee": false,
+        "pos": [
+          153.9,
+          65.81,
+          510.54
+        ]
       }
     ],
     "controle": [
@@ -558,24 +570,36 @@
         "graine": 7,
         "corrections": [
           {
+            "recette": "branche-cassure",
             "quoi": "ENVOL : point de passage 5 lissé (cassure 6.1°/m fr 0.8553)",
             "avant": 1,
             "apres": 2,
             "bloquantsApres": 0,
-            "gardee": false
+            "gardee": false,
+            "pos": [
+              153.9,
+              65.81,
+              510.54
+            ]
           },
           {
-            "quoi": "ENVOL : raccord de retour allongé (to + 0,01) (cassure 6.1°/m fr 0.8553)",
+            "recette": "branche-cassure",
+            "quoi": "ENVOL : raccord de retour allongé (to + 0.01) (cassure 6.1°/m fr 0.8553)",
             "avant": 1,
             "apres": 1,
             "bloquantsApres": 0,
-            "gardee": false
+            "gardee": false,
+            "pos": [
+              153.9,
+              65.81,
+              510.54
+            ]
           }
         ],
         "bloquants": 0,
         "aCorriger": 1,
         "mineurs": 10,
-        "ms": 3211,
+        "ms": 1693,
         "premiers": [
           "C À CORRIGER cassure de direction de la route affichée 6.1°/m fr 0.8553"
         ]

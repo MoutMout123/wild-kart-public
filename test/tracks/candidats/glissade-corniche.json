@@ -276,7 +276,7 @@
           {
             "x": 463,
             "z": -55,
-            "h": 243,
+            "h": 241,
             "r": 200,
             "k": 0.85
           },
@@ -296,10 +296,10 @@
     "vivants": [
       {
         "type": "avalanche",
-        "at": 0.211,
+        "at": 0.2086,
         "cote": -1,
         "part": 0.5,
-        "periode": 22,
+        "periode": 21,
         "preavis": 2.5,
         "duree": 5,
         "ralenti": 0.55,
@@ -313,23 +313,23 @@
       "to": 0.8775,
       "mid": [
         [
-          -190,
-          564,
+          -191,
+          566,
           30
         ],
         [
-          -233,
-          475,
+          -236,
+          476,
           19
         ],
         [
-          -255,
+          -258,
           380,
           11
         ],
         [
-          -254,
-          278,
+          -256,
+          277,
           5
         ]
       ],
@@ -371,32 +371,32 @@
       "boost": true
     },
     {
-      "from": 0.4317,
-      "to": 0.5317,
+      "from": 0.4349,
+      "to": 0.5349,
       "mid": [
         [
-          321,
+          313,
           451,
-          66
+          67
         ],
         [
-          291,
-          466,
-          73
-        ],
-        [
-          265,
-          486,
-          82
-        ],
-        [
-          215,
-          517,
+          285,
+          468,
           74
         ],
         [
-          176,
-          538,
+          258,
+          489,
+          82
+        ],
+        [
+          209,
+          521,
+          74
+        ],
+        [
+          172,
+          542,
           67
         ]
       ],
@@ -535,45 +535,27 @@
   },
   "concepteur": {
     "intention": "corniche",
-    "graine": 209,
+    "graine": 108,
     "decisions": [
       "montagne posée à 95 m de la montée la plus raide (corniche)",
       "épaule rocheuse ajoutée au-dessus du tunnel",
       "tunnel 0.1167-0.1455 (72 m)",
-      "avalanche à 0.211 (côté gauche)",
+      "avalanche à 0.2086 (côté gauche)",
       "POUDREUSE en arc intérieur 0.6475-0.8775",
-      "ENVOL 0.4317-0.5317 à l'intérieur du virage",
+      "ENVOL 0.4349-0.5349 à l'intérieur du virage",
       "vrille non placée : aucune descente libre de 140 m"
     ],
     "base": "glissade",
-    "corrections": [
-      {
-        "quoi": "ENVOL : point de passage 5 lissé (cassure 6.1°/m fr 0.8553)",
-        "avant": 1,
-        "apres": 2,
-        "bloquantsApres": 0,
-        "gardee": false
-      }
-    ],
+    "corrections": [],
     "controle": [
       {
-        "graine": 209,
-        "corrections": [
-          {
-            "quoi": "ENVOL : point de passage 5 lissé (cassure 6.1°/m fr 0.8553)",
-            "avant": 1,
-            "apres": 2,
-            "bloquantsApres": 0,
-            "gardee": false
-          }
-        ],
+        "graine": 108,
+        "corrections": [],
         "bloquants": 0,
-        "aCorriger": 1,
+        "aCorriger": 0,
         "mineurs": 10,
-        "ms": 1921,
-        "premiers": [
-          "C À CORRIGER cassure de direction de la route affichée 6.1°/m fr 0.8553"
-        ]
+        "ms": 1251,
+        "premiers": []
       }
     ]
   }
