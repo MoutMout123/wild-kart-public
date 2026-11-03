@@ -2240,6 +2240,71 @@ const WHEEL_DIM = { standard: { r: .43, w: .44 }, slicks: { r: .4, w: .66 }, off
 const HEAD_TOP = { casque: 2.08, casquette: 2.02, capuche: 2.1, robot: 2.02, heros: 2.1 };   // sommets des têtes animées (rig, refonte du 3 novembre)
 const BODY_W = { bolide: [1.12, .11], libellule: [1.45, .22], equilibre: [1.3, .13], buggy: [1.2, .1] };
 
+/* ================= Carrosseries v3 (refonte du 4 novembre, retour du propriétaire : « au niveau des roues ») =================
+   Chaque carrosserie est une COQUE CONTINUE lissée (« loft » : sections transversales en super-ellipse, interpolées en douceur le
+   long du kart, extrémités refermées en dôme), au lieu d'un assemblage de sphères qui se croisent. Les UV suivent la coque
+   (u autour, v le long) : la LIVRÉE peinte (deux tons, joints de carrosserie, filets, numéro de course, prises d'air, damier ou
+   bandes selon la déco choisie) est appliquée sans étirement. Matériaux séparés : coque peinte (paillettes + vernis en qualité
+   haute), plastique mat texturé, métal brossé, chrome, verre teinté. Appuis des roues, place du pilote et statistiques inchangés. */
+function loftGeo(secs, M = 44, K = 40) {
+  secs = secs.slice().sort((a, b) => a.z - b.z); const z0 = secs[0].z, z1 = secs[secs.length - 1].z, keys = ['w', 't', 'b', 'n', 'tb', 'x'];
+  const at = (z, key) => { let i = 0; while (i < secs.length - 2 && secs[i + 1].z < z) i++; const A = secs[i], Bb = secs[i + 1], h = (Bb.z - A.z) || 1e-6, u = clamp((z - A.z) / h, 0, 1);
+    const val = (s) => s[key] != null ? s[key] : key === 'n' ? 2.4 : 0, sl = (p, q) => (val(q) - val(p)) / ((q.z - p.z) || 1e-6);
+    const m0 = i > 0 ? (sl(secs[i - 1], A) + sl(A, Bb)) / 2 : sl(A, Bb), m1 = i < secs.length - 2 ? (sl(A, Bb) + sl(Bb, secs[i + 2])) / 2 : sl(A, Bb);
+    const u2 = u * u, u3 = u2 * u; return (2 * u3 - 3 * u2 + 1) * val(A) + (u3 - 2 * u2 + u) * h * m0 + (-2 * u3 + 3 * u2) * val(Bb) + (u3 - u2) * h * m1; };
+  const pos = [], uv = [], idx = [];
+  for (let i = 0; i <= M; i++) { const s = .5 - .5 * Math.cos(Math.PI * i / M), z = z0 + (z1 - z0) * s, p = {}; for (const k of keys) p[k] = at(z, k);
+    const w = Math.max(.002, p.w), hh = Math.max(.002, (p.t - p.b) / 2), yc = (p.t + p.b) / 2, ex = 2 / Math.max(1.2, p.n);
+    for (let j = 0; j <= K; j++) { const th = j / K * TAU, c = Math.cos(th), sn = Math.sin(th), yr = -Math.sign(c) * Math.pow(Math.abs(c), ex);
+      let x = w * Math.sign(sn) * Math.pow(Math.abs(sn), ex); if (yr > 0) x *= 1 - p.tb * yr; pos.push(x + p.x, yc + hh * yr, z); uv.push(j / K, s); } }
+  for (let i = 0; i < M; i++) for (let j = 0; j < K; j++) { const a = i * (K + 1) + j, b = a + K + 1; idx.push(a, a + 1, b, a + 1, b + 1, b); }
+  for (const [ring, sgn] of [[0, -1], [M, 1]]) { const c = pos.length / 3; let cx = 0, cy = 0; for (let j = 0; j < K; j++) { cx += pos[(ring * (K + 1) + j) * 3]; cy += pos[(ring * (K + 1) + j) * 3 + 1]; }
+    pos.push(cx / K, cy / K, (ring ? z1 : z0) + sgn * .01); uv.push(.5, ring ? 1 : 0); for (let j = 0; j < K; j++) { const a = ring * (K + 1) + j; if (sgn < 0) idx.push(c, a + 1, a); else idx.push(c, a, a + 1); } }
+  const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new T.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals(); return g;
+}
+// Livrée peinte sur la coque : u = 0 dessous, 0,25 flanc droit, 0,5 dessus, 0,75 flanc gauche ; v = 0 arrière, 1 avant.
+const LIVERY = new Map();
+function liveryMat(body, cfg, F, spec) {
+  const hi = qual().shadows, key = [body, cfg.color, cfg.helmet, cfg.deco, F.r, F.m, hi].join('|'); if (LIVERY.has(key)) return LIVERY.get(key);
+  const Wd = hi ? 1024 : 512, Hd = hi ? 512 : 256, cv = document.createElement('canvas'); cv.width = Wd; cv.height = Hd; const x = cv.getContext('2d'), sp = spec || {};
+  const U = (u) => u * Wd, Vv = (v) => (1 - v) * Hd, base = cfg.color, acc = cfg.helmet, dk = darken(base, .62), lt = (() => { const c = rgb(base).map((v) => Math.min(255, Math.round(v + (255 - v) * .35))); return `rgb(${c.join(',')})`; })();
+  x.fillStyle = base; x.fillRect(0, 0, Wd, Hd);
+  // reflet doux du dessus et bas de caisse deux tons
+  let gr = x.createLinearGradient(U(.3), 0, U(.5), 0); gr.addColorStop(0, base); gr.addColorStop(1, lt); x.fillStyle = gr; x.globalAlpha = .35; x.fillRect(U(.3), 0, U(.2), Hd); gr = x.createLinearGradient(U(.5), 0, U(.7), 0); gr.addColorStop(0, lt); gr.addColorStop(1, base); x.fillStyle = gr; x.fillRect(U(.5), 0, U(.2), Hd); x.globalAlpha = 1;
+  x.fillStyle = dk; x.fillRect(0, 0, U(sp.bas || .17), Hd); x.fillRect(U(1 - (sp.bas || .17)), 0, U(sp.bas || .17), Hd);
+  x.fillStyle = acc; for (const u of [sp.bas || .17, 1 - (sp.bas || .17)]) x.fillRect(U(u) - 3, 0, 6, Hd);            // filet de séparation
+  // déco choisie, peinte (et non collée en relief)
+  if (cfg.deco === 'bande') { x.fillStyle = acc; x.fillRect(U(.465), 0, U(.025), Hd); x.fillRect(U(.51), 0, U(.025), Hd); x.fillStyle = '#ffffff'; x.globalAlpha = .7; x.fillRect(U(.4885), 0, 3, Hd); x.fillRect(U(.4885) + 6, 0, 3, Hd); x.globalAlpha = 1; }
+  else if (cfg.deco === 'damier') { const n = 10, c = U(.24) / n; for (let r = 0; r < 3; r++) for (let k = 0; k < n; k++) { x.fillStyle = (r + k) % 2 ? '#15141c' : '#ffffff'; x.fillRect(U(.38) + k * c, Vv(sp.damier || .9) + r * c * .9, c, c * .9); } }
+  else { x.fillStyle = acc; x.fillRect(U(.3), 0, 5, Hd); x.fillRect(U(.7) - 5, 0, 5, Hd); }
+  // joints de carrosserie (capot, portière, coffre) : fins traits sombres + liseré clair
+  for (const v of sp.joints || [.3, .66]) { x.fillStyle = 'rgba(10,8,20,.45)'; x.fillRect(U(.18), Vv(v) - 1, U(.64), 2); x.fillStyle = 'rgba(255,255,255,.18)'; x.fillRect(U(.18), Vv(v) + 1, U(.64), 1); }
+  for (const s of [.29, .71]) for (const v of sp.portes || []) { x.strokeStyle = 'rgba(10,8,20,.45)'; x.lineWidth = 2; x.beginPath(); x.moveTo(U(s - .06), Vv(v[0])); x.lineTo(U(s - .06), Vv(v[1])); x.stroke(); }
+  // prises d'air latérales
+  for (const s of [.25, .75]) for (const [v, n] of sp.ouies || [[.45, 3]]) for (let k = 0; k < n; k++) { x.fillStyle = 'rgba(12,10,22,.7)'; const y0 = Vv(v) + k * Hd * .025; x.beginPath(); x.ellipse(U(s), y0, U(.03), Hd * .006, 0, 0, TAU); x.fill(); }
+  // numéro de course sur les flancs et le capot
+  // numéros sur les flancs, lisibles de chaque côté (le texte suit la longueur du kart) et ronds en vrai (u et v n'ont pas la même échelle)
+  const num = String(sp.num || 7), ru = .19 * Wd / 5, rv = .19 * Hd / 3.8; for (const [u, rot] of [[.25, Math.PI / 2], [.75, -Math.PI / 2]]) { if (sp.num === 0) break; const cx = U(u), cy = Vv(sp.vNum || .52);
+    x.fillStyle = '#ffffff'; x.beginPath(); x.ellipse(cx, cy, ru, rv, 0, 0, TAU); x.fill(); x.strokeStyle = acc; x.lineWidth = Wd * .004; x.stroke();
+    x.save(); x.translate(cx, cy); x.rotate(rot); x.scale(rv / ru, 1); x.fillStyle = '#15141c'; x.font = `900 ${Math.round(ru * 1.25)}px sans-serif`; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(num, 0, ru * .06); x.restore(); }
+  // petit logo « WK » à l'arrière
+  x.save(); x.translate(U(.5), Vv(.1)); x.scale(1, 2); x.fillStyle = acc; x.font = `900 ${Math.round(Hd * .03)}px sans-serif`; x.textAlign = 'center'; x.fillText('WILD KART', 0, 0); x.restore();
+  const tex = new T.CanvasTexture(cv); tex.anisotropy = Math.min(8, (renderer.capabilities && renderer.capabilities.getMaxAnisotropy()) || 1); if ('colorSpace' in tex) tex.colorSpace = T.SRGBColorSpace; else tex.encoding = T.sRGBEncoding;
+  const m = hi ? new T.MeshPhysicalMaterial({ color: '#ffffff', map: tex, roughness: Math.min(F.r, .32), roughnessMap: paintTex(), metalness: F.m, bumpMap: flakeTex(), bumpScale: .0012, clearcoat: F.m > .9 ? .35 : 1, clearcoatRoughness: .06 })
+    : new T.MeshStandardMaterial({ color: '#ffffff', map: tex, roughness: Math.min(F.r, .38), metalness: F.m });
+  LIVERY.set(key, m); return m;
+}
+// Plastique mat texturé (grain) pour bas de caisse, pare-chocs, ailerons noirs
+function plastiqueMat() { const key = 'plastique|' + qual().shadows; if (!matCache.has(key)) { const t = paintTex(); matCache.set(key, new T.MeshStandardMaterial({ color: '#23222e', map: t, roughness: .72, roughnessMap: t, metalness: .05 })); } return matCache.get(key); }
+function chromeMat() { const key = 'chrome|' + qual().shadows; if (!matCache.has(key)) matCache.set(key, new T.MeshStandardMaterial({ color: '#f2f4fa', roughness: .08, metalness: 1, envMapIntensity: 1.3 })); return matCache.get(key); }
+function verreMat() { const key = 'verre'; if (!matCache.has(key)) matCache.set(key, new T.MeshPhysicalMaterial({ color: '#2a3650', roughness: .04, metalness: .2, transmission: 0, transparent: true, opacity: .82, clearcoat: 1, clearcoatRoughness: .02 })); return matCache.get(key); }
+const BODY_SPEC = {
+  equilibre: { num: 7, joints: [.34, .7], ouies: [[.46, 3]] }, bolide: { num: 1, joints: [.3, .62], ouies: [[.42, 4]], vNum: .45, vCapot: .86 }, libellule: { num: 5, joints: [.62], ouies: [], vNum: .5 },
+  buggy: { num: 4, joints: [.4], ouies: [[.5, 2]] }, fusee: { num: 9, joints: [.25, .55, .75], ouies: [], vNum: .5, capot: false }, sport: { num: 3, joints: [.3, .72], portes: [[.38, .58]], ouies: [[.62, 4]] },
+  monstre: { num: 8, joints: [.5], ouies: [], bas: .2 }, baignoire: { num: 0 }, scarabee: { num: 2, joints: [], ouies: [], capot: false }, lutin: { num: 6, joints: [.7], ouies: [] }, requin: { num: 13, joints: [], ouies: [[.62, 4]], capot: false },
+  tracteur: { num: 11, joints: [.55], ouies: [[.75, 5]] }, comete: { num: 12, joints: [.7], ouies: [[.4, 3]] }, mini: { num: 10, joints: [.72], portes: [[.42, .6]], ouies: [] }, fourgon: { num: 14, joints: [.8], portes: [[.3, .55], [.58, .74]], ouies: [] },
+  limousine: { num: 15, joints: [.25, .45, .78], portes: [[.36, .5], [.52, .66]], ouies: [] }, herisson: { num: 16, joints: [], ouies: [], capot: false }, torpille: { num: 17, joints: [.3, .7], ouies: [], capot: false },
+};
 /* ================= Carrosseries v2 (refonte du 3-4 novembre, demande du propriétaire) =================
    Les 19 carrosseries ont chacune leur PROPRE modèle (avant : 10 formes, dont 9 partagées par deux noms et seulement mises à
    l'échelle). Volumes arrondis (ellipsoïdes, tours, capsules), ailes sur les roues, détails propres à chaque modèle, deux tons
@@ -2273,111 +2338,117 @@ function bodyV2(body, add, cap, V, cfg, WD) {
   const decoSur = (rx, ry, rz, x, y, z) => { if (cfg.deco === 'aucune') return null; const L = [], wd = cfg.deco === 'damier' ? .5 : .12, cs = cfg.deco === 'damier' ? [Math.PI / 2] : [Math.PI / 2 - .16, Math.PI / 2 + .16];
     for (const c0 of cs) for (const c of [c0, c0 + Math.PI]) { const g = new T.SphereGeometry(1, 4, 28, c - wd / 2, wd, 0, Math.PI * .5); g.scale(rx * 1.012, ry * 1.012, rz * 1.012); g.translate(x, y, z); L.push(g); } return mergeGeos(L); };
   let flames = echap([[-.24, .86, -1.9], [.24, .86, -1.9]]), deco = null;
-  add('dark', rbox(1.72, .12, 2.85, .05), tr(0, .3, 0));   // plancher
+  add('plast', rbox(1.72, .12, 2.85, .05), tr(0, .3, 0));   // plancher
+  const S = (z, w, t, b, n = 2.6, tb = .18, x = 0) => ({ z, w, t, b, n, tb, x });
+  const coque = (secs, k = 'coque', M, K) => add(k, loftGeo(secs, M, K));
+  const jupe = (zr, zf, w = .9) => coque([S(zr - .05, .3, .44, .34, 3), S(zr + .2, w * .92, .48, .3, 4, 0), S((zr + zf) / 2, w, .5, .3, 4, 0), S(zf - .2, w * .92, .48, .3, 4, 0), S(zf + .05, .3, .44, .34, 3)], 'plast', 24, 24);
+  const bouclier = (z, y, w, r = .09) => { C('plast', r, w, 0, y, z, 0, 0, Math.PI / 2); for (const s of [-1, 1]) C('chrome', r * .45, .02, s * w * .48, y + .02, z + r * .7, Math.PI / 2); };
+  const phares = (z, y, x, r = .13, k = 'lampe') => { for (const s of [-1, 1]) { Cy('chrome', r * 1.18, r * 1.18, .06, s * x, y, z, [Math.PI / 2, 0, 0], 20); Cy(k, r, r, .07, s * x, y, z + .01, [Math.PI / 2, 0, 0], 20); } };
+  const feux = (z, y, x, w = .22) => { for (const s of [-1, 1]) B('feu', w, .08, .05, .03, s * x, y, z); };
+  const cockpit = (z = -.42, y = .96, rx = .44, rz = .5) => { const g = new T.TorusGeometry(1, .07, 10, 32); g.scale(rx, rz, 1); g.rotateX(Math.PI / 2); g.translate(0, y, z); add('plast', g); };
+  const pare = (z, y, w = .5, h = .26, inc = -.55) => { const g = new T.SphereGeometry(1, 24, 8, -1.1, 2.2, Math.PI * .28, Math.PI * .22); g.scale(w, h * 2.2, .5); g.rotateX(inc + .55); g.translate(0, y - h, z - .35); add('verre', g); };
+  const retro = (z, y, x) => { for (const s of [-1, 1]) { C('plast', .02, .12, s * x, y, z, 0, 0, s * .9); E('chrome', .06, .04, .02, s * (x + .08), y + .05, z); } };
   switch (body) {
-    case 'equilibre': { // kart rond classique : coque galbée, nez arrondi, pontons latéraux, petit aileron
-      E('paint', .9, .36, 1.6, 0, .66, .1); E('paint', .62, .28, .7, 0, .62, 1.55); E('dark', .95, .14, 1.7, 0, .5, .1);
-      for (const s of [-1, 1]) { E('paint', .32, .26, .9, s * .78, .6, -.2); E('accent', .1, .1, .5, s * .98, .62, -.1); }
-      E('accent', .5, .16, .35, 0, .78, 1.75); E('glass', .38, .14, .22, 0, .98, .32, [-.4, 0, 0]);
-      ailes(.75, .12, true, false); aileron(1.25, -1.45, 1.7, .6); flames = echap([[-.3, .7, -1.75], [.3, .7, -1.75]]); deco = decoSur(.9, .36, 1.6, 0, .66, .1); break; }
-    case 'bolide': { // monoplace effilée : nez long, ailerons avant et arrière, pontons, capot moteur à dérive
-      C('paint', .32, 2.4, 0, .58, .55, Math.PI / 2); E('paint', .4, .26, .7, 0, .55, 1.95); E('paint', .7, .34, 1.0, 0, .7, -.8);
-      for (const s of [-1, 1]) { E('paint', .34, .24, .95, s * .7, .55, -.25); Cy('dark', .17, .17, .1, s * .95, .55, .25, [0, 0, Math.PI / 2]); }
-      add('accent', extrudeSide(airfoilShape(.62, .1), 2.15, .03, 2), tr(0, .32, 2.12)); for (const s of [-1, 1]) B('dark', .06, .34, .66, .025, s * 1.06, .38, 2.12);
-      aileron(1.42, -1.5, 2.1, .8, 'accent'); B('paint', .06, .5, 1.0, .03, 0, 1.05, -1.05, [.1, 0, 0]); Tz('dark', .26, .055, 0, 1.36, -.74, [0, Math.PI / 2, 0], Math.PI);
-      flames = echap([[0, .78, -1.85, 1.3]]); deco = decoSur(.7, .34, 1.0, 0, .7, -.8); break; }
-    case 'libellule': { // cabriolet bulle : quatre ailes rondes, corps en goutte, ailes de libellule translucides
-      E('paint', .78, .38, 1.55, 0, .68, .05); for (const [x, z] of [[-1, fz], [1, fz], [-1, -1], [1, -1]]) { const f = new T.SphereGeometry(.6, 28, 14, 0, TAU, 0, Math.PI / 2); f.scale(.82, .7, 1.05); f.translate(x * xw, .62, z); add('paint', f); }
-      for (const s of [-1, 1]) { const w = new T.SphereGeometry(1, 24, 10); w.scale(.95, .03, .32); w.applyMatrix4(trs(s * .75, 1.25, -.9, 0, s * .35, s * .25)); add('canopy', w); C('accent', .05, .5, s * .2, 1.12, -.75, .5, 0, 0); }
-      for (const s of [-1, 1]) E('glove', .11, .11, .08, s * .42, .7, 1.48); E('accent', .25, .08, .3, 0, .95, 1.1);
-      flames = echap([[0, .7, -1.65, 1.1]]); deco = decoSur(.78, .38, 1.55, 0, .68, .05); break; }
-    case 'buggy': { // buggy des dunes : châssis ouvert, arceau tubulaire, pare-buffle, roue de secours
-      B('paint', 1.5, .3, 2.6, .14, 0, .62, .1); E('paint', .7, .22, .55, 0, .66, 1.42);
-      Tz('dark', .64, .06, 0, 1.4, -.38, [0, 0, 0], Math.PI); for (const sx of [-1, 1]) { C('dark', .06, .55, sx * .64, 1.12, -.38); Lk('dark', V(sx * .62, 1.6, -.38), V(sx * .55, .78, .75), .05); Lk('dark', V(sx * .62, 1.7, -.38), V(sx * .4, .9, -1.2), .045); }
-      C('metal', .06, 1.3, 0, .58, 1.98, 0, 0, Math.PI / 2); for (const s of [-1, 1]) C('metal', .05, .32, s * .45, .72, 1.9, 0, 0, 0);
-      Tz('dark', .34, .14, 0, .98, -1.45, [0, 0, 0]); Cy('metal', .18, .18, .16, 0, .98, -1.45, [Math.PI / 2, 0, 0]);
-      for (const s of [-1, 1]) E('led', .1, .08, .05, s * .3, 2.08, -.28); ailes(.6, .1);
-      flames = echap([[.45, .55, -1.5]]); deco = decoSur(.75, .16, 1.3, 0, .77, .1); break; }
-    case 'fusee': { // fusée : coque cylindrique, cône de nez, ailettes, tuyère, hublot
-      C('paint', .55, 2.1, 0, .8, .05, Math.PI / 2); Co('accent', .42, .9, 0, .8, 1.95, [Math.PI / 2, 0, 0], 32); Cy('metal', .44, .52, .75, 0, .8, -1.45, [Math.PI / 2, 0, 0], 32);
-      Cy('dark', .52, .36, .38, 0, .8, -1.98, [Math.PI / 2, 0, 0], 32, true); B('accent', .07, .75, .85, .03, 0, 1.5, -1.15, [-.3, 0, 0]);
-      for (const s of [-1, 1]) { B('accent', .07, .6, .85, .03, s * .74, .62, -1.15, [0, 0, s * 1.15]); C('dark', .09, 1.4, 0, .42, 1.95, 0, 0, Math.PI / 2); }
-      Tz('metal', .19, .04, .56, .95, .85, [0, Math.PI / 2, 0]); E('glass', .02, .17, .17, .57, .95, .85); for (const z of [.75, -.35]) Tz('accent', .565, .06, 0, .8, z);
-      flames = echap([[0, .8, -2.05, 2.4]]); deco = null; break; }
-    case 'sport': { // GT : capot long, ailes musclées, petit habitacle vitré, prises d'air, aileron
-      E('paint', .95, .3, 1.75, 0, .62, .15); for (const s of [-1, 1]) for (const z of [fz, -1]) E('paint', .32, .36, .62, s * .82, .62, z);
-      E('glass', .55, .28, .55, 0, .9, -.1); E('paint', .6, .14, .6, 0, 1.0, -.55);
-      for (const s of [-1, 1]) { B('dark', .36, .12, .45, .05, s * .62, .7, .55); E('dark', .05, .1, .3, s * .98, .62, .15); }
-      add('accent', extrudeSide(airfoilShape(.7, .1), 2.1, .03, 2), tr(0, .34, 2.12)); aileron(1.22, -1.45, 2.0, .75);
-      flames = echap([[-.35, .5, -1.78], [.35, .5, -1.78]]); deco = decoSur(.95, .3, 1.75, 0, .62, .15); break; }
-    case 'monstre': { // monster truck : caisse haute sur grandes roues, arceau, rampe de phares, pare-chocs tubulaires
-      B('dark', 2.05, .2, 3.1, .06, 0, .78, 0); B('paint', 1.95, .55, 1.35, .22, 0, 1.08, .95); B('paint', 1.7, .3, .9, .14, 0, 1.4, 1.05);
-      B('paint', 1.95, .58, .8, .22, 0, 1.1, -1.15); for (const s of [-1, 1]) B('accent', .12, .3, 2.9, .06, s * .98, 1.0, -.05);
-      C('dark', .07, 1.8, 0, 2.15, -.2, 0, 0, Math.PI / 2); for (const s of [-1, 1]) C('dark', .07, 1.1, s * .85, 1.65, -.2);
-      for (let k = -2; k <= 2; k++) E('led', .1, .09, .05, k * .3, 2.2, -.14); C('metal', .07, 1.9, 0, .85, 1.7, 0, 0, Math.PI / 2); C('metal', .07, 1.9, 0, .85, -1.65, 0, 0, Math.PI / 2);
-      ailes(.62, .16); flames = echap([[-.7, 1.55, -1.3], [.7, 1.55, -1.3]]); for (const s of [-1, 1]) Cy('metal', .09, .1, .7, s * .7, 1.5, -1.05); deco = null; break; }
-    case 'baignoire': { // baignoire : cuve émaillée à rebord, pieds griffus, pommeau de douche, canard, mousse
-      E('glove', .95, .42, 1.7, 0, .78, 0); Tz('glove', 1, .07, 0, 1.16, 0, [Math.PI / 2, 0, 0]); E('water', .82, .05, 1.5, 0, 1.12, 0);
-      for (const s of [-1, 1]) for (const z of [1.2, -1.2]) Co('gold', .1, .3, s * .72, .42, z, [Math.PI, 0, 0]);
-      C('metal', .05, .9, -.55, 1.55, -1.25); C('metal', .05, .4, -.55, 2.02, -1.05, Math.PI / 2); Cy('metal', .15, .08, .12, -.55, 1.98, -.82, [Math.PI / 2, 0, 0]);
+    case 'equilibre': { // kart rond de référence : coque fluide en goutte, pontons galbés, nez souriant, aileron arrière
+      coque([S(-1.85, .12, .74, .58), S(-1.55, .6, .95, .44, 2.8), S(-1.05, .7, .98, .4, 3), S(-.45, .9, .9, .38, 3.2, .3), S(.15, .88, .88, .38, 3, .3), S(.7, .7, .84, .38, 2.8), S(1.1, .58, .78, .4, 2.6), S(1.55, .46, .7, .42, 2.4), S(1.92, .24, .6, .45, 2.2), S(2.05, .05, .54, .5)]);
+      jupe(-1.6, 1.7, .86); cockpit(); pare(.3, 1.02, .42, .2); bouclier(2.0, .46, 1.2); phares(1.86, .62, .3, .1); feux(-1.84, .74, .3);
+      ailes(.75, .12, true, false); aileron(1.25, -1.5, 1.7, .6, 'accent'); retro(.25, .98, .5); flames = echap([[-.3, .62, -1.88], [.3, .62, -1.88]]); break; }
+    case 'bolide': { // monoplace : nez effilé, cockpit étroit, capot moteur haut, pontons latéraux sculptés, ailerons
+      coque([S(-1.8, .14, .72, .48), S(-1.4, .36, .98, .38, 2.6), S(-.9, .46, 1.02, .34, 3, .3), S(-.4, .46, .9, .34, 3, .35), S(.2, .4, .84, .34, 2.8), S(.9, .32, .72, .34, 2.6), S(1.6, .2, .58, .36, 2.4), S(2.15, .05, .46, .4, 2)]);
+      for (const s of [-1, 1]) coque([S(-1.15, .05, .58, .4, 2, 0, s * .66), S(-.9, .2, .66, .34, 3, .1, s * .68), S(-.2, .26, .66, .34, 3, .1, s * .7), S(.35, .2, .6, .36, 2.6, .1, s * .68), S(.55, .04, .56, .42, 2, 0, s * .64)]);
+      for (const s of [-1, 1]) Cy('plast', .14, .16, .08, s * .7, .5, .58, [Math.PI / 2, 0, 0], 18);
+      add('accent', extrudeSide(airfoilShape(.62, .1), 2.15, .03, 2), tr(0, .32, 2.1)); for (const s of [-1, 1]) B('plast', .05, .34, .66, .025, s * 1.06, .38, 2.1);
+      aileron(1.42, -1.55, 2.1, .8, 'accent'); B('coque', .05, .45, .9, .02, 0, 1.12, -1.05, [.12, 0, 0]); Tz('plast', .26, .055, 0, 1.36, -.74, [0, Math.PI / 2, 0], Math.PI); cockpit(-.42, .9, .36, .48);
+      flames = echap([[0, .78, -1.85, 1.2]]); break; }
+    case 'libellule': { // cabriolet bulle rétro : corps en goutte très galbé, quatre ailes rondes, ailes de libellule translucides
+      coque([S(-1.6, .1, .78, .56), S(-1.3, .55, .96, .44, 2.4), S(-.7, .72, .92, .4, 2.6, .25), S(0, .74, .9, .4, 2.6, .25), S(.7, .62, .9, .42, 2.4), S(1.3, .45, .84, .44, 2.2), S(1.62, .1, .72, .52, 2)]);
+      for (const [xx, z] of [[-1, fz], [1, fz], [-1, -1], [1, -1]]) coque([S(z - .62, .05, .68, .62, 2, 0, xx * xw), S(z - .45, .38, .96, .5, 2.2, .2, xx * xw), S(z, .4, 1.05, .52, 2.2, .2, xx * xw), S(z + .45, .38, .96, .5, 2.2, .2, xx * xw), S(z + .62, .05, .68, .62, 2, 0, xx * xw)], 'paint', 16, 20);
+      for (const s of [-1, 1]) { const w = new T.SphereGeometry(1, 24, 10); w.scale(.95, .03, .32); w.applyMatrix4(trs(s * .75, 1.25, -.9, 0, s * .35, s * .25)); add('canopy', w); C('chrome', .03, .5, s * .2, 1.12, -.75, .5, 0, 0); }
+      phares(1.5, .72, .36, .1); feux(-1.56, .82, .3, .16); cockpit(); pare(.35, 1.02, .4, .2); flames = echap([[0, .66, -1.62, 1.0]]); break; }
+    case 'buggy': { // buggy des dunes : baquet bas, arceau tubulaire, pare-buffle, roue de secours, phares de toit
+      coque([S(-1.5, .3, .7, .5, 3), S(-1.2, .7, .82, .42, 3.6, .1), S(-.4, .78, .78, .4, 3.6, .15), S(.5, .74, .76, .4, 3.4, .15), S(1.2, .6, .72, .42, 3), S(1.6, .3, .64, .46, 2.6)]);
+      Tz('plast', .64, .06, 0, 1.4, -.38, [0, 0, 0], Math.PI); for (const sx of [-1, 1]) { C('plast', .06, .55, sx * .64, 1.12, -.38); Lk('plast', V(sx * .62, 1.6, -.38), V(sx * .55, .78, .75), .05); Lk('plast', V(sx * .62, 1.7, -.38), V(sx * .4, .9, -1.2), .045); }
+      C('chrome', .06, 1.3, 0, .58, 1.98, 0, 0, Math.PI / 2); for (const s of [-1, 1]) C('chrome', .05, .32, s * .45, .72, 1.9);
+      Tz('plast', .34, .14, 0, .98, -1.45, [0, 0, 0]); Cy('chrome', .18, .18, .16, 0, .98, -1.45, [Math.PI / 2, 0, 0]);
+      for (const s of [-1, 1]) { Cy('chrome', .1, .1, .1, s * .3, 2.08, -.3, [Math.PI / 2, 0, 0]); Cy('lampe', .08, .08, .11, s * .3, 2.08, -.29, [Math.PI / 2, 0, 0]); } ailes(.6, .1); phares(1.6, .64, .32, .09); cockpit(-.42, .88);
+      flames = echap([[.45, .55, -1.5]]); break; }
+    case 'fusee': { // fusée : fuselage rond continu du cône au réacteur, ailettes, hublot, anneaux
+      coque([S(-1.7, .48, 1.28, .32, 2, 0), S(-1.1, .56, 1.36, .24, 2, 0), S(.1, .56, 1.36, .24, 2, 0), S(1.0, .52, 1.32, .28, 2, 0), S(1.7, .3, 1.1, .5, 2, 0), S(2.25, .04, .82, .78, 2, 0)], 'coque', 44, 36);
+      Cy('chrome', .46, .52, .55, 0, .8, -1.88, [Math.PI / 2, 0, 0], 32); Cy('plast', .52, .36, .38, 0, .8, -2.22, [Math.PI / 2, 0, 0], 32, true);
+      B('accent', .07, .75, .85, .03, 0, 1.5, -1.25, [-.3, 0, 0]); for (const s of [-1, 1]) B('accent', .07, .6, .85, .03, s * .74, .62, -1.25, [0, 0, s * 1.15]);
+      Tz('chrome', .19, .04, .56, .95, .85, [0, Math.PI / 2, 0]); E('verre', .03, .17, .17, .55, .95, .85); for (const z of [.75, -.35]) Tz('chrome', .565, .035, 0, .8, z); cockpit(-.42, 1.2, .38, .44);
+      flames = echap([[0, .8, -2.3, 2.4]]); break; }
+    case 'sport': { // GT : capot long et bas, cabine reculée vitrée, flancs creusés, ailes musclées, diffuseur, aileron
+      coque([S(-1.9, .2, .7, .42, 3), S(-1.6, .78, .82, .34, 3.4, .2), S(-1.0, .74, .86, .32, 3.4, .25), S(-.5, .86, .86, .32, 3.6, .3), S(.3, .86, .8, .32, 3.4, .25), S(1.0, .72, .74, .32, 3), S(1.7, .62, .64, .34, 3), S(2.15, .4, .54, .36, 2.6), S(2.25, .1, .5, .4, 2.2)]);
+      for (const s of [-1, 1]) for (const z of [fz, -1]) coque([S(z - .62, .05, .62, .56, 2, 0, s * .84), S(z - .4, .2, .9, .44, 2.6, .3, s * .84), S(z, .22, .96, .42, 2.6, .3, s * .84), S(z + .4, .2, .9, .44, 2.6, .3, s * .84), S(z + .62, .05, .62, .56, 2, 0, s * .84)], 'coque', 16, 20);
+      E('verre', .52, .26, .5, 0, .92, -.25); E('coque', .58, .14, .55, 0, 1.02, -.75); for (const s of [-1, 1]) B('plast', .3, .1, .4, .04, s * .5, .82, .75);
+      aileron(1.22, -1.55, 2.0, .75, 'accent'); B('plast', 1.5, .16, .3, .06, 0, .42, -1.85); for (const s of [-1, 1]) for (let k = 0; k < 4; k++) B('plast', .03, .14, .26, .01, s * (.2 + k * .15), .4, -1.88);
+      phares(2.1, .6, .55, .1); feux(-1.88, .74, .55, .3); retro(-.05, .98, .6); flames = echap([[-.35, .44, -1.98], [.35, .44, -1.98]]); break; }
+    case 'monstre': { // monster truck : caisse haute à arêtes adoucies, capot bombé, rampe de phares, arceau, pare-chocs tubulaires
+      coque([S(-1.55, .8, 1.5, .78, 4.2, .1), S(-1.2, .95, 1.55, .72, 4.6, .12), S(-.2, .96, 1.3, .72, 4.6, .12), S(.6, .95, 1.42, .72, 4.6, .12), S(1.3, .9, 1.42, .74, 4.2, .1), S(1.62, .7, 1.3, .8, 3.6)]);
+      pare(.32, 1.62, .55, .24);
+      C('plast', .07, 1.8, 0, 2.15, -.2, 0, 0, Math.PI / 2); for (const s of [-1, 1]) C('plast', .07, 1.1, s * .85, 1.65, -.2); for (let k = -2; k <= 2; k++) { Cy('chrome', .1, .1, .08, k * .3, 2.2, -.12, [Math.PI / 2, 0, 0]); Cy('lampe', .08, .08, .09, k * .3, 2.2, -.11, [Math.PI / 2, 0, 0]); }
+      C('chrome', .07, 1.9, 0, .85, 1.72, 0, 0, Math.PI / 2); C('chrome', .07, 1.9, 0, .85, -1.62, 0, 0, Math.PI / 2); phares(1.63, 1.12, .55, .12); feux(-1.56, 1.25, .62, .2);
+      ailes(.62, .16); for (const s of [-1, 1]) Cy('chrome', .09, .1, .7, s * .7, 1.75, -1.05); flames = echap([[-.7, 2.1, -1.05, .8], [.7, 2.1, -1.05, .8]]); cockpit(-.42, 1.32, .44, .46); break; }
+    case 'baignoire': { // baignoire : cuve émaillée continue à rebord roulé, pieds griffus dorés, douche, canard, mousse
+      coque([S(-1.65, .3, 1.12, .55, 3), S(-1.4, .88, 1.18, .45, 3.4, -.08), S(0, .96, 1.18, .42, 3.6, -.1), S(1.4, .88, 1.18, .45, 3.4, -.08), S(1.65, .3, 1.12, .55, 3)], 'email', 44, 40);
+      const g = new T.TorusGeometry(1, .075, 10, 40); g.scale(.95, 1.62, 1); g.rotateX(Math.PI / 2); g.translate(0, 1.18, 0); add('email', g); E('water', .84, .04, 1.45, 0, 1.12, 0);
+      for (const s of [-1, 1]) for (const z of [1.2, -1.2]) { Co('gold', .1, .3, s * .72, .42, z, [Math.PI, 0, 0]); E('gold', .09, .06, .12, s * .72, .28, z + .05); }
+      C('chrome', .05, .9, -.55, 1.55, -1.25); C('chrome', .05, .4, -.55, 2.02, -1.05, Math.PI / 2); Cy('chrome', .15, .08, .12, -.55, 1.98, -.82, [Math.PI / 2, 0, 0]);
       E('duck', .2, .18, .24, .45, 1.28, .9); E('duck', .12, .12, .12, .45, 1.48, 1.05); Co('beak', .06, .12, .45, 1.46, 1.2, [Math.PI / 2, 0, 0]);
-      for (let k = 0; k < 6; k++) E('glove', .12, .1, .12, -.4 + k * .17, 1.18, -.6 + (k % 2) * .25);
-      ailes(.55, .1); flames = echap([[-.3, .7, -1.75], [.3, .7, -1.75]]); deco = null; break; }
-    case 'scarabee': { // scarabée : dôme d'élytres fendu, tête ronde à yeux-phares, antennes, pattes
-      H('paint', .98, .7, 1.45, 0, .5, -.15); E('dark', .02, .66, 1.42, 0, .52, -.15); E('paint', .55, .36, .45, 0, .62, 1.4);
-      for (const s of [-1, 1]) { E('glass', .14, .14, .1, s * .28, .7, 1.78); C('dark', .025, .7, s * .18, 1.0, 1.85, .7, 0, s * .4); E('accent', .06, .06, .06, s * .32, 1.32, 2.12); }
-      for (const s of [-1, 1]) for (const z of [.4, -.4]) C('dark', .045, .45, s * 1.02, .45, z, 0, 0, s * 1.0);
-      E('accent', .22, .3, .5, 0, .95, .05); flames = echap([[0, .55, -1.62]]); deco = decoSur(.98, .7, 1.45, 0, .5, -.15); break; }
-    case 'lutin': { // lutin : petite caisse en sabot à pointe recourbée, bonnet pointu à grelot, liseré
-      E('paint', .8, .34, 1.25, 0, .62, -.05); for (let k = 0; k < 6; k++) { const t = k / 5; E('paint', .55 - t * .4, .22 - t * .12, .2, 0, .56 + t * t * .55, 1.1 + t * .62); }
-      E('gold', .07, .07, .07, 0, 1.13, 1.75); Co('accent', .42, 1.1, 0, 1.45, -1.25, [-.55, 0, 0], 20); Tz('glove', .4, .07, 0, 1.15, -1.0, [Math.PI / 2 - .55, 0, 0]); E('gold', .1, .1, .1, 0, 1.93, -1.7);
-      Tz('accent', .82, .05, 0, .65, -.05, [Math.PI / 2, 0, 0]); ailes(.7, .1);
-      flames = echap([[0, .6, -1.35, .9]]); deco = decoSur(.8, .34, 1.25, 0, .62, -.05); break; }
-    case 'requin': { // requin : corps fuselé, aileron dorsal, ouïes, gueule à dents, nageoire caudale
-      C('paint', .58, 2.4, 0, .75, 0, Math.PI / 2); E('paint', .58, .5, .9, 0, .72, 1.4); E('glove', .52, .25, .8, 0, .55, 1.4);
-      Co('paint', .32, .9, 0, 1.55, -.4, [-.35, 0, 0], 4); for (const s of [-1, 1]) { for (let k = 0; k < 3; k++) B('dark', .02, .26, .04, .01, s * .56, .82, .9 - k * .12); E('dark', .07, .07, .05, s * .38, .95, 1.85); C('paint', .1, .6, s * .7, .5, .3, 0, 0, s * 1.2); }
-      for (let k = -3; k <= 3; k++) Co('glove', .04, .1, k * .07, .48, 2.15, [Math.PI, 0, 0], 6);
-      for (const r of [.5, -.5]) B('paint', .08, .65, .55, .04, 0, .85 + r * .5, -1.75, [r * 1.2, 0, 0]);
-      flames = echap([[-.25, .7, -1.55], [.25, .7, -1.55]]); deco = null; break; }
-    case 'tracteur': { // tracteur : capot arrondi à calandre, cheminée verticale, ailes enveloppantes arrière, marchepied
-      B('paint', 1.2, .7, 1.6, .25, 0, .95, .8); E('paint', .62, .38, .45, 0, 1.12, 1.55); for (let k = 0; k < 5; k++) B('metal', .9, .05, .05, .02, 0, .8 + k * .1, 1.92);
-      Cy('dark', .08, .09, .9, .4, 1.75, 1.0); Cy('metal', .1, .1, .1, .4, 2.22, 1.0); B('paint', 1.5, .3, 1.0, .12, 0, .85, -.75);
-      for (const s of [-1, 1]) { const g = new T.CylinderGeometry(WD.r + .2, WD.r + .2, WD.w + .25, 28, 1, true, Math.PI / 2 - 1.3, 2.6); g.rotateZ(Math.PI / 2); g.translate(s * xw, WD.r, -1); add('paint', g); B('dark', .5, .06, .3, .02, s * .85, .55, .15); }
-      for (const s of [-1, 1]) E('lampe', .1, .1, .05, s * .42, 1.05, 1.98); ailes(.55, .12, true, false);
-      flames = echap([[.4, 2.3, 1.0, .8]]); deco = null; break; }
-    case 'comete': { // comète : goutte effilée lumineuse, nez étoilé, traînées de queue, coque vernie
-      E('paint', .82, .38, 1.9, 0, .68, -.05); E('accent', .5, .22, .45, 0, .72, 1.6); const st = new T.OctahedronGeometry(.22); st.scale(1, 1, .4); st.translate(0, .78, 2.0); add('gold', st);
-      for (const s of [-1, 0, 1]) C('led', .05, 1.2, s * .35, .85 - Math.abs(s) * .1, -1.75, Math.PI / 2 + .1, 0, 0);
-      for (const s of [-1, 1]) { E('paint', .25, .2, .7, s * .82, .58, .5); E('led', .03, .05, .6, s * .85, .7, -.2); }
-      E('glass', .4, .16, .3, 0, .98, .35, [-.35, 0, 0]); ailes(.7, .1);
-      flames = echap([[0, .72, -1.95, 1.4]]); deco = decoSur(.82, .38, 1.9, 0, .68, -.05); break; }
-    case 'mini': { // citadine mignonne : cabine haute arrondie à vitres, gros phares ronds, pare-chocs, toit à deux tons
-      E('paint', .88, .4, 1.15, 0, .62, 0); H('accent', .62, .4, .42, 0, .9, -1.0); Tz('accent', .56, .05, 0, .95, -.7, [0, 0, 0], Math.PI);   // capote repliée et arceau
-      E('canopy', .5, .2, .03, 0, 1.08, .32, [-.45, 0, 0]); Tz('metal', .5, .025, 0, 1.0, .36, [-.45, 0, 0], Math.PI); for (const s of [-1, 1]) { Cy('metal', .17, .17, .06, s * .45, .72, 1.12, [Math.PI / 2, 0, 0]); E('lampe', .14, .14, .04, s * .45, .72, 1.16); }
-      C('metal', .07, 1.5, 0, .45, 1.15, 0, 0, Math.PI / 2); C('metal', .07, 1.5, 0, .45, -1.15, 0, 0, Math.PI / 2); ailes(.7, .1);
-      flames = echap([[.35, .45, -1.25, .8]]); deco = decoSur(.88, .38, 1.15, 0, .62, 0); break; }
-    case 'fourgon': { // fourgonnette : caisse haute arrondie, vitres, porte coulissante, galerie de toit, valises
-      B('paint', 1.7, .95, 2.9, .38, 0, 1.0, -.05); B('accent', 1.72, .2, 2.92, .08, 0, .62, -.05); for (const s of [-1, 1]) { B('canopy', .04, .38, 1.0, .08, s * .86, 1.25, .2); B('dark', .02, .7, .04, .01, s * .86, 1.0, -.45); }
-      B('canopy', 1.3, .4, .06, .1, 0, 1.25, 1.42, [-.25, 0, 0]); for (const s of [-1, 1]) C('metal', .04, 2.2, s * .65, 1.56, -.1, Math.PI / 2); B('accent', .6, .3, .5, .1, 0, 1.73, -.4); B('paint', .45, .25, .4, .08, .1, 1.72, .3);
-      for (const s of [-1, 1]) E('lampe', .14, .1, .04, s * .58, .85, 1.44); ailes(.6, .1);
-      flames = echap([[-.45, .5, -1.6]]); deco = null; break; }
-    case 'limousine': { // limousine : très longue, capot interminable, liserés chromés, fanions, ailerons de queue
-      E('paint', .9, .3, 2.15, 0, .62, .1); E('paint', .7, .18, .9, 0, .86, -.6); E('glass', .62, .14, .78, 0, .96, -.6);
-      for (const s of [-1, 1]) { C('metal', .03, 3.6, s * .9, .62, .1, Math.PI / 2); B('paint', .06, .32, .6, .03, s * .55, .95, -1.7, [-.4, 0, s * .25]); C('dark', .015, .4, s * .6, 1.0, 1.85); B('accent', .02, .14, .2, .01, s * .7, 1.16, 1.83); }
-      Tz('metal', .34, .03, 0, .62, 2.2, [0, 0, 0], Math.PI); E('gold', .07, .1, .07, 0, .95, 2.05);
-      flames = echap([[-.3, .5, -1.95], [.3, .5, -1.95]]); deco = decoSur(.9, .3, 2.15, 0, .62, .1); break; }
-    case 'herisson': { // hérisson : dôme brun à piquants, museau pointu à truffe, oreilles, petites pattes
-      H('paint', 1.0, .78, 1.35, 0, .55, -.2); E('ivory', .5, .32, .55, 0, .62, 1.2); Co('ivory', .3, .55, 0, .62, 1.72, [Math.PI / 2, 0, 0]); E('dark', .1, .09, .09, 0, .62, 2.0);
+      for (let k = 0; k < 7; k++) E('email', .13, .1, .13, -.45 + k * .15, 1.18, -.6 + (k % 2) * .25); ailes(.55, .1); flames = echap([[-.3, .6, -1.72], [.3, .6, -1.72]]); break; }
+    case 'scarabee': { // scarabée : dôme d'élytres continu et fendu, corselet, tête ronde aux yeux-phares, antennes, pattes
+      coque([S(-1.62, .2, .7, .5, 2.2), S(-1.3, .82, 1.08, .42, 2.4, .35), S(-.5, .98, 1.18, .4, 2.4, .4), S(.3, .9, 1.06, .4, 2.4, .4), S(.8, .7, .9, .42, 2.4, .3), S(1.05, .45, .82, .46, 2.2)]);
+      B('plast', .025, .72, 1.8, .012, 0, .82, -.3, [0, 0, 0]); coque([S(1.0, .1, .7, .5, 2), S(1.2, .5, .86, .42, 2.2, .2), S(1.6, .5, .82, .42, 2.2, .2), S(1.9, .3, .74, .46, 2), S(2.02, .05, .66, .52, 2)], 'paint', 24, 28);
+      for (const s of [-1, 1]) { E('lampe', .14, .14, .1, s * .28, .7, 1.86); Tz('chrome', .14, .02, s * .28, .7, 1.9); C('plast', .022, .7, s * .18, 1.0, 1.85, .7, 0, s * .4); E('accent', .06, .06, .06, s * .32, 1.32, 2.12); }
+      for (const s of [-1, 1]) for (const z of [.4, -.4]) C('plast', .045, .45, s * 1.02, .45, z, 0, 0, s * 1.0); cockpit(-.42, 1.05, .42, .45); flames = echap([[0, .5, -1.62]]); break; }
+    case 'lutin': { // lutin : coque de sabot à la pointe recourbée vers le ciel, bonnet pointu à grelot, liseré doré
+      coque([S(-1.4, .2, .84, .56), S(-1.1, .72, .96, .44, 2.6, .2), S(-.4, .82, .88, .4, 2.6, .25), S(.4, .76, .86, .42, 2.6, .2), S(1.0, .56, .82, .44, 2.4), S(1.45, .3, .86, .5, 2.2), S(1.75, .12, 1.02, .78, 2), S(1.82, .04, 1.15, 1.05, 2)]);
+      E('gold', .08, .08, .08, 0, 1.18, 1.86); Co('accent', .42, 1.1, 0, 1.45, -1.25, [-.55, 0, 0], 24); Tz('email', .4, .08, 0, 1.15, -1.0, [Math.PI / 2 - .55, 0, 0]); E('gold', .11, .11, .11, 0, 1.93, -1.7);
+      Tz('gold', .84, .03, 0, .66, -.05, [Math.PI / 2, 0, 0]); ailes(.7, .1); phares(1.35, .66, .3, .08); cockpit(); flames = echap([[0, .6, -1.42, .9]]); break; }
+    case 'requin': { // requin : fuselage continu du museau à la queue, aileron dorsal, ouïes, gueule à dents, nageoires
+      coque([S(-1.9, .1, .9, .7, 2), S(-1.5, .42, 1.1, .5, 2.2, .1), S(-.6, .62, 1.24, .38, 2.3, .15), S(.4, .64, 1.24, .36, 2.3, .15), S(1.2, .56, 1.12, .36, 2.2, .1), S(1.8, .38, .96, .4, 2), S(2.2, .08, .78, .5, 2)]);
+      coque([S(1.3, .4, .62, .44, 2, 0), S(1.9, .3, .56, .44, 2, 0), S(2.15, .05, .54, .48, 2, 0)], 'email', 16, 20);
+      Co('coque', .34, .95, 0, 1.62, -.45, [-.35, 0, 0], 4); for (const s of [-1, 1]) { E('plast', .07, .07, .05, s * .38, 1.0, 1.75); C('coque', .1, .6, s * .7, .5, .3, 0, 0, s * 1.2); }
+      for (let k = -3; k <= 3; k++) Co('email', .04, .1, k * .07, .5, 2.12, [Math.PI, 0, 0], 6);
+      for (const r of [.5, -.5]) B('coque', .08, .65, .55, .04, 0, .85 + r * .5, -1.95, [r * 1.2, 0, 0]); cockpit(-.42, 1.18, .4, .44); flames = echap([[-.25, .7, -1.7], [.25, .7, -1.7]]); break; }
+    case 'tracteur': { // tracteur : capot arrondi à calandre chromée, cheminée, ailes arrière enveloppantes, marchepieds
+      coque([S(.0, .3, 1.15, .62, 3.6), S(.3, .6, 1.3, .55, 4, .15), S(1.2, .62, 1.3, .55, 4, .15), S(1.75, .58, 1.22, .58, 3.6, .1), S(1.95, .3, 1.1, .66, 3)]);
+      coque([S(-1.6, .4, .95, .55, 3.6), S(-1.3, .78, 1.0, .5, 4, .1), S(-.2, .78, .95, .5, 4, .1), S(.1, .4, .9, .55, 3.6)]);
+      for (let k = 0; k < 5; k++) B('chrome', .9, .04, .04, .015, 0, .74 + k * .1, 1.97); Cy('plast', .08, .09, .9, .4, 1.75, 1.0); Cy('chrome', .1, .1, .1, .4, 2.22, 1.0);
+      for (const s of [-1, 1]) { const g = new T.CylinderGeometry(WD.r + .2, WD.r + .2, WD.w + .25, 28, 1, true, Math.PI / 2 - 1.3, 2.6); g.rotateZ(Math.PI / 2); g.translate(s * xw, WD.r, -1); add('paint', g); B('plast', .5, .06, .3, .02, s * .85, .55, .15); }
+      phares(1.98, 1.05, .42, .1); feux(-1.62, .9, .5, .16); ailes(.55, .12, true, false); cockpit(-.42, .98); flames = echap([[.4, 2.3, 1.0, .8]]); break; }
+    case 'comete': { // comète : goutte très effilée, nez étoilé, traînées lumineuses, flancs creusés
+      coque([S(-1.95, .06, .76, .66, 2), S(-1.5, .4, .9, .5, 2.4, .2), S(-.8, .72, .96, .4, 2.6, .3), S(0, .8, .92, .38, 2.8, .3), S(.8, .66, .86, .4, 2.6, .25), S(1.5, .44, .78, .44, 2.4), S(2.05, .12, .7, .54, 2)]);
+      const st = new T.OctahedronGeometry(.22); st.scale(1, 1, .4); st.translate(0, .68, 2.12); add('gold', st);
+      for (const s of [-1, 0, 1]) C('led', .045, 1.2, s * .3, .84 - Math.abs(s) * .1, -1.95, Math.PI / 2 + .1, 0, 0); for (const s of [-1, 1]) C('led', .025, 1.3, s * .82, .62, -.1, Math.PI / 2);
+      pare(.35, 1.0, .4, .2); ailes(.7, .1); cockpit(); flames = echap([[0, .72, -2.0, 1.4]]); break; }
+    case 'mini': { // citadine : caisse courte et haute aux flancs bombés, capote repliée, gros phares ronds chromés, pare-chocs
+      coque([S(-1.3, .4, .9, .5, 3), S(-1.0, .82, 1.05, .42, 3.4, .25), S(-.2, .86, .98, .4, 3.4, .3), S(.5, .82, .92, .42, 3.2, .25), S(1.0, .7, .84, .44, 3), S(1.28, .4, .78, .5, 2.6)]);
+      H('accent', .62, .4, .42, 0, 1.0, -1.0); Tz('chrome', .56, .04, 0, 1.05, -.72, [0, 0, 0], Math.PI); pare(.4, 1.12, .44, .22); Tz('chrome', .48, .02, 0, 1.12, .3, [-.45, 0, 0], Math.PI);
+      phares(1.22, .76, .42, .15); feux(-1.28, .86, .48, .18); bouclier(1.32, .48, 1.4, .08); bouclier(-1.34, .5, 1.4, .08); retro(.2, 1.02, .66); ailes(.7, .1); cockpit(-.42, 1.02);
+      flames = echap([[.35, .48, -1.36, .8]]); break; }
+    case 'fourgon': { // fourgonnette : grande caisse arrondie, vitres teintées, porte coulissante, galerie et bagages
+      coque([S(-1.65, .78, 1.62, .48, 4.4, .12), S(-1.3, .86, 1.75, .42, 4.6, .14), S(.8, .86, 1.75, .42, 4.6, .14), S(1.3, .84, 1.6, .44, 4.2, .12), S(1.6, .76, 1.2, .5, 3.6), S(1.75, .5, 1.05, .56, 3)], 'coque', 40, 40);
+      for (const s of [-1, 1]) { B('verre', .04, .4, 1.1, .1, s * .86, 1.35, .15); B('verre', .04, .4, .55, .1, s * .86, 1.35, -1.0); } B('verre', 1.35, .45, .06, .12, 0, 1.38, 1.5, [-.3, 0, 0]);
+      for (const s of [-1, 1]) C('chrome', .04, 2.4, s * .65, 1.82, -.2, Math.PI / 2); B('accent', .62, .3, .52, .1, 0, 1.99, -.5); B('coque', .45, .25, .4, .08, .1, 1.98, .25);
+      phares(1.74, .88, .55, .12); feux(-1.66, 1.1, .7, .14); bouclier(1.8, .55, 1.6); ailes(.6, .1); flames = echap([[-.45, .5, -1.72]]); break; }
+    case 'limousine': { // limousine : caisse très longue et basse, capot interminable, ailerons de queue, chromes, fanions
+      coque([S(-2.15, .3, .74, .44, 3), S(-1.8, .82, .86, .36, 3.4, .2), S(-.6, .86, .84, .36, 3.6, .25), S(.6, .86, .8, .36, 3.6, .2), S(1.6, .78, .72, .36, 3.2), S(2.15, .6, .66, .38, 3), S(2.35, .25, .6, .42, 2.6)]);
+      E('verre', .62, .16, .9, 0, .94, -.75); E('coque', .66, .1, .85, 0, 1.04, -.75);
+      for (const s of [-1, 1]) { C('chrome', .03, 4.0, s * .86, .46, .1, Math.PI / 2); B('coque', .06, .34, .6, .03, s * .55, .98, -1.85, [-.4, 0, s * .25]); C('plast', .015, .4, s * .6, 1.0, 2.0); B('accent', .02, .14, .2, .01, s * .7, 1.16, 1.98); }
+      for (let k = 0; k < 6; k++) B('chrome', .9, .03, .03, .01, 0, .5 + k * .05, 2.36); E('gold', .07, .1, .07, 0, .82, 2.25); phares(2.3, .56, .55, .09); feux(-2.14, .7, .6, .26); flames = echap([[-.3, .45, -2.2], [.3, .45, -2.2]]); break; }
+    case 'herisson': { // hérisson : dôme continu hérissé de piquants, museau pointu à truffe, oreilles, pattes
+      coque([S(-1.55, .3, .9, .5, 2.2), S(-1.2, .86, 1.22, .42, 2.3, .3), S(-.4, 1.0, 1.32, .4, 2.3, .35), S(.4, .92, 1.2, .4, 2.3, .35), S(.9, .6, .95, .42, 2.2, .2), S(1.1, .3, .82, .46, 2)]);
+      coque([S(.9, .45, .86, .4, 2), S(1.3, .4, .8, .42, 2), S(1.75, .2, .7, .5, 2), S(2.0, .05, .64, .58, 2)], 'ivory', 20, 24); E('plast', .1, .09, .09, 0, .62, 2.02);
       for (let i = 0; i < 60; i++) { const a = (i * 2.399) % TAU, t = .2 + .75 * ((i * .618) % 1), x = Math.cos(a) * Math.sin(t * 1.2) * .9, z = -.2 + Math.sin(a) * Math.sin(t * 1.2) * 1.15 - .1, y = .55 + Math.cos(t * 1.2) * .74;
         if (z > .1 && Math.abs(x) < .45) continue; const n = new T.Vector3(x / 1.0, (y - .55) / .78, (z + .2) / 1.35).normalize(), g = new T.ConeGeometry(.12, .55, 7); g.applyMatrix4(new T.Matrix4().compose(V(x, y, z).addScaledVector(n, .12), new T.Quaternion().setFromUnitVectors(V(0, 1, 0), n), V(1, 1, 1))); add('paint2', g); }
-      for (const s of [-1, 1]) { E('paint', .12, .14, .06, s * .38, 1.05, .6); E('dark', .06, .06, .05, s * .2, .78, 1.55); }
-      flames = echap([[0, .55, -1.5]]); deco = null; break; }
-    case 'torpille': { // torpille : long fuseau, hélice arrière à pales, gouvernails, périscope, bagues
-      C('paint', .5, 2.6, 0, .78, .05, Math.PI / 2); E('accent', .5, .5, .5, 0, .78, 1.62); for (const z of [.9, -.5]) Tz('metal', .51, .05, 0, .78, z);
-      Cy('metal', .12, .12, .3, 0, .78, -1.95, [Math.PI / 2, 0, 0]); for (let k = 0; k < 4; k++) B('metal', .08, .7, .2, .03, 0, .78, -2.12, [0, 0, k * Math.PI / 4]);
-      for (const a of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) B('dark', .06, .45, .5, .02, Math.sin(a) * .5, .78 + Math.cos(a) * .5, -1.4, [0, 0, -a]);
-      C('dark', .05, .55, .3, 1.45, .7); C('dark', .05, .2, .3, 1.75, .8, Math.PI / 2); for (const s of [-1, 1]) E('glass', .02, .1, .1, s * .5, .9, .4);
-      flames = echap([[0, .78, -2.2, 1.6]]); deco = null; break; }
+      for (const s of [-1, 1]) { E('coque', .12, .14, .06, s * .38, 1.1, .6); E('plast', .06, .06, .05, s * .2, .78, 1.6); } cockpit(-.42, 1.15, .42, .45); flames = echap([[0, .55, -1.55]]); break; }
+    case 'torpille': { // torpille : long fuseau continu, hélice à pales, gouvernails, périscope, bagues chromées
+      coque([S(-2.0, .14, .9, .66, 2, 0), S(-1.6, .44, 1.24, .32, 2, 0), S(-.2, .5, 1.28, .28, 2, 0), S(1.0, .5, 1.28, .28, 2, 0), S(1.7, .4, 1.18, .38, 2, 0), S(2.1, .05, .82, .74, 2, 0)], 'coque', 44, 36);
+      for (const z of [.9, -.5]) Tz('chrome', .51, .035, 0, .78, z); Cy('chrome', .12, .12, .3, 0, .78, -2.1, [Math.PI / 2, 0, 0]); for (let k = 0; k < 4; k++) B('chrome', .07, .7, .2, .03, 0, .78, -2.25, [0, 0, k * Math.PI / 4]);
+      for (const a of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) B('plast', .06, .45, .5, .02, Math.sin(a) * .5, .78 + Math.cos(a) * .5, -1.55, [0, 0, -a]);
+      C('plast', .05, .55, .3, 1.45, .7); C('plast', .05, .2, .3, 1.75, .8, Math.PI / 2); for (const s of [-1, 1]) E('verre', .03, .1, .1, s * .5, .9, .4); cockpit(-.42, 1.18, .38, .44); flames = echap([[0, .78, -2.4, 1.6]]); break; }
   }
   return { flames, deco };
 }
@@ -2493,12 +2564,12 @@ function kartGeometry(cfg) {
   }
   // Finitions communes à TOUTES les carrosseries (refonte du 3 novembre) : phares, feux arrière et sorties d'échappement, posés sur la
   // vraie surface de la carrosserie (lancer de rayon sur la peinture) ; rien n'est posé si le rayon ne touche pas (forme atypique).
-  if (parts.paint && parts.paint.length) { const tmp = new T.Mesh(mergeGeos(parts.paint.map((x) => x.clone())), new T.MeshBasicMaterial({ side: T.DoubleSide })); tmp.geometry.computeBoundingBox(); const bb = tmp.geometry.boundingBox, ray = new T.Raycaster(), hy = bb.min.y + (bb.max.y - bb.min.y) * .42, hw = (bb.max.x - bb.min.x) / 2;
+  if (parts.paint && parts.paint.length && !BODY_V2.has(body)) { const tmp = new T.Mesh(mergeGeos(parts.paint.map((x) => x.clone())), new T.MeshBasicMaterial({ side: T.DoubleSide })); tmp.geometry.computeBoundingBox(); const bb = tmp.geometry.boundingBox, ray = new T.Raycaster(), hy = bb.min.y + (bb.max.y - bb.min.y) * .42, hw = (bb.max.x - bb.min.x) / 2;
     for (const [dz, key, rr] of [[1, 'lampe', .12], [-1, 'feu', .09]]) for (const sx of [-1, 1]) { ray.set(new T.Vector3(sx * hw * .55, hy, dz * (Math.abs(dz > 0 ? bb.max.z : bb.min.z) + 3)), new T.Vector3(0, 0, -dz)); const hit = ray.intersectObject(tmp, false)[0]; if (!hit || !hit.face) continue;
       const n = hit.face.normal.clone(); if (n.z * dz < .2) continue; const d = new T.CylinderGeometry(rr, rr * 1.08, .05, 18); d.applyMatrix4(new T.Matrix4().compose(hit.point.clone().addScaledVector(n, .012), new T.Quaternion().setFromUnitVectors(new T.Vector3(0, 1, 0), n), new T.Vector3(1, 1, 1))); add(key, d);
       const ring = new T.TorusGeometry(rr * 1.05, .018, 6, 18); ring.applyMatrix4(new T.Matrix4().compose(hit.point.clone().addScaledVector(n, .02), new T.Quaternion().setFromUnitVectors(new T.Vector3(0, 0, 1), n), new T.Vector3(1, 1, 1))); add('metal', ring); }
-    tmp.geometry.dispose();
-    for (const fp of flames) if (fp.s < 1.6) { const t = new T.CylinderGeometry(.12 * fp.s, .14 * fp.s, .28, 14, 1, true); t.rotateX(Math.PI / 2); t.translate(fp.x, fp.y, fp.z + .1); add('metal', t); const c = new T.CircleGeometry(.1 * fp.s, 14); c.rotateY(Math.PI); c.translate(fp.x, fp.y, fp.z + .2); add('dark', c); } }
+    tmp.geometry.dispose(); }
+  { for (const fp of flames) if (fp.s < 1.6) { const t = new T.CylinderGeometry(.12 * fp.s, .14 * fp.s, .28, 14, 1, true); t.rotateX(Math.PI / 2); t.translate(fp.x, fp.y, fp.z + .1); add('metal', t); const c = new T.CircleGeometry(.1 * fp.s, 14); c.rotateY(Math.PI); c.translate(fp.x, fp.y, fp.z + .2); add('dark', c); } }
   const merged = {}; for (const k in parts) { merged[k] = mergeGeos(parts[k]); merged[k].userData.keep = true; }
   if (deco) deco.userData.keep = true;
   const WD = WHEEL_DIM[cfg.wheels] || WHEEL_DIM.standard;
@@ -2538,6 +2609,7 @@ function kartMesh(cfgIn) {
   const geo = kartGeometry(cfg); const F = FINISHES[cfg.finish];
   const mats = { paint: paintMat(cfg.color, F), dark: stdMat('#22213a', .5, .35), metal: stdMat('#cfd2dc', .2, .9), suit: stdMat(cfg.color === '#2b2b3a' ? '#4a4a60' : darken(cfg.color, .45), .7, .05),
     helm: stdMat(cfg.helmet, .15, .3), visor: stdMat('#0b0b16', .05, .85), glove: stdMat('#f7f5ee', .6, 0), skin: stdMat(cfg.skin, .72, 0), glass: stdMat('#101018', .05, .75),
+    coque: liveryMat(bodyId, cfg, F, BODY_SPEC[bodyId]), plast: plastiqueMat(), chrome: chromeMat(), verre: verreMat(), email: (() => { const k = 'email|' + qual().shadows; if (!matCache.has(k)) matCache.set(k, qual().shadows ? new T.MeshPhysicalMaterial({ color: '#fbfaf6', roughness: .18, metalness: 0, clearcoat: 1, clearcoatRoughness: .05 }) : new T.MeshStandardMaterial({ color: '#fbfaf6', roughness: .22, metalness: 0 })); return matCache.get(k); })(),
     accent: paintMat(cfg.helmet, F), paint2: paintMat(darken(cfg.color, .55), F), led: glowMat('#2ee6ff'), lampe: glowMat('#fff3c8'), feu: glowMat('#ff3048'), gold: stdMat('#ffc531', .22, .85), ivory: stdMat('#f1e7cf', .5, 0), water: stdMat('#6fd8ff', .1, .2), duck: stdMat('#ffd23a', .4, 0), beak: stdMat('#ff8a1e', .5, 0),
     canopy: new T.MeshStandardMaterial({ color: '#bfe6ff', transparent: true, opacity: .45, roughness: .05, metalness: .3 }) };
   mats.arch = new T.MeshStandardMaterial({ color: cfg.color, roughness: F.r, metalness: F.m, side: T.DoubleSide });
