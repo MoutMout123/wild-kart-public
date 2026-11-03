@@ -48,7 +48,7 @@ const WHEELS = {
   offroad: { name: 'Tout-terrain', speed: -.06, accel: .07, handling: .02, weight: .05, off: .4 },
   neon: { name: 'Néon', speed: .03, accel: .03, handling: .03, weight: -.05, off: -.05 },
 };
-const PILOTS = { casque: { name: 'Casque' }, casquette: { name: 'Casquette' }, capuche: { name: 'Capuche' }, robot: { name: 'Robot' }, heros: { name: 'Héros (prototype)' } };
+const PILOTS = { casque: { name: 'Casque' }, casquette: { name: 'Casquette' }, capuche: { name: 'Capuche' }, robot: { name: 'Robot' }, heros: { name: 'Héros' } };
 const ACCS = { aucun: { name: 'Aucun' }, antenne: { name: 'Antenne' }, crete: { name: 'Crête' }, couronne: { name: 'Couronne' }, cornes: { name: 'Cornes' }, aileron: { name: 'Aileron' } };
 const FINISHES = { brillant: { name: 'Brillant', r: .26, m: .35 }, mat: { name: 'Mat', r: .78, m: .04 }, chrome: { name: 'Chromé', r: .1, m: .95 } };
 const DECOS = { aucune: { name: 'Aucune' }, bande: { name: 'Bandes' }, damier: { name: 'Damier' } };
@@ -2212,14 +2212,18 @@ function extrudeSide(shape, width, bevel, segs = 4, sizeOverride) {
   const g = new T.ExtrudeGeometry(shape, { depth: Math.max(.01, width - 2 * thick), bevelEnabled: true, bevelThickness: thick, bevelSize: sizeOverride != null ? sizeOverride : bevel * .85, bevelSegments: segs, curveSegments: 10 });
   g.rotateY(-Math.PI / 2); g.computeBoundingBox(); const bb = g.boundingBox; g.translate(-(bb.min.x + bb.max.x) / 2, 0, 0); return smooth(g, 48);
 }
-function tireGeo(R, w, knobby) {
-  const r0 = R * .6, c = Math.min(w * .3, (R - r0) * .5), pts = [];
-  pts.push(new T.Vector2(r0, -w / 2 + .02));
+function tireGeo(R, w, knobby, style) {
+  // Refonte (3 novembre) : flancs bombés, épaule arrondie et bande de roulement à deux rainures (même rayon et même largeur : la
+  // conduite et les collisions ne dépendent pas du maillage).
+  const r0 = R * .6, c = Math.min(w * .3, (R - r0) * .5), pts = [], bulge = w * .06;
+  pts.push(new T.Vector2(r0, -w / 2 + .02)); pts.push(new T.Vector2((r0 + R - c) / 2, -w / 2 - bulge));
   for (let k = 0; k <= 6; k++) { const a = -Math.PI / 2 + k / 6 * Math.PI / 2; pts.push(new T.Vector2(R - c + Math.cos(a) * c, -w / 2 + c + Math.sin(a) * c)); }
+  if (!knobby && style !== 'lisse') for (const [y, d] of [[-.2, 0], [-.17, -.025], [-.12, -.025], [-.09, 0], [.09, 0], [.12, -.025], [.17, -.025], [.2, 0]]) pts.push(new T.Vector2(R + d * R, y * w * 2.2));
   for (let k = 0; k <= 6; k++) { const a = k / 6 * Math.PI / 2; pts.push(new T.Vector2(R - c + Math.cos(a) * c, w / 2 - c + Math.sin(a) * c)); }
-  pts.push(new T.Vector2(r0, w / 2 - .02));
-  let g = new T.LatheGeometry(pts, 36); g.rotateZ(Math.PI / 2);
-  if (knobby) {
+  pts.push(new T.Vector2((r0 + R - c) / 2, w / 2 + bulge)); pts.push(new T.Vector2(r0, w / 2 - .02));
+  let g = new T.LatheGeometry(pts, 28); g.rotateZ(Math.PI / 2);
+  if (knobby === 'chevrons') { const list = [g]; for (let k = 0; k < 18; k++) for (const sx of [-1, 1]) { const a = k / 18 * TAU, kb = rbox(w * .5, .09, .13, .035); kb.applyMatrix4(trs(sx * w * .22, Math.cos(a) * (R + .012), Math.sin(a) * (R + .012), a, sx * .5, 0)); list.push(kb); } g = mergeGeos(list); }
+  else if (knobby) {
     const list = [g]; for (let k = 0; k < 16; k++) { const a = k / 16 * TAU; const kb = rbox(w * .92, .1, .16, .04); kb.applyMatrix4(trs(0, Math.cos(a) * (R + .015), Math.sin(a) * (R + .015), a, 0, 0)); list.push(kb); }
     g = mergeGeos(list);
   }
@@ -2227,12 +2231,156 @@ function tireGeo(R, w, knobby) {
 }
 function rimGeo(R, w) {
   const r0 = R * .6, pts = [[.001, w * .34], [r0 * .28, w * .36], [r0 * .62, w * .22], [r0 * .97, w * .34], [r0 * .97, -w * .34], [r0 * .62, -w * .22], [r0 * .28, -w * .36], [.001, -w * .34]].map((p) => new T.Vector2(p[0], p[1]));
-  const g = new T.LatheGeometry(pts, 28); g.rotateZ(Math.PI / 2); return g;
+  const g = new T.LatheGeometry(pts, 28); g.rotateZ(Math.PI / 2);
+  // cinq branches arrondies sur chaque face (refonte du 3 novembre)
+  const list = [g]; for (const sx of [-1, 1]) for (let k = 0; k < 5; k++) { const a = k / 5 * TAU, sp = new T.CapsuleGeometry(r0 * .1, r0 * .55, 2, 6); sp.scale(1.6, 1, 1); sp.translate(0, r0 * .5, 0); sp.applyMatrix4(trs(sx * w * .3, 0, 0, a, 0, 0)); list.push(sp); }
+  return mergeGeos(list);
 }
 const WHEEL_DIM = { standard: { r: .43, w: .44 }, slicks: { r: .4, w: .66 }, offroad: { r: .56, w: .52 }, neon: { r: .44, w: .42 } };
-const HEAD_TOP = { casque: 2.04, casquette: 1.97, capuche: 2.04, robot: 1.92, heros: 2.1 };
+const HEAD_TOP = { casque: 2.08, casquette: 2.02, capuche: 2.1, robot: 2.02, heros: 2.1 };   // sommets des têtes animées (rig, refonte du 3 novembre)
 const BODY_W = { bolide: [1.12, .11], libellule: [1.45, .22], equilibre: [1.3, .13], buggy: [1.2, .1] };
 
+/* ================= Carrosseries v2 (refonte du 3-4 novembre, demande du propriétaire) =================
+   Les 19 carrosseries ont chacune leur PROPRE modèle (avant : 10 formes, dont 9 partagées par deux noms et seulement mises à
+   l'échelle). Volumes arrondis (ellipsoïdes, tours, capsules), ailes sur les roues, détails propres à chaque modèle, deux tons
+   (peinture + couleur secondaire « accent »). Appuis des roues, place du pilote et statistiques inchangés : la conduite et les
+   collisions ne dépendent pas du maillage. Repère : x latéral, y haut, z avant ; roues avant en z = fz, arrière en z = -1. */
+const BODY_FZ = { bolide: 1.22, fusee: 1.25, buggy: 1.12, sport: 1.28, monstre: 1.15, limousine: 1.42, requin: 1.25, torpille: 1.3, comete: 1.25, tracteur: 1.12, scarabee: 1.05, fourgon: 1.1, herisson: 1.1, mini: .95, lutin: 1.0 };
+const BODY_WIDE = { buggy: .06, monstre: .2, baignoire: .04, tracteur: .14, herisson: .1, fourgon: .06, scarabee: .04, limousine: .02 };
+const WHEEL_V2 = new Set();   // roues v2 (rempli plus bas)
+const BODY_V2 = new Set(['equilibre', 'bolide', 'libellule', 'buggy', 'fusee', 'sport', 'monstre', 'baignoire', 'scarabee', 'lutin', 'requin', 'tracteur', 'comete', 'galet', 'mini', 'fourgon', 'limousine', 'herisson', 'torpille']);
+function bodyV2(body, add, cap, V, cfg, WD) {
+  if (body === 'galet') return { flames: null, deco: galetBody(add, cap, V, cfg, WD) };
+  const fz = BODY_FZ[body] || 1.05, wide = BODY_WIDE[body] || 0, xw = .92 + wide + WD.w / 2 - .12;
+  // primitives
+  const E = (k, rx, ry, rz, x, y, z, a = [0, 0, 0], seg = 28) => { const g = new T.SphereGeometry(1, seg, Math.round(seg * .6)); g.scale(rx, ry, rz); g.applyMatrix4(trs(x, y, z, a[0], a[1], a[2])); add(k, g); return g; };
+  const H = (k, rx, ry, rz, x, y, z, a = [0, 0, 0]) => { const g = new T.SphereGeometry(1, 30, 10, 0, TAU, 0, Math.PI / 2); g.scale(rx, ry, rz); g.applyMatrix4(trs(x, y, z, a[0], a[1], a[2])); add(k, g); return g; };
+  const C = (k, r, l, x, y, z, rx = 0, ry = 0, rz = 0) => add(k, cap(r, l, x, y, z, rx, ry, rz));
+  const Tz = (k, R, r, x, y, z, a = [0, 0, 0], arc = TAU) => { const g = new T.TorusGeometry(R, r, 10, 36, arc); g.applyMatrix4(trs(x, y, z, a[0], a[1], a[2])); add(k, g); };
+  const Cy = (k, r0, r1, h, x, y, z, a = [0, 0, 0], seg = 24, open = false) => { const g = new T.CylinderGeometry(r0, r1, h, seg, 1, open); g.applyMatrix4(trs(x, y, z, a[0], a[1], a[2])); add(k, g); };
+  const Co = (k, r, h, x, y, z, a = [0, 0, 0], seg = 16) => { const g = new T.ConeGeometry(r, h, seg); g.applyMatrix4(trs(x, y, z, a[0], a[1], a[2])); add(k, g); };
+  const B = (k, w, h, d, r, x, y, z, a = [0, 0, 0]) => add(k, rbox(w, h, d, r), trs(x, y, z, a[0], a[1], a[2]));
+  const Lk = (k, a, b, r) => { const d = new T.Vector3().subVectors(b, a), g = new T.CapsuleGeometry(r, Math.max(.01, d.length()), 4, 10); g.applyMatrix4(new T.Matrix4().compose(a.clone().add(b).multiplyScalar(.5), new T.Quaternion().setFromUnitVectors(new T.Vector3(0, 1, 0), d.normalize()), new T.Vector3(1, 1, 1))); add(k, g); };
+  const lathe = (k, prof, x, y, z, a = [0, 0, 0], seg = 32) => { const g = new T.LatheGeometry(prof.map((p) => new T.Vector2(p[0], p[1])), seg); g.applyMatrix4(trs(x, y, z, a[0], a[1], a[2])); add(k, g); };
+  // aile sur une roue (demi-tore ouvert, double face) et garde-boue arrondi
+  const aile = (s, z, ep = .13, L = .8) => { const r = WD.r + ep, w = WD.w + .14, g = new T.CylinderGeometry(r, r, w, 28, 1, true, Math.PI / 2 - Math.PI * L / 2, Math.PI * L); g.rotateZ(Math.PI / 2); g.translate(s * xw, WD.r, z); add('paint', g);
+    const b = new T.TorusGeometry(r, .035, 6, 28, Math.PI * L); b.rotateZ(Math.PI / 2 - Math.PI * L / 2); b.rotateY(Math.PI / 2); b.translate(s * (xw + w / 2), WD.r, z); add('accent', b); };
+  const ailes = (L = .8, ep = .13, av = true, ar = true) => { for (const s of [-1, 1]) { if (av) aile(s, fz, ep, L); if (ar) aile(s, -1, ep, L); } };
+  const aileron = (y, z, w = 2.0, ch = .72, k = 'paint') => { add(k, extrudeSide(airfoilShape(ch, .12), w, .03, 2), tr(0, y, z)); for (const s of [-1, 1]) { B('dark', .06, .5, ch * .9, .025, s * (w / 2 - .02), y - .05, z); C('dark', .035, y - .75, s * .4, (y + .75) / 2 - .02, z + .05); } };
+  const siege = () => { B('dark', .72, .62, .2, .08, 0, 1.0, -.64, [-.15, 0, 0]); Tz('dark', .42, .065, 0, 1.06, -.42, [Math.PI / 2, 0, 0]); };
+  const echap = (pts) => pts.map(([x, y, z, s]) => ({ x, y, z, s: s || 1 }));
+  // bandes de déco qui suivent la coque principale (ellipsoïde rx, ry, rz centré en x, y, z)
+  const decoSur = (rx, ry, rz, x, y, z) => { if (cfg.deco === 'aucune') return null; const L = [], wd = cfg.deco === 'damier' ? .5 : .12, cs = cfg.deco === 'damier' ? [Math.PI / 2] : [Math.PI / 2 - .16, Math.PI / 2 + .16];
+    for (const c0 of cs) for (const c of [c0, c0 + Math.PI]) { const g = new T.SphereGeometry(1, 4, 28, c - wd / 2, wd, 0, Math.PI * .5); g.scale(rx * 1.012, ry * 1.012, rz * 1.012); g.translate(x, y, z); L.push(g); } return mergeGeos(L); };
+  let flames = echap([[-.24, .86, -1.9], [.24, .86, -1.9]]), deco = null;
+  add('dark', rbox(1.72, .12, 2.85, .05), tr(0, .3, 0));   // plancher
+  switch (body) {
+    case 'equilibre': { // kart rond classique : coque galbée, nez arrondi, pontons latéraux, petit aileron
+      E('paint', .9, .36, 1.6, 0, .66, .1); E('paint', .62, .28, .7, 0, .62, 1.55); E('dark', .95, .14, 1.7, 0, .5, .1);
+      for (const s of [-1, 1]) { E('paint', .32, .26, .9, s * .78, .6, -.2); E('accent', .1, .1, .5, s * .98, .62, -.1); }
+      E('accent', .5, .16, .35, 0, .78, 1.75); E('glass', .38, .14, .22, 0, .98, .32, [-.4, 0, 0]);
+      ailes(.75, .12, true, false); aileron(1.25, -1.45, 1.7, .6); flames = echap([[-.3, .7, -1.75], [.3, .7, -1.75]]); deco = decoSur(.9, .36, 1.6, 0, .66, .1); break; }
+    case 'bolide': { // monoplace effilée : nez long, ailerons avant et arrière, pontons, capot moteur à dérive
+      C('paint', .32, 2.4, 0, .58, .55, Math.PI / 2); E('paint', .4, .26, .7, 0, .55, 1.95); E('paint', .7, .34, 1.0, 0, .7, -.8);
+      for (const s of [-1, 1]) { E('paint', .34, .24, .95, s * .7, .55, -.25); Cy('dark', .17, .17, .1, s * .95, .55, .25, [0, 0, Math.PI / 2]); }
+      add('accent', extrudeSide(airfoilShape(.62, .1), 2.15, .03, 2), tr(0, .32, 2.12)); for (const s of [-1, 1]) B('dark', .06, .34, .66, .025, s * 1.06, .38, 2.12);
+      aileron(1.42, -1.5, 2.1, .8, 'accent'); B('paint', .06, .5, 1.0, .03, 0, 1.05, -1.05, [.1, 0, 0]); Tz('dark', .26, .055, 0, 1.36, -.74, [0, Math.PI / 2, 0], Math.PI);
+      flames = echap([[0, .78, -1.85, 1.3]]); deco = decoSur(.7, .34, 1.0, 0, .7, -.8); break; }
+    case 'libellule': { // cabriolet bulle : quatre ailes rondes, corps en goutte, ailes de libellule translucides
+      E('paint', .78, .38, 1.55, 0, .68, .05); for (const [x, z] of [[-1, fz], [1, fz], [-1, -1], [1, -1]]) { const f = new T.SphereGeometry(.6, 28, 14, 0, TAU, 0, Math.PI / 2); f.scale(.82, .7, 1.05); f.translate(x * xw, .62, z); add('paint', f); }
+      for (const s of [-1, 1]) { const w = new T.SphereGeometry(1, 24, 10); w.scale(.95, .03, .32); w.applyMatrix4(trs(s * .75, 1.25, -.9, 0, s * .35, s * .25)); add('canopy', w); C('accent', .05, .5, s * .2, 1.12, -.75, .5, 0, 0); }
+      for (const s of [-1, 1]) E('glove', .11, .11, .08, s * .42, .7, 1.48); E('accent', .25, .08, .3, 0, .95, 1.1);
+      flames = echap([[0, .7, -1.65, 1.1]]); deco = decoSur(.78, .38, 1.55, 0, .68, .05); break; }
+    case 'buggy': { // buggy des dunes : châssis ouvert, arceau tubulaire, pare-buffle, roue de secours
+      B('paint', 1.5, .3, 2.6, .14, 0, .62, .1); E('paint', .7, .22, .55, 0, .66, 1.42);
+      Tz('dark', .64, .06, 0, 1.4, -.38, [0, 0, 0], Math.PI); for (const sx of [-1, 1]) { C('dark', .06, .55, sx * .64, 1.12, -.38); Lk('dark', V(sx * .62, 1.6, -.38), V(sx * .55, .78, .75), .05); Lk('dark', V(sx * .62, 1.7, -.38), V(sx * .4, .9, -1.2), .045); }
+      C('metal', .06, 1.3, 0, .58, 1.98, 0, 0, Math.PI / 2); for (const s of [-1, 1]) C('metal', .05, .32, s * .45, .72, 1.9, 0, 0, 0);
+      Tz('dark', .34, .14, 0, .98, -1.45, [0, 0, 0]); Cy('metal', .18, .18, .16, 0, .98, -1.45, [Math.PI / 2, 0, 0]);
+      for (const s of [-1, 1]) E('led', .1, .08, .05, s * .3, 2.08, -.28); ailes(.6, .1);
+      flames = echap([[.45, .55, -1.5]]); deco = decoSur(.75, .16, 1.3, 0, .77, .1); break; }
+    case 'fusee': { // fusée : coque cylindrique, cône de nez, ailettes, tuyère, hublot
+      C('paint', .55, 2.1, 0, .8, .05, Math.PI / 2); Co('accent', .42, .9, 0, .8, 1.95, [Math.PI / 2, 0, 0], 32); Cy('metal', .44, .52, .75, 0, .8, -1.45, [Math.PI / 2, 0, 0], 32);
+      Cy('dark', .52, .36, .38, 0, .8, -1.98, [Math.PI / 2, 0, 0], 32, true); B('accent', .07, .75, .85, .03, 0, 1.5, -1.15, [-.3, 0, 0]);
+      for (const s of [-1, 1]) { B('accent', .07, .6, .85, .03, s * .74, .62, -1.15, [0, 0, s * 1.15]); C('dark', .09, 1.4, 0, .42, 1.95, 0, 0, Math.PI / 2); }
+      Tz('metal', .19, .04, .56, .95, .85, [0, Math.PI / 2, 0]); E('glass', .02, .17, .17, .57, .95, .85); for (const z of [.75, -.35]) Tz('accent', .565, .06, 0, .8, z);
+      flames = echap([[0, .8, -2.05, 2.4]]); deco = null; break; }
+    case 'sport': { // GT : capot long, ailes musclées, petit habitacle vitré, prises d'air, aileron
+      E('paint', .95, .3, 1.75, 0, .62, .15); for (const s of [-1, 1]) for (const z of [fz, -1]) E('paint', .32, .36, .62, s * .82, .62, z);
+      E('glass', .55, .28, .55, 0, .9, -.1); E('paint', .6, .14, .6, 0, 1.0, -.55);
+      for (const s of [-1, 1]) { B('dark', .36, .12, .45, .05, s * .62, .7, .55); E('dark', .05, .1, .3, s * .98, .62, .15); }
+      add('accent', extrudeSide(airfoilShape(.7, .1), 2.1, .03, 2), tr(0, .34, 2.12)); aileron(1.22, -1.45, 2.0, .75);
+      flames = echap([[-.35, .5, -1.78], [.35, .5, -1.78]]); deco = decoSur(.95, .3, 1.75, 0, .62, .15); break; }
+    case 'monstre': { // monster truck : caisse haute sur grandes roues, arceau, rampe de phares, pare-chocs tubulaires
+      B('dark', 2.05, .2, 3.1, .06, 0, .78, 0); B('paint', 1.95, .55, 1.35, .22, 0, 1.08, .95); B('paint', 1.7, .3, .9, .14, 0, 1.4, 1.05);
+      B('paint', 1.95, .58, .8, .22, 0, 1.1, -1.15); for (const s of [-1, 1]) B('accent', .12, .3, 2.9, .06, s * .98, 1.0, -.05);
+      C('dark', .07, 1.8, 0, 2.15, -.2, 0, 0, Math.PI / 2); for (const s of [-1, 1]) C('dark', .07, 1.1, s * .85, 1.65, -.2);
+      for (let k = -2; k <= 2; k++) E('led', .1, .09, .05, k * .3, 2.2, -.14); C('metal', .07, 1.9, 0, .85, 1.7, 0, 0, Math.PI / 2); C('metal', .07, 1.9, 0, .85, -1.65, 0, 0, Math.PI / 2);
+      ailes(.62, .16); flames = echap([[-.7, 1.55, -1.3], [.7, 1.55, -1.3]]); for (const s of [-1, 1]) Cy('metal', .09, .1, .7, s * .7, 1.5, -1.05); deco = null; break; }
+    case 'baignoire': { // baignoire : cuve émaillée à rebord, pieds griffus, pommeau de douche, canard, mousse
+      E('glove', .95, .42, 1.7, 0, .78, 0); Tz('glove', 1, .07, 0, 1.16, 0, [Math.PI / 2, 0, 0]); E('water', .82, .05, 1.5, 0, 1.12, 0);
+      for (const s of [-1, 1]) for (const z of [1.2, -1.2]) Co('gold', .1, .3, s * .72, .42, z, [Math.PI, 0, 0]);
+      C('metal', .05, .9, -.55, 1.55, -1.25); C('metal', .05, .4, -.55, 2.02, -1.05, Math.PI / 2); Cy('metal', .15, .08, .12, -.55, 1.98, -.82, [Math.PI / 2, 0, 0]);
+      E('duck', .2, .18, .24, .45, 1.28, .9); E('duck', .12, .12, .12, .45, 1.48, 1.05); Co('beak', .06, .12, .45, 1.46, 1.2, [Math.PI / 2, 0, 0]);
+      for (let k = 0; k < 6; k++) E('glove', .12, .1, .12, -.4 + k * .17, 1.18, -.6 + (k % 2) * .25);
+      ailes(.55, .1); flames = echap([[-.3, .7, -1.75], [.3, .7, -1.75]]); deco = null; break; }
+    case 'scarabee': { // scarabée : dôme d'élytres fendu, tête ronde à yeux-phares, antennes, pattes
+      H('paint', .98, .7, 1.45, 0, .5, -.15); E('dark', .02, .66, 1.42, 0, .52, -.15); E('paint', .55, .36, .45, 0, .62, 1.4);
+      for (const s of [-1, 1]) { E('glass', .14, .14, .1, s * .28, .7, 1.78); C('dark', .025, .7, s * .18, 1.0, 1.85, .7, 0, s * .4); E('accent', .06, .06, .06, s * .32, 1.32, 2.12); }
+      for (const s of [-1, 1]) for (const z of [.4, -.4]) C('dark', .045, .45, s * 1.02, .45, z, 0, 0, s * 1.0);
+      E('accent', .22, .3, .5, 0, .95, .05); flames = echap([[0, .55, -1.62]]); deco = decoSur(.98, .7, 1.45, 0, .5, -.15); break; }
+    case 'lutin': { // lutin : petite caisse en sabot à pointe recourbée, bonnet pointu à grelot, liseré
+      E('paint', .8, .34, 1.25, 0, .62, -.05); for (let k = 0; k < 6; k++) { const t = k / 5; E('paint', .55 - t * .4, .22 - t * .12, .2, 0, .56 + t * t * .55, 1.1 + t * .62); }
+      E('gold', .07, .07, .07, 0, 1.13, 1.75); Co('accent', .42, 1.1, 0, 1.45, -1.25, [-.55, 0, 0], 20); Tz('glove', .4, .07, 0, 1.15, -1.0, [Math.PI / 2 - .55, 0, 0]); E('gold', .1, .1, .1, 0, 1.93, -1.7);
+      Tz('accent', .82, .05, 0, .65, -.05, [Math.PI / 2, 0, 0]); ailes(.7, .1);
+      flames = echap([[0, .6, -1.35, .9]]); deco = decoSur(.8, .34, 1.25, 0, .62, -.05); break; }
+    case 'requin': { // requin : corps fuselé, aileron dorsal, ouïes, gueule à dents, nageoire caudale
+      C('paint', .58, 2.4, 0, .75, 0, Math.PI / 2); E('paint', .58, .5, .9, 0, .72, 1.4); E('glove', .52, .25, .8, 0, .55, 1.4);
+      Co('paint', .32, .9, 0, 1.55, -.4, [-.35, 0, 0], 4); for (const s of [-1, 1]) { for (let k = 0; k < 3; k++) B('dark', .02, .26, .04, .01, s * .56, .82, .9 - k * .12); E('dark', .07, .07, .05, s * .38, .95, 1.85); C('paint', .1, .6, s * .7, .5, .3, 0, 0, s * 1.2); }
+      for (let k = -3; k <= 3; k++) Co('glove', .04, .1, k * .07, .48, 2.15, [Math.PI, 0, 0], 6);
+      for (const r of [.5, -.5]) B('paint', .08, .65, .55, .04, 0, .85 + r * .5, -1.75, [r * 1.2, 0, 0]);
+      flames = echap([[-.25, .7, -1.55], [.25, .7, -1.55]]); deco = null; break; }
+    case 'tracteur': { // tracteur : capot arrondi à calandre, cheminée verticale, ailes enveloppantes arrière, marchepied
+      B('paint', 1.2, .7, 1.6, .25, 0, .95, .8); E('paint', .62, .38, .45, 0, 1.12, 1.55); for (let k = 0; k < 5; k++) B('metal', .9, .05, .05, .02, 0, .8 + k * .1, 1.92);
+      Cy('dark', .08, .09, .9, .4, 1.75, 1.0); Cy('metal', .1, .1, .1, .4, 2.22, 1.0); B('paint', 1.5, .3, 1.0, .12, 0, .85, -.75);
+      for (const s of [-1, 1]) { const g = new T.CylinderGeometry(WD.r + .2, WD.r + .2, WD.w + .25, 28, 1, true, Math.PI / 2 - 1.3, 2.6); g.rotateZ(Math.PI / 2); g.translate(s * xw, WD.r, -1); add('paint', g); B('dark', .5, .06, .3, .02, s * .85, .55, .15); }
+      for (const s of [-1, 1]) E('lampe', .1, .1, .05, s * .42, 1.05, 1.98); ailes(.55, .12, true, false);
+      flames = echap([[.4, 2.3, 1.0, .8]]); deco = null; break; }
+    case 'comete': { // comète : goutte effilée lumineuse, nez étoilé, traînées de queue, coque vernie
+      E('paint', .82, .38, 1.9, 0, .68, -.05); E('accent', .5, .22, .45, 0, .72, 1.6); const st = new T.OctahedronGeometry(.22); st.scale(1, 1, .4); st.translate(0, .78, 2.0); add('gold', st);
+      for (const s of [-1, 0, 1]) C('led', .05, 1.2, s * .35, .85 - Math.abs(s) * .1, -1.75, Math.PI / 2 + .1, 0, 0);
+      for (const s of [-1, 1]) { E('paint', .25, .2, .7, s * .82, .58, .5); E('led', .03, .05, .6, s * .85, .7, -.2); }
+      E('glass', .4, .16, .3, 0, .98, .35, [-.35, 0, 0]); ailes(.7, .1);
+      flames = echap([[0, .72, -1.95, 1.4]]); deco = decoSur(.82, .38, 1.9, 0, .68, -.05); break; }
+    case 'mini': { // citadine mignonne : cabine haute arrondie à vitres, gros phares ronds, pare-chocs, toit à deux tons
+      E('paint', .88, .4, 1.15, 0, .62, 0); H('accent', .62, .4, .42, 0, .9, -1.0); Tz('accent', .56, .05, 0, .95, -.7, [0, 0, 0], Math.PI);   // capote repliée et arceau
+      E('canopy', .5, .2, .03, 0, 1.08, .32, [-.45, 0, 0]); Tz('metal', .5, .025, 0, 1.0, .36, [-.45, 0, 0], Math.PI); for (const s of [-1, 1]) { Cy('metal', .17, .17, .06, s * .45, .72, 1.12, [Math.PI / 2, 0, 0]); E('lampe', .14, .14, .04, s * .45, .72, 1.16); }
+      C('metal', .07, 1.5, 0, .45, 1.15, 0, 0, Math.PI / 2); C('metal', .07, 1.5, 0, .45, -1.15, 0, 0, Math.PI / 2); ailes(.7, .1);
+      flames = echap([[.35, .45, -1.25, .8]]); deco = decoSur(.88, .38, 1.15, 0, .62, 0); break; }
+    case 'fourgon': { // fourgonnette : caisse haute arrondie, vitres, porte coulissante, galerie de toit, valises
+      B('paint', 1.7, .95, 2.9, .38, 0, 1.0, -.05); B('accent', 1.72, .2, 2.92, .08, 0, .62, -.05); for (const s of [-1, 1]) { B('canopy', .04, .38, 1.0, .08, s * .86, 1.25, .2); B('dark', .02, .7, .04, .01, s * .86, 1.0, -.45); }
+      B('canopy', 1.3, .4, .06, .1, 0, 1.25, 1.42, [-.25, 0, 0]); for (const s of [-1, 1]) C('metal', .04, 2.2, s * .65, 1.56, -.1, Math.PI / 2); B('accent', .6, .3, .5, .1, 0, 1.73, -.4); B('paint', .45, .25, .4, .08, .1, 1.72, .3);
+      for (const s of [-1, 1]) E('lampe', .14, .1, .04, s * .58, .85, 1.44); ailes(.6, .1);
+      flames = echap([[-.45, .5, -1.6]]); deco = null; break; }
+    case 'limousine': { // limousine : très longue, capot interminable, liserés chromés, fanions, ailerons de queue
+      E('paint', .9, .3, 2.15, 0, .62, .1); E('paint', .7, .18, .9, 0, .86, -.6); E('glass', .62, .14, .78, 0, .96, -.6);
+      for (const s of [-1, 1]) { C('metal', .03, 3.6, s * .9, .62, .1, Math.PI / 2); B('paint', .06, .32, .6, .03, s * .55, .95, -1.7, [-.4, 0, s * .25]); C('dark', .015, .4, s * .6, 1.0, 1.85); B('accent', .02, .14, .2, .01, s * .7, 1.16, 1.83); }
+      Tz('metal', .34, .03, 0, .62, 2.2, [0, 0, 0], Math.PI); E('gold', .07, .1, .07, 0, .95, 2.05);
+      flames = echap([[-.3, .5, -1.95], [.3, .5, -1.95]]); deco = decoSur(.9, .3, 2.15, 0, .62, .1); break; }
+    case 'herisson': { // hérisson : dôme brun à piquants, museau pointu à truffe, oreilles, petites pattes
+      H('paint', 1.0, .78, 1.35, 0, .55, -.2); E('ivory', .5, .32, .55, 0, .62, 1.2); Co('ivory', .3, .55, 0, .62, 1.72, [Math.PI / 2, 0, 0]); E('dark', .1, .09, .09, 0, .62, 2.0);
+      for (let i = 0; i < 60; i++) { const a = (i * 2.399) % TAU, t = .2 + .75 * ((i * .618) % 1), x = Math.cos(a) * Math.sin(t * 1.2) * .9, z = -.2 + Math.sin(a) * Math.sin(t * 1.2) * 1.15 - .1, y = .55 + Math.cos(t * 1.2) * .74;
+        if (z > .1 && Math.abs(x) < .45) continue; const n = new T.Vector3(x / 1.0, (y - .55) / .78, (z + .2) / 1.35).normalize(), g = new T.ConeGeometry(.12, .55, 7); g.applyMatrix4(new T.Matrix4().compose(V(x, y, z).addScaledVector(n, .12), new T.Quaternion().setFromUnitVectors(V(0, 1, 0), n), V(1, 1, 1))); add('paint2', g); }
+      for (const s of [-1, 1]) { E('paint', .12, .14, .06, s * .38, 1.05, .6); E('dark', .06, .06, .05, s * .2, .78, 1.55); }
+      flames = echap([[0, .55, -1.5]]); deco = null; break; }
+    case 'torpille': { // torpille : long fuseau, hélice arrière à pales, gouvernails, périscope, bagues
+      C('paint', .5, 2.6, 0, .78, .05, Math.PI / 2); E('accent', .5, .5, .5, 0, .78, 1.62); for (const z of [.9, -.5]) Tz('metal', .51, .05, 0, .78, z);
+      Cy('metal', .12, .12, .3, 0, .78, -1.95, [Math.PI / 2, 0, 0]); for (let k = 0; k < 4; k++) B('metal', .08, .7, .2, .03, 0, .78, -2.12, [0, 0, k * Math.PI / 4]);
+      for (const a of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) B('dark', .06, .45, .5, .02, Math.sin(a) * .5, .78 + Math.cos(a) * .5, -1.4, [0, 0, -a]);
+      C('dark', .05, .55, .3, 1.45, .7); C('dark', .05, .2, .3, 1.75, .8, Math.PI / 2); for (const s of [-1, 1]) E('glass', .02, .1, .1, s * .5, .9, .4);
+      flames = echap([[0, .78, -2.2, 1.6]]); deco = null; break; }
+  }
+  return { flames, deco };
+}
 function kartGeometry(cfg) {
   const key = [cfg.body, cfg.wheels, cfg.pilot, cfg.acc, cfg.deco].join('|'); if (KART_GEO.has(key)) return KART_GEO.get(key);
   const body = cfg.body;
@@ -2244,8 +2392,8 @@ function kartGeometry(cfg) {
   add('dark', rbox(1.72, .12, 2.85, .05), tr(0, .3, 0));
   let flames = [{ x: -.24, y: .86, z: -1.9, s: 1 }, { x: .24, y: .86, z: -1.9, s: 1 }];
   let deco = null;
-  const xb = extraBody(body, add, limb, cap, V);
-  if (xb) { flames = xb; } else if (body === 'galet') { deco = galetBody(add, cap, V, cfg, WHEEL_DIM[cfg.wheels] || WHEEL_DIM.standard); } else if (body === 'fusee') {
+  const v2 = BODY_V2.has(body) ? bodyV2(body, add, cap, V, cfg, WHEEL_DIM[cfg.wheels] || WHEEL_DIM.standard) : null, xb = v2 ? null : extraBody(body, add, limb, cap, V);
+  if (v2) { if (v2.flames) flames = v2.flames; deco = v2.deco; } else if (xb) { flames = xb; } else if (body === 'galet') { deco = galetBody(add, cap, V, cfg, WHEEL_DIM[cfg.wheels] || WHEEL_DIM.standard); } else if (body === 'fusee') {
     const hull = new T.CapsuleGeometry(.55, 2.1, 10, 28); hull.rotateX(Math.PI / 2); hull.translate(0, .8, .05); add('paint', hull);
     const nose = new T.ConeGeometry(.4, .95, 28); nose.rotateX(Math.PI / 2); nose.translate(0, .8, 1.95); add('paint', nose);
     const bst = new T.CylinderGeometry(.44, .52, .75, 28); bst.rotateX(Math.PI / 2); bst.translate(0, .8, -1.45); add('metal', bst);
@@ -2302,7 +2450,7 @@ function kartGeometry(cfg) {
   add('dark', rbox(.72, .62, .2, .08), trs(0, 1.0, -.64, -.15, 0, 0));
   // Pilote « Héros » (#36, prototype) : corps, tête, bras et volant animés construits à part dans kartMesh (heroRig).
   const hz = -.3;
-  if (cfg.pilot !== 'heros') {
+  if (!RIG_PILOTS.has(cfg.pilot)) {
   add('suit', new T.CapsuleGeometry(.27, .3, 6, 16), new T.Matrix4().compose(V(0, 1.12, -.42), new T.Quaternion(), V(1, 1, .85)));
   add('dark', new T.CylinderGeometry(.1, .12, .14, 12), tr(0, 1.45, -.35));
   for (const s of [-1, 1]) { limb('suit', V(s * .27, 1.3, -.38), V(s * .22, 1.16, -.02), .085); limb('suit', V(s * .22, 1.16, -.02), V(s * .18, 1.22, .2), .075); add('glove', new T.SphereGeometry(.095, 12, 10), tr(s * .18, 1.22, .21)); }
@@ -2332,7 +2480,7 @@ function kartGeometry(cfg) {
   const top = HEAD_TOP[cfg.pilot] || 2.04;
   // Héros : les accessoires suivent la tête animée (parties « h: », rattachées à la tête dans kartMesh).
   const add0 = add;
-  { const add = cfg.pilot === 'heros' ? (k, g, m) => add0('h:' + k, g, m) : add0;
+  { const add = RIG_PILOTS.has(cfg.pilot) ? (k, g, m) => add0('h:' + k, g, m) : add0;
   if (cfg.acc === 'antenne') { add('dark', cap(.018, .5, .12, top + .2, hz - .12)); add('paint', new T.SphereGeometry(.085, 14, 10), tr(.12, top + .5, hz - .12)); }
   else if (cfg.acc === 'crete') { for (let k = 0; k < 5; k++) { const s = new T.SphereGeometry(.1, 12, 8); s.scale(.45, 1.5 - Math.abs(k - 2) * .25, 1.1); add('paint', s, tr(0, top - .02, hz + .22 - k * .13)); } }
   else if (cfg.acc === 'couronne') { add('gold', new T.TorusGeometry(.2, .035, 8, 28), trs(0, top - .03, hz, Math.PI / 2, 0, 0)); for (let k = 0; k < 6; k++) { const a = k / 6 * TAU; add('gold', new T.ConeGeometry(.055, .2, 8), tr(Math.cos(a) * .2, top + .09, hz + Math.sin(a) * .2)); } }
@@ -2343,6 +2491,14 @@ function kartGeometry(cfg) {
   else if (cfg.acc === 'aureole') add('gold', new T.TorusGeometry(.17, .025, 8, 28), trs(0, top + .22, hz, Math.PI / 2, 0, 0));
   else if (cfg.acc === 'oreilles') { for (const s of [-1, 1]) add('paint', new T.ConeGeometry(.09, .2, 4), trs(s * .14, top + .04, hz, 0, Math.PI / 4, -s * .3)); }
   }
+  // Finitions communes à TOUTES les carrosseries (refonte du 3 novembre) : phares, feux arrière et sorties d'échappement, posés sur la
+  // vraie surface de la carrosserie (lancer de rayon sur la peinture) ; rien n'est posé si le rayon ne touche pas (forme atypique).
+  if (parts.paint && parts.paint.length) { const tmp = new T.Mesh(mergeGeos(parts.paint.map((x) => x.clone())), new T.MeshBasicMaterial({ side: T.DoubleSide })); tmp.geometry.computeBoundingBox(); const bb = tmp.geometry.boundingBox, ray = new T.Raycaster(), hy = bb.min.y + (bb.max.y - bb.min.y) * .42, hw = (bb.max.x - bb.min.x) / 2;
+    for (const [dz, key, rr] of [[1, 'lampe', .12], [-1, 'feu', .09]]) for (const sx of [-1, 1]) { ray.set(new T.Vector3(sx * hw * .55, hy, dz * (Math.abs(dz > 0 ? bb.max.z : bb.min.z) + 3)), new T.Vector3(0, 0, -dz)); const hit = ray.intersectObject(tmp, false)[0]; if (!hit || !hit.face) continue;
+      const n = hit.face.normal.clone(); if (n.z * dz < .2) continue; const d = new T.CylinderGeometry(rr, rr * 1.08, .05, 18); d.applyMatrix4(new T.Matrix4().compose(hit.point.clone().addScaledVector(n, .012), new T.Quaternion().setFromUnitVectors(new T.Vector3(0, 1, 0), n), new T.Vector3(1, 1, 1))); add(key, d);
+      const ring = new T.TorusGeometry(rr * 1.05, .018, 6, 18); ring.applyMatrix4(new T.Matrix4().compose(hit.point.clone().addScaledVector(n, .02), new T.Quaternion().setFromUnitVectors(new T.Vector3(0, 0, 1), n), new T.Vector3(1, 1, 1))); add('metal', ring); }
+    tmp.geometry.dispose();
+    for (const fp of flames) if (fp.s < 1.6) { const t = new T.CylinderGeometry(.12 * fp.s, .14 * fp.s, .28, 14, 1, true); t.rotateX(Math.PI / 2); t.translate(fp.x, fp.y, fp.z + .1); add('metal', t); const c = new T.CircleGeometry(.1 * fp.s, 14); c.rotateY(Math.PI); c.translate(fp.x, fp.y, fp.z + .2); add('dark', c); } }
   const merged = {}; for (const k in parts) { merged[k] = mergeGeos(parts[k]); merged[k].userData.keep = true; }
   if (deco) deco.userData.keep = true;
   const WD = WHEEL_DIM[cfg.wheels] || WHEEL_DIM.standard;
@@ -2350,6 +2506,24 @@ function kartGeometry(cfg) {
   const out = { merged, wh, WD, flames, deco }; KART_GEO.set(key, out); return out;
 }
 function darken(hex, k) { const c = rgb(hex); return '#' + c.map((v) => Math.round(v * k).toString(16).padStart(2, '0')).join(''); }
+// Textures procédurales des karts (refonte du 4 novembre) : peinture pailletée (grain + paillettes, sert aussi de carte de rugosité),
+// relief des paillettes (qualité haute), flancs de pneus gravés « WILD KART » et sculptures, métal brossé des jantes. Générées une
+// fois (canvas), mip-maps et filtrage anisotrope pour rester nettes de près comme en course. Graine fixe : rendu identique partout.
+const KTEX = {};
+function ktexCanvas(w, h, draw) { const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d'); draw(x, w, h); const t = new T.CanvasTexture(c); t.wrapS = t.wrapT = T.RepeatWrapping; t.anisotropy = Math.min(8, (renderer.capabilities && renderer.capabilities.getMaxAnisotropy()) || 1); return t; }
+function kRand(seed) { let v = seed >>> 0; return () => ((v = (Math.imul(v, 1664525) + 1013904223) >>> 0) / 4294967296); }
+function paintTex() { if (KTEX.paint) return KTEX.paint; const r = kRand(7); KTEX.paint = ktexCanvas(256, 256, (x, w, h) => { x.fillStyle = '#f4f4f4'; x.fillRect(0, 0, w, h);
+    for (let i = 0; i < 2600; i++) { const v = 222 + Math.floor(r() * 30); x.fillStyle = `rgb(${v},${v},${v})`; x.fillRect(r() * w, r() * h, 2, 2); }
+    for (let i = 0; i < 420; i++) { const v = 250 + Math.floor(r() * 6); x.fillStyle = `rgba(${v},${v},${v},.9)`; const px = r() * w, py = r() * h; x.fillRect(px, py, 1, 1); } }); KTEX.paint.repeat.set(3, 3); return KTEX.paint; }
+function flakeTex() { if (KTEX.flake) return KTEX.flake; const r = kRand(11); KTEX.flake = ktexCanvas(256, 256, (x, w, h) => { x.fillStyle = '#808080'; x.fillRect(0, 0, w, h); for (let i = 0; i < 5000; i++) { const v = 100 + Math.floor(r() * 60); x.fillStyle = `rgb(${v},${v},${v})`; x.fillRect(r() * w, r() * h, 1, 1); } }); KTEX.flake.repeat.set(6, 6); return KTEX.flake; }
+function tireTex() { if (KTEX.tire) return KTEX.tire; KTEX.tire = ktexCanvas(1024, 128, (x, w, h) => { x.fillStyle = '#1b1a22'; x.fillRect(0, 0, w, h);
+    x.fillStyle = '#121118'; for (let i = 0; i < 64; i++) { const u = i / 64 * w; x.beginPath(); x.moveTo(u, h * .36); x.lineTo(u + 9, h * .5); x.lineTo(u, h * .64); x.lineTo(u + 5, h * .64); x.lineTo(u + 14, h * .5); x.lineTo(u + 5, h * .36); x.fill(); }   // sculptures en chevrons
+    x.font = 'bold 22px sans-serif'; x.textBaseline = 'middle'; x.fillStyle = '#7a7988'; for (const y of [h * .12, h * .88]) for (let k = 0; k < 4; k++) x.fillText('WILD KART  ★', k * w / 4 + 12, y);   // flancs gravés
+    x.strokeStyle = '#3a3948'; x.lineWidth = 2; for (const y of [h * .24, h * .76]) { x.beginPath(); x.moveTo(0, y); x.lineTo(w, y); x.stroke(); } }); return KTEX.tire; }
+function brushTex() { if (KTEX.brush) return KTEX.brush; const r = kRand(5); KTEX.brush = ktexCanvas(256, 256, (x, w, h) => { x.fillStyle = '#e6e8ee'; x.fillRect(0, 0, w, h); for (let i = 0; i < 900; i++) { const v = 200 + Math.floor(r() * 50); x.strokeStyle = `rgb(${v},${v},${v + 4})`; x.lineWidth = 1; const yy = r() * h; x.beginPath(); x.moveTo(0, yy); x.lineTo(w, yy + r() * 2 - 1); x.stroke(); } }); return KTEX.brush; }
+// Peinture de carrosserie (refonte du 3 novembre) : vernis (clearcoat) en qualité haute pour des reflets nets ; peinture standard en
+// qualité basse (budget Samsung). Aucune incidence sur la conduite.
+function paintMat(color, F) { const hi = qual().shadows, key = 'paint|' + color + '|' + F.r + '|' + F.m + '|' + hi; if (!matCache.has(key)) matCache.set(key, hi ? new T.MeshPhysicalMaterial({ color, map: paintTex(), roughness: F.r, roughnessMap: paintTex(), metalness: F.m, bumpMap: flakeTex(), bumpScale: .0012, clearcoat: F.m > .9 ? .3 : .85, clearcoatRoughness: .08, side: T.DoubleSide }) : new T.MeshStandardMaterial({ color, map: paintTex(), roughness: F.r, metalness: F.m, side: T.DoubleSide })); return matCache.get(key); }
 function glowMat(color) {
   const key = 'glow|' + color; if (!matCache.has(key)) matCache.set(key, new T.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.5, roughness: .3, metalness: .2 })); return matCache.get(key);
 }
@@ -2359,25 +2533,26 @@ function checkerMat() {
   return matCache.get('checker');
 }
 function kartMesh(cfgIn) {
-  const cfg = cleanCfg(cfgIn), bodyId = cfg.body; cfg.body = shapeB(cfg.body); cfg.wheels = shapeW(cfg.wheels);
+  const cfg = cleanCfg(cfgIn), bodyId = cfg.body; cfg.body = BODY_V2.has(cfg.body) ? cfg.body : shapeB(cfg.body); cfg.wheels = WHEEL_V2.has(cfg.wheels) ? cfg.wheels : shapeW(cfg.wheels);
   const g = new T.Group(); const tilt = new T.Group(); g.add(tilt);
   const geo = kartGeometry(cfg); const F = FINISHES[cfg.finish];
-  const mats = { paint: stdMat(cfg.color, F.r, F.m), dark: stdMat('#22213a', .5, .35), metal: stdMat('#cfd2dc', .2, .9), suit: stdMat(cfg.color === '#2b2b3a' ? '#4a4a60' : darken(cfg.color, .45), .7, .05),
+  const mats = { paint: paintMat(cfg.color, F), dark: stdMat('#22213a', .5, .35), metal: stdMat('#cfd2dc', .2, .9), suit: stdMat(cfg.color === '#2b2b3a' ? '#4a4a60' : darken(cfg.color, .45), .7, .05),
     helm: stdMat(cfg.helmet, .15, .3), visor: stdMat('#0b0b16', .05, .85), glove: stdMat('#f7f5ee', .6, 0), skin: stdMat(cfg.skin, .72, 0), glass: stdMat('#101018', .05, .75),
-    led: glowMat('#2ee6ff'), gold: stdMat('#ffc531', .22, .85), ivory: stdMat('#f1e7cf', .5, 0), water: stdMat('#6fd8ff', .1, .2), duck: stdMat('#ffd23a', .4, 0), beak: stdMat('#ff8a1e', .5, 0),
+    accent: paintMat(cfg.helmet, F), paint2: paintMat(darken(cfg.color, .55), F), led: glowMat('#2ee6ff'), lampe: glowMat('#fff3c8'), feu: glowMat('#ff3048'), gold: stdMat('#ffc531', .22, .85), ivory: stdMat('#f1e7cf', .5, 0), water: stdMat('#6fd8ff', .1, .2), duck: stdMat('#ffd23a', .4, 0), beak: stdMat('#ff8a1e', .5, 0),
     canopy: new T.MeshStandardMaterial({ color: '#bfe6ff', transparent: true, opacity: .45, roughness: .05, metalness: .3 }) };
   mats.arch = new T.MeshStandardMaterial({ color: cfg.color, roughness: F.r, metalness: F.m, side: T.DoubleSide });
-  let rig = null; if (cfg.pilot === 'heros') { rig = heroRig(cfg, mats); tilt.add(rig.root); }
+  let rig = null; if (RIG_PILOTS.has(cfg.pilot)) { rig = heroRig(cfg, mats); tilt.add(rig.root); }
   for (const k in geo.merged) { if (k.startsWith('h:')) { if (rig) { const m = new T.Mesh(geo.merged[k], mats[k.slice(2)]); m.position.set(0, -1.7, .3); rig.head.add(m); } continue; } tilt.add(new T.Mesh(geo.merged[k], mats[k])); }
   if (geo.deco) tilt.add(new T.Mesh(geo.deco, cfg.deco === 'damier' ? checkerMat() : stdMat(cfg.helmet, F.r, F.m)));
   const WD = geo.WD; const neon = cfg.wheels === 'neon';
-  const wt = cfg.wheels; const tireM = wt === 'bois' ? stdMat('#a0703f', .8, 0) : wt === 'ballon' ? stdMat(cfg.helmet, .35, .05) : stdMat('#1c1b24', .85, 0), rimM = neon ? glowMat(cfg.helmet) : wt === 'etoile' ? stdMat('#ffc531', .22, .85) : wt === 'bois' ? stdMat('#5a3c24', .7, 0) : wt === 'ballon' ? stdMat('#fffdf7', .3, .1) : stdMat('#d8dbe4', .2, .9), capM = neon ? stdMat('#1c1b24', .4, .5) : stdMat(cfg.helmet, .3, .4);
-  const wheels = [], fronts = []; const fz = { bolide: 1.22, fusee: 1.25, buggy: 1.12, sport: 1.28, monstre: 1.15 }[cfg.body] || 1.05; const wide = { buggy: .06, monstre: .2, baignoire: .04 }[cfg.body] || 0;
+  const wt = cfg.wheels; const tireM = wt === 'bois' ? stdMat('#a0703f', .8, 0) : wt === 'ballon' ? stdMat(cfg.helmet, .35, .05) : wheelMat('pneu'), rimM = neon || wt === 'disco' ? glowMat(cfg.helmet) : wt === 'etoile' ? stdMat('#ffc531', .22, .85) : wt === 'bois' ? stdMat('#5a3c24', .7, 0) : wt === 'ballon' ? stdMat('#fffdf7', .3, .1) : wt === 'crampons' ? stdMat('#e8b020', .45, .35) : wt === 'jantes' ? stdMat('#2a2a34', .25, .85) : wheelMat('jante'), capM = neon ? stdMat('#1c1b24', .4, .5) : stdMat(cfg.helmet, .3, .4);
+  const wheels = [], fronts = []; const fz = BODY_FZ[cfg.body] || 1.05; const wide = BODY_WIDE[cfg.body] || 0;
   for (const [x, z, front] of [[-1, fz, 1], [1, fz, 1], [-1, -1, 0], [1, -1, 0]]) {
     const piv = new T.Group(); piv.position.set(x * (.92 + wide + WD.w / 2 - .12), WD.r, z); tilt.add(piv);
     const w = new T.Group(); piv.add(w); w.add(new T.Mesh(geo.wh.tire, tireM)); w.add(new T.Mesh(geo.wh.rim, rimM)); w.add(new T.Mesh(geo.wh.cap, capM));
     if (geo.wh.glow) w.add(new T.Mesh(geo.wh.glow, glowMat(cfg.helmet)));
     if (geo.wh.star) w.add(new T.Mesh(geo.wh.star, stdMat('#ffc531', .22, .85)));
+    if (geo.wh.detail) w.add(new T.Mesh(geo.wh.detail, stdMat('#15141c', .5, .3))); if (geo.wh.accent) w.add(new T.Mesh(geo.wh.accent, wt === 'disco' ? stdMat('#f4f6ff', .05, 1) : wt === 'jantes' ? stdMat('#ff3048', .35, .3) : stdMat(cfg.helmet, .3, .4))); if (geo.wh.bolts) w.add(new T.Mesh(geo.wh.bolts, stdMat('#d8dbe4', .2, .9)));
     wheels.push({ m: w, r: WD.r }); if (front) fronts.push(piv);
   }
   const trail = TRAILS[cfg.trail].c;
@@ -2391,7 +2566,7 @@ function kartMesh(cfgIn) {
   const shadow = new T.Mesh(new T.PlaneGeometry(3.2, 4.3), new T.MeshBasicMaterial({ map: SHADOW_TEX, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
   shadow.rotation.x = -Math.PI / 2; shadow.position.y = .05; g.add(shadow);
   shadow.visible = !qual().shadows;
-  const sc = (BODIES[bodyId] && BODIES[bodyId].sc) || null; if (sc) tilt.scale.set(sc[0], sc[1], sc[2]);
+  const sc = BODY_V2.has(bodyId) ? null : (BODIES[bodyId] && BODIES[bodyId].sc) || null; if (sc) tilt.scale.set(sc[0], sc[1], sc[2]);   // carrosseries v2 : modèle propre, plus de mise à l'échelle d'un autre
   return { g, tilt, wheels, fronts, flames, shield, wheelR: WD.r, trail, glider, sc, rig };
 }
 
@@ -2406,7 +2581,7 @@ Object.assign(BODIES, {
   requin: { name: 'Requin', shape: 'fusee', sc: [1, .9, 1.15], speed: .12, accel: -.04, handling: -.08, weight: .1, off: 0 },
   tracteur: { name: 'Tracteur', shape: 'monstre', sc: [1.05, 1.1, .95], speed: -.1, accel: 0, handling: -.04, weight: .3, off: .28 },
   comete: { name: 'Comète', shape: 'sport', sc: [.95, .9, 1.12], speed: .16, accel: .04, handling: -.2, weight: -.05, off: 0 },
-  galet: { name: 'Galet (prototype)', speed: 0, accel: 0, handling: 0, weight: 0, off: 0 },
+  galet: { name: 'Galet', speed: 0, accel: 0, handling: 0, weight: 0, off: 0 },
   mini: { name: 'Mini', shape: 'equilibre', sc: [.88, .92, .84] }, fourgon: { name: 'Fourgonnette', shape: 'baignoire', sc: [1.1, 1.22, 1.08] }, limousine: { name: 'Limousine', shape: 'sport', sc: [1, .88, 1.32] },
   herisson: { name: 'Hérisson', shape: 'monstre', sc: [.92, .95, .9] }, torpille: { name: 'Torpille', shape: 'fusee', sc: [.84, .84, 1.28] },
 });
@@ -2427,7 +2602,7 @@ Object.assign(FINISHES, { nacre: { name: 'Nacré', r: .2, m: .55 }, brosse: { na
 // formes : une carrosserie / des roues à débloquer réutilisent la forme d'un modèle existant
 const shapeB = (b) => (BODIES[b] && BODIES[b].shape) || b, shapeW = (w) => (WHEELS[w] && WHEELS[w].shape) || w;
 
-Object.assign(WHEEL_DIM, { monstre: { r: .72, w: .62 }, ballon: { r: .5, w: .68 }, etoile: { r: .45, w: .42 }, bois: { r: .47, w: .5 } });
+Object.assign(WHEEL_DIM, { jantes: { r: .4, w: .66 }, disco: { r: .44, w: .42 }, crampons: { r: .56, w: .52 }, monstre: { r: .72, w: .62 }, ballon: { r: .5, w: .68 }, etoile: { r: .45, w: .42 }, bois: { r: .47, w: .5 } });
 Object.assign(BODY_W, { sport: [1.4, .1] });
 Object.assign(HEAD_TOP, {});
 function profileSport() {
@@ -2468,6 +2643,8 @@ function galetBody(add, cap, V, cfg, WD) {
   return cfg.deco === 'damier' ? band(0, .14) : mergeGeos([band(-.17, .045), band(.17, .045)]);
 }
 // Pilote Héros : maillages séparés (tête, torse, bras, volant) pour l'animation ; segments de bras = capsules unitaires orientées à chaque image.
+// Pilotes animés (rig) : tous les pilotes du jeu depuis la refonte du 3 novembre.
+const RIG_PILOTS = new Set(['casque', 'casquette', 'capuche', 'robot', 'heros']);
 function heroRig(cfg, mats) {
   // Pièces fixes fusionnées par matériau (tête, volant) : ~20 maillages au lieu de 54 (budget d'appels de rendu mobile).
   const root = new T.Group(), unit = new T.CapsuleGeometry(.5, 1, 4, 10), V3 = (x, y, z) => new T.Vector3(x, y, z);
@@ -2477,26 +2654,48 @@ function heroRig(cfg, mats) {
   mesh([G(new T.CapsuleGeometry(.29, .26, 8, 18), 0, .04, 0, 0, 0, 0, 1.05, 1, .82)], mats.suit, torso);
   mesh([G(new T.TorusGeometry(.2, .07, 10, 24), 0, .27, .04, Math.PI / 2)], mats.paint, torso);   // écharpe
   const head = new T.Group(); head.position.set(0, 1.7, -.3); root.add(head);
-  mesh([G(new T.SphereGeometry(.34, 32, 24), 0, 0, 0, 0, 0, 0, 1, .95, .94), G(new T.SphereGeometry(.05, 12, 10), 0, -.07, .33)], mats.skin, head);
-  mesh([G(new T.SphereGeometry(.355, 32, 16, 0, TAU, 0, Math.PI * .44), 0, .1, -.03, 0, 0, 0, 1.02, 1.05, 1), G(new T.ConeGeometry(.09, .26, 10), .06, .38, .1, .6, 0, -.3)], mats.helm, head);
-  const gog = [], lens = [], cheek = [], whites = [], pupils = [], brows = [];
-  for (const s of [-1, 1]) {
-    gog.push(G(new T.TorusGeometry(.07, .024, 8, 18), s * .11, .3, .19, -1.1)); lens.push(G(new T.CircleGeometry(.055, 16), s * .11, .3, .19, -1.1));
-    cheek.push(G(new T.SphereGeometry(.05, 10, 8), s * .2, -.11, .26, 0, 0, 0, 1, .6, .4));
-    whites.push(G(new T.SphereGeometry(.088, 18, 12), s * .125, 0, 0, 0, 0, 0, 1, 1.15, .55)); pupils.push(G(new T.SphereGeometry(.046, 14, 10), s * .125, 0, .045));
-    brows.push(G(new T.CapsuleGeometry(.024, .1, 4, 8), s * .13, 0, 0, 0, 0, Math.PI / 2 + s * .18));
+  // Refonte des pilotes (3 novembre, demande du propriétaire) : TOUS les pilotes partagent le rig animé du Héros (visage expressif,
+  // mains sur le volant, tête qui suit le virage, réactions boost / saut / choc / victoire) ; seule la coiffe change selon le pilote.
+  const style = cfg.pilot, robot = style === 'robot', detail = [], cheek = [], whites = [], pupils = [], brows = [];
+  if (robot) {
+    mesh([G(new T.CapsuleGeometry(.27, .16, 8, 20), 0, 0, 0, 0, 0, Math.PI / 2, 1, 1.05, .95)], mats.metal, head);   // tête arrondie
+    mesh([G(new T.TorusGeometry(.3, .04, 10, 32), 0, 0, 0, 0, Math.PI / 2, 0), G(new T.CylinderGeometry(.09, .09, .1, 14), -.34, 0, 0, 0, 0, Math.PI / 2), G(new T.CylinderGeometry(.09, .09, .1, 14), .34, 0, 0, 0, 0, Math.PI / 2), G(new T.CylinderGeometry(.015, .015, .22, 6), .14, .38, -.05), G(new T.SphereGeometry(.045, 10, 8), .14, .5, -.05)], mats.dark, head);
+    detail.push(mesh([G(rbox(.46, .2, .04, .05), 0, .02, .27)], mats.visor || mats.glass, head));            // écran du visage
+  } else {
+    mesh([G(new T.SphereGeometry(style === 'heros' ? .34 : .3, 32, 24), 0, 0, 0, 0, 0, 0, 1, .95, .94), G(new T.SphereGeometry(.05, 12, 10), 0, -.07, style === 'heros' ? .33 : .3)], mats.skin, head);
+    for (const s of [-1, 1]) cheek.push(G(new T.SphereGeometry(.05, 10, 8), s * .19, -.1, .24, 0, 0, 0, 1, .6, .4));
+    detail.push(mesh(cheek, stdMat('#ff8fa3', .7, 0), head));
   }
-  const detail = [mesh(gog, mats.metal, head), mesh(lens, mats.glass, head), mesh(cheek, stdMat('#ff8fa3', .7, 0), head)];
-  const eyesG = new T.Group(); eyesG.position.set(0, -.01, .28); head.add(eyesG); detail.push(mesh(whites, stdMat('#ffffff', .4, 0), eyesG), mesh(pupils, stdMat('#1a1630', .2, 0), eyesG));
-  const browG = new T.Group(); browG.position.set(0, .12, .31); head.add(browG); detail.push(mesh(brows, mats.dark, browG));
-  const mouth = mesh([new T.TorusGeometry(.08, .02, 8, 16, Math.PI)], mats.dark, head); mouth.position.set(0, -.16, .29); mouth.rotation.z = Math.PI;
-  const open = mesh([new T.SphereGeometry(.075, 14, 10)], stdMat('#5a1020', .6, 0), head); open.position.set(0, -.15, .27); open.scale.set(1.15, .85, .45); open.visible = false;
+  if (style === 'heros') {
+    mesh([G(new T.SphereGeometry(.355, 32, 16, 0, TAU, 0, Math.PI * .44), 0, .1, -.03, 0, 0, 0, 1.02, 1.05, 1), G(new T.ConeGeometry(.09, .26, 10), .06, .38, .1, .6, 0, -.3)], mats.helm, head);
+    const gog = [], lens = []; for (const s of [-1, 1]) { gog.push(G(new T.TorusGeometry(.07, .024, 8, 18), s * .11, .3, .19, -1.1)); lens.push(G(new T.CircleGeometry(.055, 16), s * .11, .3, .19, -1.1)); }
+    detail.push(mesh(gog, mats.metal, head), mesh(lens, mats.glass, head));
+  } else if (style === 'casquette') {   // casquette à visière, mèches et oreilles
+    mesh([G(new T.SphereGeometry(.318, 28, 12, 0, TAU, 0, Math.PI * .47), 0, .03, -.01), G(rbox(.42, .045, .3, .022), 0, .1, .33, .14, 0, 0), G(new T.SphereGeometry(.035, 10, 8), 0, .34, 0)], mats.helm, head);
+    mesh([G(new T.SphereGeometry(.08, 10, 8), -.25, .02, .08, 0, 0, 0, .7, 1, 1.1), G(new T.SphereGeometry(.08, 10, 8), .25, .02, .08, 0, 0, 0, .7, 1, 1.1), G(new T.SphereGeometry(.09, 10, 8), 0, .02, -.27, 0, 0, 0, 1.6, .9, .8)], mats.dark, head);
+    mesh([G(new T.SphereGeometry(.065, 10, 8), -.3, -.03, 0, 0, 0, 0, .5, 1, .8), G(new T.SphereGeometry(.065, 10, 8), .3, -.03, 0, 0, 0, 0, .5, 1, .8)], mats.skin, head);
+  } else if (style === 'capuche') {     // capuche ouverte sur le visage, cordons
+    mesh([G(new T.SphereGeometry(.4, 28, 18, Math.PI / 2 + .95, TAU - 1.9, 0, Math.PI * .75), 0, .03, -.03), G(new T.TorusGeometry(.31, .05, 10, 30, Math.PI * 1.25), 0, .01, .17, 0, 0, -Math.PI * .125 + Math.PI)], mats.suit, head);
+    mesh([G(new T.CylinderGeometry(.012, .012, .22, 6), -.1, -.32, .27), G(new T.CylinderGeometry(.012, .012, .22, 6), .1, -.32, .27), G(new T.SphereGeometry(.025, 8, 6), -.1, -.44, .27), G(new T.SphereGeometry(.025, 8, 6), .1, -.44, .27)], mats.glove, head);
+  } else if (!robot) {                  // casque intégral ouvert devant, visière relevée, bande de couleur
+    mesh([G(new T.SphereGeometry(.37, 32, 22, Math.PI / 2 + .85, TAU - 1.7, 0, Math.PI * .8), 0, .02, -.02)], mats.helm, head);
+    mesh([G(new T.TorusGeometry(.372, .04, 10, 40, Math.PI - .75), 0, .02, -.02, 0, Math.PI / 2, 0)], mats.paint, head);   // bande de la nuque jusqu'au-dessus du front (jamais sur le visage)
+    detail.push(mesh([G(new T.SphereGeometry(.385, 28, 10, Math.PI / 2 - .9, 1.8, .42, .38), 0, .02, -.02)], mats.visor, head));
+  }
+  for (const s of [-1, 1]) {
+    whites.push(robot ? G(rbox(.1, .07, .02, .03), s * .11, 0, 0) : G(new T.SphereGeometry(.082, 18, 12), s * .115, 0, 0, 0, 0, 0, 1, 1.15, .55)); pupils.push(G(new T.SphereGeometry(robot ? .028 : .043, 14, 10), s * (robot ? .11 : .115), 0, robot ? .012 : .042));
+    brows.push(G(new T.CapsuleGeometry(.022, .09, 4, 8), s * .12, 0, 0, 0, 0, Math.PI / 2 + s * .18));
+  }
+  const eyesG = new T.Group(); eyesG.position.set(0, robot ? .02 : -.01, robot ? .3 : style === 'heros' ? .28 : .25); head.add(eyesG); detail.push(mesh(whites, robot ? glowMat('#2ee6ff') : stdMat('#ffffff', .4, 0), eyesG), mesh(pupils, robot ? glowMat('#ffffff') : stdMat('#1a1630', .2, 0), eyesG));
+  const browG = new T.Group(); browG.position.set(0, robot ? .13 : .12, robot ? .31 : style === 'heros' ? .31 : .28); head.add(browG); detail.push(mesh(brows, mats.dark, browG));
+  const mouth = mesh([new T.TorusGeometry(.075, .02, 8, 16, Math.PI)], robot ? glowMat('#2ee6ff') : mats.dark, head); mouth.position.set(0, robot ? -.1 : -.15, robot ? .3 : style === 'heros' ? .29 : .26); mouth.rotation.z = Math.PI;
+  const open = mesh([new T.SphereGeometry(.07, 14, 10)], robot ? glowMat('#2ee6ff') : stdMat('#5a1020', .6, 0), head); open.position.set(0, robot ? -.1 : -.14, robot ? .29 : style === 'heros' ? .27 : .24); open.scale.set(1.15, .85, .45); open.visible = false;
   const wheel = new T.Group(); wheel.position.set(0, 1.2, .23); wheel.rotation.x = -.9; root.add(wheel);
   const spin = new T.Group(); wheel.add(spin); mesh([new T.TorusGeometry(.2, .035, 10, 28)], mats.dark, spin);
   mesh([0, 2.1, 4.2].map((a) => G(new T.CylinderGeometry(.018, .018, .2, 6), Math.sin(a) * .1, Math.cos(a) * .1, 0, 0, 0, -a)).concat([G(new T.CylinderGeometry(.05, .05, .05, 12), 0, 0, 0, Math.PI / 2)]), mats.metal, spin);
   const sleeve = stdMat(cfg.color, .55, .05), seg = () => { const m = new T.Mesh(unit, sleeve); m.castShadow = true; root.add(m); return m; };
   const arms = [-1, 1].map((s) => ({ s, up: seg(), lo: seg(), hand: (() => { const h = new T.Mesh(new T.SphereGeometry(.085, 12, 10), mats.glove); h.castShadow = true; root.add(h); return h; })() }));
-  for (const A of arms) detail.push(A.hand); detail.push(mouth);
+  for (const A of arms) detail.push(A.hand, A.up, A.lo); detail.push(mouth);   // loin : bras et mains masqués aussi (budget d'appels Samsung)
   return { detail, far: false, root, torso, head, eyes: [eyesG], brows: [browG], mouth, open, wheel, spin, arms, ang: 0, blink: 2 + Math.random() * 3, cheer: 0, _a: V3(), _b: V3(), _c: V3(), _q: new T.Quaternion(), _y: V3(0, 1, 0) };
 }
 // Place une capsule unitaire entre deux points (rayon r).
@@ -2556,7 +2755,28 @@ function sportExtras(add, cap) {
   add('canopy', rbox(1.05, .36, .08, .04), trs(0, 1.1, .34, -.7, 0, 0));
   add('dark', cap(.1, 1.6, 0, .4, 1.98, 0, 0, Math.PI / 2));
 }
+// Roues v2 (refonte du 4 novembre) : chacune des 11 roues a son pneu et sa jante (avant : 8 formes et la même jante partout).
+function wheelMat(k) { const key = 'roue|' + k + '|' + qual().shadows; if (!matCache.has(key)) matCache.set(key, k === 'pneu' ? new T.MeshStandardMaterial({ color: '#ffffff', map: tireTex(), roughness: .92, metalness: 0, envMapIntensity: .25 }) : new T.MeshStandardMaterial({ color: '#dfe2ea', map: brushTex(), roughness: .28, metalness: .9 })); return matCache.get(key); }
+function spokes(n, R, w, r0, wid, depth, faces = [-1, 1], twist = 0) { const L = []; for (const sx of faces) for (let k = 0; k < n; k++) { const a = k / n * TAU, g = rbox(depth, R * .5, wid, Math.min(wid, depth) * .45); g.translate(0, R * .5 * .5 + r0, 0); g.applyMatrix4(trs(sx * w * .3, 0, 0, a + twist, 0, 0)); L.push(g); } return mergeGeos(L); }
+function ringOf(n, R, x, mk) { const L = []; for (let k = 0; k < n; k++) { const a = k / n * TAU, g = mk(); g.translate(x, Math.cos(a) * R, Math.sin(a) * R); L.push(g); } return mergeGeos(L); }
+function discGeo(R, w) { const pts = [[.001, w * .33], [R * .9, w * .3], [R * .97, w * .38], [R * .97, -w * .38], [R * .9, -w * .3], [.001, -w * .33]].map((p) => new T.Vector2(p[0], p[1])); const g = new T.LatheGeometry(pts, 32); g.rotateZ(Math.PI / 2); return g; }
+function wheelGeoV2(type, WD) {
+  const R = WD.r, w = WD.w, r0 = R * .6, wh = {}, both = (mk) => mergeGeos([-1, 1].map((sx) => { const g = mk(); g.translate(sx * w * .34, 0, 0); return g; }));
+  if (type === 'standard') { wh.tire = tireGeo(R, w, false); wh.rim = rimGeo(R, w); }
+  else if (type === 'slicks') { wh.tire = tireGeo(R, w, false, 'lisse'); wh.rim = discGeo(r0, w); wh.detail = both(() => ringOf(6, r0 * .55, 0, () => { const c = new T.CylinderGeometry(r0 * .14, r0 * .14, .02, 14); c.rotateZ(Math.PI / 2); return c; })); }
+  else if (type === 'jantes') { wh.tire = tireGeo(R, w, false, 'lisse'); wh.rim = mergeGeos([discGeo(r0 * .35, w), spokes(10, r0 * 1.6, w, r0 * .1, .045, .05)]); const cal = new T.TorusGeometry(r0 * .72, .07, 6, 12, 1.4); cal.rotateY(Math.PI / 2); cal.translate(w * .1, 0, 0); wh.accent = cal; }
+  else if (type === 'offroad') { wh.tire = tireGeo(R, w, true); wh.rim = mergeGeos([rimGeo(R, w), spokes(6, r0 * 1.5, w, r0 * .15, .12, .06)]); wh.bolts = both(() => ringOf(10, r0 * .86, 0, () => new T.SphereGeometry(.028, 8, 6))); }
+  else if (type === 'crampons') { wh.tire = tireGeo(R, w, 'chevrons'); wh.rim = discGeo(r0, w); wh.detail = both(() => ringOf(4, r0 * .55, 0, () => { const c = new T.CylinderGeometry(r0 * .2, r0 * .2, .02, 16); c.rotateZ(Math.PI / 2); return c; })); }
+  else if (type === 'monstre') { wh.tire = tireGeo(R, w, true); wh.rim = mergeGeos([discGeo(r0, w), spokes(6, r0 * 1.5, w, r0 * .18, .16, .08)]); wh.bolts = both(() => ringOf(8, r0 * .3, 0, () => new T.SphereGeometry(.035, 8, 6))); }
+  else if (type === 'neon') { wh.tire = tireGeo(R, w, false, 'lisse'); wh.rim = mergeGeos([discGeo(r0 * .3, w), spokes(3, r0 * 1.6, w, r0 * .15, .07, .05)]); const a = new T.TorusGeometry(R * .8, .028, 8, 32); a.rotateY(Math.PI / 2); const b = a.clone(); a.translate(w / 2 + .005, 0, 0); b.translate(-w / 2 - .005, 0, 0); wh.glow = mergeGeos([a, b]); }
+  else if (type === 'disco') { wh.tire = tireGeo(R, w, false, 'lisse'); wh.rim = mergeGeos([-1, 1].map((sx) => { const g = new T.TorusGeometry(r0 * .92, .035, 6, 28); g.rotateY(Math.PI / 2); g.translate(sx * w * .33, 0, 0); return g; })); wh.accent = both(() => { const g = new T.IcosahedronGeometry(r0 * .55, 1); g.scale(.35, 1, 1); return g; }); }
+  else return null;
+  wh.cap = new T.CylinderGeometry(R * .13, R * .16, w * .74, 16); wh.cap.rotateZ(Math.PI / 2);
+  for (const k in wh) wh[k].userData.keep = true; return wh;
+}
+for (const t of ['standard', 'slicks', 'jantes', 'offroad', 'crampons', 'monstre', 'neon', 'disco']) WHEEL_V2.add(t);
 function wheelGeoFor(type, WD) {
+  { const v2 = WHEEL_V2.has(type) ? wheelGeoV2(type, WD) : null; if (v2) return v2; }
   const wh = {};
   if (type === 'ballon') { const t = new T.SphereGeometry(WD.r, 26, 18); t.scale(WD.w / (2 * WD.r), 1, 1); wh.tire = t; wh.rim = rimGeo(WD.r * .78, WD.w * 1.02); }
   else if (type === 'bois') { const t = new T.CylinderGeometry(WD.r, WD.r, WD.w, 22); t.rotateZ(Math.PI / 2); wh.tire = t; const ring = new T.TorusGeometry(WD.r * .7, .03, 6, 24); ring.rotateY(Math.PI / 2); const r2 = ring.clone(); ring.translate(WD.w / 2 + .01, 0, 0); r2.translate(-WD.w / 2 - .01, 0, 0); wh.rim = mergeGeos([ring, r2]); }
@@ -3788,7 +4008,10 @@ function frontItemInput() { const st = padMode() === 'stick' && Input.stick; ret
 // Joystick lu seulement en mode joystick : un geste resté actif ne doit pas orienter un lancer en inclinaison ou en boutons.
 function rearItemInput() { const kk = Input.keys, p = Input.pad, st = padMode() === 'stick' && Input.stick; return !!(kk.ArrowDown || kk.KeyS || p.brake || (st && st.active && st.y > .45)); }
 // Mémoriser la visée au toucher, même si le doigt est relâché avant le prochain pas de physique.
-function queueItem(back = rearItemInput(), fwd = frontItemInput()) { Input.itemBack = back; Input.itemFwd = fwd; Input.itemEdge = true; }
+// Commandes d'objets cohérentes (demande du propriétaire, 3 novembre) : le bouton OBJET agit TOUJOURS vers l'avant (pièges lancés devant,
+// projectiles devant) sauf si le joueur tire le joystick vers le bas ou maintient FREIN ; le bouton OBJET ↓ agit TOUJOURS vers l'arrière
+// (pièges posés derrière, projectiles lancés derrière). Avant : OBJET posait les pièges derrière et OBJET ↓ les lançait… devant.
+function queueItem(back = rearItemInput(), fwd = !back) { Input.itemBack = back; Input.itemFwd = fwd && !back; Input.itemEdge = true; }
 function screenAngle() { let a = 0; if (screen.orientation && typeof screen.orientation.angle === 'number') a = screen.orientation.angle; else if (typeof window.orientation === 'number') a = window.orientation; return ((a % 360) + 360) % 360; }
 function onOrient(e) {
   if (e.beta == null || e.gamma == null) return; Input.tiltSeen = true;
@@ -3822,7 +4045,7 @@ window.addEventListener('keyup', (e) => { Input.keys[e.code] = false; });
 window.addEventListener('blur', () => { Input.keys = {}; });
 $$('#pad .pbtn').forEach((b) => {
   const k = b.dataset.k; const ids = new Set(); if (k === 'gas' || k === 'drift') return;
-  const down = (e) => { e.preventDefault(); ids.add(e.pointerId); try { b.setPointerCapture(e.pointerId); } catch (_) {} Input.pad[k] = true; b.classList.add('on'); if (k === 'item' || k === 'itemBack') { const alt = k === 'itemBack'; queueItem(alt || rearItemInput(), alt || frontItemInput()); } }; // bouton secondaire = « autre direction », interprétée au lancer : derrière (projectile) ou devant (piège)
+  const down = (e) => { e.preventDefault(); ids.add(e.pointerId); try { b.setPointerCapture(e.pointerId); } catch (_) {} Input.pad[k] = true; b.classList.add('on'); if (k === 'item' || k === 'itemBack') { const back = k === 'itemBack' || rearItemInput(); queueItem(back, !back); } }; // OBJET = devant, OBJET ↓ = derrière, pour tous les objets
   const up = (e) => { ids.delete(e.pointerId); if (!ids.size) { Input.pad[k] = false; b.classList.remove('on'); } };
   b.addEventListener('pointerdown', down); b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('lostpointercapture', up);
   b.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -4764,6 +4987,9 @@ function kartPhysics(k, inp, dt) { if (k.spect) return;
     if (ws !== 1) { const fx = S.fx[j0], fz = S.fz[j0], along = dx * fx + dz * fz, cut = along * (1 - ws); k.x += dx - fx * cut; k.z += dz - fz * cut; }
     else { k.x += dx; k.z += dz; } }
   { const wd = envWind(W, k); if (wd && P0 === S) { k.x += S.rx[j0] * wd * dt; k.z += S.rz[j0] * wd * dt; } }
+  // Adhérence des parois verticales (z.adherence, opt-in : parois du concepteur seulement) : sous la vitesse d'adhérence, la gravité
+  // fait glisser le kart vers le bas du mur (côté où la chaussée affichée descend), proportionnellement à l'inclinaison réelle.
+  if (S.adh && P0 === S && S.adh[j0] && !k.air && S.wr) { const v0 = S.adh[j0], f = clamp(1 - (k.speed / v0) ** 2, 0, 1); if (f > 0) { const ry = S.wr[j0 * 3 + 1], d = -Math.sign(ry) * Math.abs(ry) * 14 * f * dt; k.x += S.rx[j0] * d; k.z += S.rz[j0] * d; k.speed *= 1 - .35 * f * dt; } }
   trackLocate(k);
   { const P1 = k.P || S, lim1 = P1.lim || W.lim; if (Math.abs(k.lat) > lim1 + 8 && !(P1.glide && P1.glide[k.idx])) relocateAny(k); }
   // ---- murs (en l'air au-dessus d'un ravin : plus de liberté, retour doux vers la route) ----
@@ -6174,15 +6400,21 @@ function buildWarp(S, def, hw) {
       // Candidats : profil doux puis ancienne formule (premier sain retenu). Une recherche sur une grille de réglages de l'ancienne formule
       // (fenêtre, amplitude, avance) a été essayée le 2 novembre : angle 25-32° au mieux, et la coque du looping passait alors à moins de
       // 2 m au-dessus de l'entrée (contrôleur) → abandonnée. L'écart d'angle de l'ancienne formule (≈ 32°) reste un défaut ouvert.
-      const cands = z.ancien ? [{ ancien: true }] : [{ ta: z.ta != null ? z.ta : 25, tb: z.tb != null ? z.tb : 90, s: z.s || 1 }, { ancien: true }];
+      // z.porte (opt-in, cartes du concepteur, 3 novembre) : formule ronde avec un décalage latéral réduit (demi-largeur + 11 à 14 m au lieu
+      // de + 16,5 m) et étalé sur une fenêtre plus longue (0,35-0,45) ; des fenêtres plus longues ou des décalages plus petits rapprochent
+      // trop les surfaces (< 4,5 m, mesuré). Mesuré sur Boucle des Aurores : avec l'ancienne formule,
+      // la route encore presque plate (5-13°) partait de 12 à 24° sur le côté → « tire à droite » ressenti sur Samsung. Premier réglage qui
+      // garde ≥ 4,5 m entre les surfaces et une chaussée non repliée, du plus petit décalage au plus grand.
+      const cands = z.porte ? [[.45, 11], [.45, 13], [.35, 11], [.35, 14]].map(([wr, d]) => ({ ancien: true, sh: hw + d, wr, porte: true })).concat([{ ancien: true }]) : z.ancien ? [{ ancien: true }] : [{ ta: z.ta != null ? z.ta : 25, tb: z.tb != null ? z.tb : 90, s: z.s || 1 }, { ancien: true }];
       if (z.forcer) cands.length = 1; // laboratoire du concepteur uniquement : profil imposé même s'il échoue aux contrôles (défaut volontaire)
+      const lacet = (o) => { let m = 0; for (let q = 1; q < o.length; q++) { const a = o[q - 1], b = o[q], ddf = b[0] - a[0] + (S.seg || 2), ddy = b[1] - a[1], ddl = b[2] - a[2], l = Math.hypot(ddf, ddy, ddl) || 1; if (Math.abs(ddy) / l > Math.sin(20 * DEG)) continue; m = Math.max(m, Math.abs(Math.atan2(ddl, Math.hypot(ddf, ddy))) / DEG); } return m; };
       const essais = []; let best = null;
-      for (const c of cands) { const o = c.ancien ? oA : prof(c), g = gap(o), forme = c.ancien || pente(o) <= refP * 1.25, a = angle(o); essais.push({ c, g: +g.toFixed(1), repli: +o.repli.toFixed(2), angle: +a.toFixed(0), pente: +pente(o).toFixed(2) });
+      for (const c of cands) { const o = c.ancien && !c.porte ? oA : prof(c), g = gap(o), forme = c.ancien || pente(o) <= refP * 1.25, a = angle(o); essais.push({ c, g: +g.toFixed(1), repli: +o.repli.toFixed(2), angle: +a.toFixed(0), lacet: +lacet(o).toFixed(0), pente: +pente(o).toFixed(2) });
         if (z.forcer || g >= 4.5 && forme && o.repli >= .2) { best = { c, o, g, a }; break; } }
       // Aucun réglage sain : l'ancienne formule par défaut (jamais une chaussée repliée si elle ne l'est pas).
       if (!best) best = { c: { ancien: true }, o: oA, g: gap(oA), a: angle(oA) };
       z.shift = shift;
-      z.reglage = Object.assign({ ecart: +best.g.toFixed(1), pente: +pente(best.o).toFixed(2), penteAncien: +refP.toFixed(2), repli: +best.o.repli.toFixed(2), angle: +best.a.toFixed(0), essais: essais.length, detail: essais, n }, best.c);
+      z.reglage = Object.assign({ ecart: +best.g.toFixed(1), lacet: +lacet(best.o).toFixed(0), pente: +pente(best.o).toFixed(2), penteAncien: +refP.toFixed(2), repli: +best.o.repli.toFixed(2), angle: +best.a.toFixed(0), essais: essais.length, detail: essais, n }, best.c);
       for (let q = 0; q <= n; q++) { const i = (i0 + q) % N, [df, dy, dl] = best.o[q];
         wo[i * 3] += F0[0] * df + R0[0] * dl; wo[i * 3 + 1] += dy; wo[i * 3 + 2] += F0[2] * df + R0[1] * dl; S.wz[i] = 1; S.ag[i] = 1; }
     } else if (z.type === 'spiral') {
@@ -6190,6 +6422,20 @@ function buildWarp(S, def, hw) {
       const turns = z.turns || 1, sd = z.side || 1, R0 = z.rayon != null ? Math.max(hw * .4, z.rayon) : hw * .6 + 3; // z.rayon : rayon de rotation réglable (concepteur ; défaut inchangé)
       for (let q = 0; q <= n; q++) { const i = (i0 + q) % N, u = q / n, e = smoothstep(0, 1, u), a = TAU * turns * e * sd;
         roll[i] = a; wo[i * 3 + 1] += levage(a, u, R0, hw) + (z.rise || 0) * Math.sin(Math.PI * u); S.wz[i] = 1; S.ag[i] = 1; }
+    } else if (z.type === 'montee' && z.tour) {
+      // « Tour » (demande du propriétaire, 3 novembre) : la route au sol se cabre et monte un mur droit, plate-forme au sommet, puis une
+      // route verticale INVERSÉE juste après : elle plonge droit sur un mur et revient au sol. La route physique reste plate (aucune rampe
+      // cachée) ; la gravité suit la pente affichée (S.montee : ralentit à la montée, accélère à la descente). z.tour = hauteur (m).
+      const ang = clamp(z.angle || 88, 30, 88) * DEG, Ht = clamp(z.tour, 10, 60), H = S.py[i1 % N] - S.py[i0 % N], F0 = [S.fx[i0 % N], S.fz[i0 % N]], P0 = [S.px[i0 % N], S.py[i0 % N], S.pz[i0 % N]], Lh = (S.px[i1 % N] - P0[0]) * F0[0] + (S.pz[i1 % N] - P0[2]) * F0[1];
+      let r = Math.max(6, z.rayon || 7); if (2 * r * (1 - Math.cos(ang)) > Ht * .9) r = Ht * .9 / (2 * (1 - Math.cos(ang)));
+      const Lw = Math.max(0, (Ht - 2 * r * (1 - Math.cos(ang))) / Math.sin(ang)), plat = Math.max(8, z.plateau || 25), sx = 2 * (2 * r * Math.sin(ang) + Lw * Math.cos(ang)) + plat, libre = Math.max(0, Lh - sx), a0 = libre * clamp(z.place != null ? z.place : .4, 0, 1), a1 = libre - a0;
+      const segs = [[a0, 0, 0], [r * ang, 1 / r, 0], [Lw, 0, ang], [r * ang, -1 / r, ang], [plat, 0, 0], [r * ang, -1 / r, 0], [Lw, 0, -ang], [r * ang, 1 / r, -ang], [a1, 0, 0]], Ld = segs.reduce((t, g) => t + g[0], 0);
+      const pts = []; { let x = 0, y = 0, phi = 0; const st = .25; pts.push([0, 0]); for (const [len, k, phi0] of segs) { if (k === 0) phi = phi0; for (let d = 0; d < len - 1e-9; d += st) { const h = Math.min(st, len - d); phi += k * h / 2; x += Math.cos(phi) * h; y += Math.sin(phi) * h; phi += k * h / 2; pts.push([x, y]); } } }
+      const at = (sig) => { const f = clamp(sig / Ld, 0, 1) * (pts.length - 1), q0 = Math.floor(f), t = f - q0, a = pts[q0], b = pts[Math.min(pts.length - 1, q0 + 1)]; return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; };
+      const fin = at(Ld), ex = Lh / (fin[0] || 1), yFin = fin[1];
+      for (let q = 0; q <= n; q++) { const i = (i0 + q) % N, u = q / n, [sd, yd] = at(Ld * u); wo[i * 3] = P0[0] + F0[0] * sd * ex; wo[i * 3 + 1] = P0[1] + yd - yFin * u + H * u; wo[i * 3 + 2] = P0[2] + F0[1] * sd * ex; S.wz[i] = 1; S.ag[i] = 1; }
+      S.montee = S.montee || new Float32Array(N); for (let q = 1; q < n; q++) { const i = (i0 + q) % N, a = (i0 + q - 1) % N, b = (i0 + q + 1) % N, dy = wo[b * 3 + 1] - wo[a * 3 + 1], dh = Math.hypot(wo[b * 3] - wo[a * 3], wo[b * 3 + 2] - wo[a * 3 + 2]); S.montee[i] = dy / (Math.hypot(dy, dh) || 1); }
+      z.reglage = { experimental: true, tour: true, angle: +(ang / DEG).toFixed(0), rayon: +r.toFixed(1), mur: +Lw.toFixed(1), hauteur: +Ht.toFixed(1), plateau: plat, encombrement: +sx.toFixed(0), longueurAffichee: +Ld.toFixed(0), longueurPhysique: +Lh.toFixed(0) };
     } else if (z.type === 'montee') {
       // EXPÉRIMENTAL (laboratoire uniquement, non disponible pour le concepteur) : montée frontale sur un mur. La route affichée part à
       // plat, se courbe (rayon z.rayon) jusqu'à z.angle (≤ 88°), monte le mur, se recourbe et finit sur une plate-forme qui rejoint la
@@ -6222,8 +6468,12 @@ function buildWarp(S, def, hw) {
         const nl = Math.max(3, Math.round(10 / (S.seg || 2))); if (g0 > nl) for (let q = g0 - nl; q < g0; q++) { const i = (i0 + q) % N, t = (q - (g0 - nl) + 1) / nl; wo[i * 3 + 1] -= Math.cos(roll[i]) < 0 ? 1.6 * Math.pow(t, 1.6) : -1.6 * Math.pow(t, 1.6); } }
     } else {
       const A = (z.angle || 60) * DEG * (z.side || 1), lift = z.lift != null ? z.lift : 1;
+      // Paroi du concepteur (opt-in) : horizon de caméra partiellement conservé (z.horizon, 0-0,8) pour que la verticale se VOIE depuis le
+      // kart, et vitesse d'adhérence (z.adherence, m/s). Aucune carte existante n'utilise ces réglages.
+      if (z.horizon) { S.camH = S.camH || new Float32Array(N); } if (z.adherence) { S.adh = S.adh || new Float32Array(N); }
       for (let q = 0; q <= n; q++) { const i = (i0 + q) % N, u = q / n, ramp = u < .25 ? smoothstep(0, .25, u) : u > .75 ? 1 - smoothstep(.75, 1, u) : 1;
-        roll[i] = A * ramp; wo[i * 3 + 1] += Math.abs(Math.sin(roll[i])) * hw * lift + (z.rise || 0) * ramp; S.wz[i] = 1; if (Math.abs(A) > 40 * DEG) S.ag[i] = 1; }
+        roll[i] = A * ramp; wo[i * 3 + 1] += Math.abs(Math.sin(roll[i])) * hw * lift + (z.rise || 0) * ramp; S.wz[i] = 1; if (Math.abs(A) > 40 * DEG) S.ag[i] = 1;
+        if (z.horizon) S.camH[i] = clamp(z.horizon, 0, .8) * ramp; if (z.adherence) S.adh[i] = ramp > .5 ? z.adherence : 0; }
     }
   }
   // repères : tangente par différences finies, droite = horizontale orthogonalisée, puis roulis
@@ -6263,7 +6513,10 @@ function inWarp(k) { const S = G.W && G.W.S; return !!(S && S.wz && (k.P || S) =
 // objet posé (flaque, mine, fusée) dans une zone tordue : on le replie aussi
 function warpObject(m, x, y, z) {
   const S = G.W && G.W.S; if (!S || !S.wz) return; let best = -1, bd = 1e9;
-  for (let i = 0; i < S.N; i += 2) { if (!S.wz[i]) continue; const d = (x - S.px[i]) ** 2 + (z - S.pz[i]) ** 2; if (d < bd) { bd = d; best = i; } }
+  // Plus proche échantillon de TOUTE la route (et pas seulement des zones déformées) : avant, un objet posé sur une route normale passant
+  // près d'une zone déformée était replié sur le looping ou le plafond voisin (mauvaise surface). On ne replie que si ce point est déformé.
+  for (let i = 0; i < S.N; i++) { const d = (x - S.px[i]) ** 2 + (z - S.pz[i]) ** 2 + ((y - S.py[i]) * .5) ** 2; if (d < bd) { bd = d; best = i; } }
+  if (best >= 0 && !S.wz[best]) return;
   if (best < 0 || bd > (G.W.wallD + 2) ** 2) return; const lat = (x - S.px[best]) * S.rx[best] + (z - S.pz[best]) * S.rz[best];
   warpAt(S, best, lat, y - S.py[best], m.position); warpFrameQuat(S, best, 0, 0, m.quaternion);
 }
@@ -6677,6 +6930,7 @@ function warpCamera(k, dt, portrait) {
   const Sw = G.W.S, iw = clamp(k.idx, 0, Sw.N - 1); let bord = 0; while (bord < 10 && Sw.wz[(iw + bord + 1) % Sw.N] && Sw.wz[(iw - bord - 1 + Sw.N) % Sw.N]) bord++;
   const kc = 9 + 19 * smoothstep(0, 10, bord);
   if (camSnap) camera.position.copy(tmpV); else camera.position.lerp(tmpV, 1 - Math.exp(-dt * kc));
+  { const h = Sw.camH ? Sw.camH[iw] : 0; if (h > 0) _wu2.lerp(_wv.set(0, 1, 0), h).normalize(); }   // horizon conservé sur une paroi verticale (opt-in)
   _camUp.lerp(_wu2, 1 - Math.exp(-dt * kc)).normalize(); camera.up.copy(_camUp);
   lookV.copy(_wp).addScaledVector(_wf2, 6); camera.lookAt(lookV); camH.v = k.vh; camSnap = false; return true;
 }
@@ -7313,7 +7567,7 @@ function spawnLeurre(x, z, y, owner, id) {
 }
 // la première fois qu'on obtient un objet : une phrase pour dire à quoi il sert
 const ITEM_DESC = { turbo: 'Turbo : un coup d\'accélération', triple: 'Triple turbo : 3 accélérations', nitro: 'Nitro : 4 s de très grosse accélération', boule: 'Boule : lancée vers le kart devant, rebondit sur les murs',
-  shield: 'Bouclier : bloque un coup', oil: 'Flaque : posée derrière toi, fait glisser', leurre: 'Leurre : fausse boîte posée derrière toi', mine: 'Mine : explose quand on roule dessus', colle: 'Pot de colle : ralentit celui qui passe',
+  shield: 'Bouclier : bloque un coup', oil: 'Flaque : OBJET la lance devant, OBJET ↓ la pose derrière ; fait glisser', leurre: 'Leurre : fausse boîte ; OBJET devant, OBJET ↓ derrière', mine: 'Mine : OBJET devant, OBJET ↓ derrière ; explose quand on roule dessus', colle: 'Pot de colle : OBJET devant, OBJET ↓ derrière ; ralentit celui qui passe',
   boomerang: 'Boomerang : part devant (ou derrière : vers le bas en lançant) et revient, touche jusqu\'à 3 karts', tourbillon: 'Tourbillon : redescend la piste vers ceux qui te suivent', rocket: 'Fusée : file sur le kart devant toi', bulle: 'Bulle : emprisonne le kart devant toi',
   aimant: 'Aimant : te colle au kart devant', fantome: 'Fantôme : tu deviens intouchable un moment', ressort: 'Ressort : grand saut par-dessus les pièges', aspirateur: 'Aspirateur : vole l\'objet du kart devant', ventilo: 'Ventilo : souffle les karts autour',
   grappin: 'Grappin : te tire vers le kart devant', confettis: 'Confettis : aveugle ceux devant toi', disco: 'Boule disco : onde qui renverse les karts proches', etoile: 'Étoile : invincible et plus rapide', eclair: 'Éclair : rapetisse tous ceux devant toi', comete: 'Comète : vole jusqu\'au 1er et explose sur lui' };
@@ -7323,6 +7577,10 @@ const BACK_ITEMS = new Set(['boomerang', 'boule', 'chewing', 'petard']);
 const FRONT_TRAPS = new Set(['oil', 'mine', 'colle', 'leurre', 'verglas', 'trampoline']);
 // Met en vol les pièges créés depuis l'indice n0 de G.hazards (lancer devant, local ou reçu du réseau).
 function flyTrap(n0, vol) { if (vol) for (let q = n0; q < G.hazards.length; q++) { const h = G.hazards[q]; h.fly = Object.assign({ end: h.mesh.position.clone() }, vol); h.mesh.position.set(vol.x0, vol.y0, vol.z0); } }
+// Indice de pose sûr pour un piège : hors des vides (trouées, saut de retour d'un plafond) et des murs quasi verticaux (montée, tour) ;
+// on avance (dir = 1) ou recule (dir = -1) jusqu'à une chaussée praticable (au plus 400 échantillons). Comportement explicite et sûr.
+function safeTrapIdx(P, j, dir) { const N = P.N, bad = (q) => (P.glide && P.glide[q]) || (P.montee && Math.abs(P.montee[q]) > .5); let q = ((j % N) + N) % N;
+  for (let n = 0; n < 400 && bad(q); n++) q = P.closed === false ? clamp(q + dir, 0, N - 1) : ((q + dir) % N + N) % N; return q; }
 function throwFwd(k) { if (k.isPlayer && !G.autopilot) return !!k.itemFwd; return !!k.aiFwd; }
 /* Pose un piège : à d m derrière le kart, ou lancé devant avec point de chute sur la piste, dans la voie du kart, à 20-42 m selon la
    vitesse (portée d'un lancer en cloche) ; le piège n'est actif qu'à l'atterrissage (G.hazards[].fly, voir updateItems). */
@@ -7332,8 +7590,12 @@ function dropTrap(k, kind, d, online) {
     const S = G.W.S, dist = clamp(20 + Math.max(0, k.speed) * .35, 20, 42); let P = k.P || S, j = k.idx + Math.round(dist / (P.seg || S.seg));
     // Sur une branche, au-delà de son bout : la chute continue sur la route principale après la jonction (B.i1).
     if (P === S) j %= P.N; else if (j > P.N - 1) { j = (P.i1 + Math.round((j - (P.N - 1)) * (P.seg || S.seg) / S.seg)) % S.N; P = S; }
-    const lat = clamp(k.lat || 0, -(P.hw || G.W.hw) * .8, (P.hw || G.W.hw) * .8); x = P.px[j] + P.rx[j] * lat; z = P.pz[j] + P.rz[j] * lat; y = P.py[j];
-    vol = { x0: k.x, z0: k.z, y0: k.y + 1.2, t: 0, T: .45 + dist / 110 };
+    j = safeTrapIdx(P, j, 1); const lat = clamp(k.lat || 0, -(P.hw || G.W.hw) * .8, (P.hw || G.W.hw) * .8); x = P.px[j] + P.rx[j] * lat; z = P.pz[j] + P.rz[j] * lat; y = P.py[j];
+    // départ du vol : le kart TEL QU'AFFICHÉ (dans un looping ou au plafond, sa position physique n'est pas celle qu'on voit)
+    const g = k.mesh && k.mesh.g; vol = { x0: g ? g.position.x : k.x, z0: g ? g.position.z : k.z, y0: (g ? g.position.y : k.y) + 1.2, t: 0, T: .45 + dist / 110 };
+  } else { // posé derrière : jamais dans un vide (saut, trouée) ni sur un mur vertical
+    const P = k.P || G.W.S, j0 = ((k.idx - Math.round(d / (P.seg || G.W.S.seg))) % P.N + P.N) % P.N, j = safeTrapIdx(P, j0, -1);
+    if (j !== j0) { const lat = clamp(k.lat || 0, -(P.hw || G.W.hw) * .8, (P.hw || G.W.hw) * .8); x = P.px[j] + P.rx[j] * lat; z = P.pz[j] + P.rz[j] * lat; y = P.py[j]; }
   }
   const id = online ? netNewId() : null, n0 = G.hazards.length; spawnOil(x, z, y, k, id, kind);
   flyTrap(n0, vol);
@@ -8120,7 +8382,7 @@ function updateVisuals(dt) { emoTick(dt);
     for (const f of M.fronts) f.rotation.y = lerp(f.rotation.y, -clamp(st, -1, 1) * .45, 1 - Math.exp(-dt * 12));
     // Niveau de détail du pilote Héros : au-delà de 35 m de la caméra, détails du visage et mains masqués, animation suspendue
     // (-7 appels de rendu par kart lointain ; bras et volant figés, invisibles à cette distance).
-    if (M.rig) { const far = camera.position.distanceToSquared(M.g.position) > 35 * 35; if (far !== M.rig.far) { M.rig.far = far; for (const o of M.rig.detail) o.visible = !far; if (!far) M.rig.open.visible = false; } }
+    if (M.rig) { const far = camera.position.distanceToSquared(M.g.position) > (qual().shadows ? 35 * 35 : 16 * 16); if (far !== M.rig.far) { M.rig.far = far; for (const o of M.rig.detail) o.visible = !far; if (!far) M.rig.open.visible = false; } }
     if (M.rig && !M.rig.far) heroAnimate(M.rig, k, k.isPlayer && !G.autopilot ? st : clamp(-angDiff(k.h, k.vh) * 3 + (k.drift || 0) * .6, -1, 1), dt, now);
     const fl = k.boost > 0 ? 1.4 + Math.random() * .6 : (k.speed > 1 ? .25 : .05);
     const tc = M.trail; for (const f of M.flames) { f.scale.z = lerp(f.scale.z, fl * (f.userData.s || 1) * .8 + .2 * fl, .5); f.material.color.set(k.boost > 0 ? tc[Math.floor(now * 12) % tc.length] : tc[0]); }
@@ -8268,7 +8530,7 @@ function updateHud(dt) {
   if (lap !== hudCache.lap) { hudCache.lap = lap; hud.lap.textContent = lap; }
   if (slow) { const tt = fmtTime(P.finished ? P.finishTime : R.t), kv = Math.max(0, Math.round(P.speed * 2.6)); if (tt !== hudCache.time) { hudCache.time = tt; hud.time.textContent = tt; } if (kv !== hudCache.kmh) { hudCache.kmh = kv; hud.kmh.textContent = kv; } } // réécrits seulement s'ils changent (chaque écriture coûte une mise en page)
   let key = P.item ? P.item + (P.item === 'triple' ? P.uses : '') + (P.bag && P.bag.length ? 'b' + P.bag.length : '') : (P.roll > 0 ? 'roll' : (P.bag && P.bag.length ? 'bag' : ''));
-  if (hudCache.rearItem !== P.item) { hudCache.rearItem = P.item; const rear = $('#pad .p-itemback'); if (rear) { const trap = FRONT_TRAPS.has(P.item); rear.disabled = !BACK_ITEMS.has(P.item) && !trap; const sp = rear.querySelector('span'); if (sp) sp.textContent = trap ? 'OBJET ↑' : 'OBJET ↓'; rear.setAttribute('aria-label', trap ? 'Lancer le piège devant' : 'Lancer l’objet derrière'); } }
+  if (hudCache.rearItem !== P.item) { hudCache.rearItem = P.item; const rear = $('#pad .p-itemback'); if (rear) { const trap = FRONT_TRAPS.has(P.item), dir = trap || BACK_ITEMS.has(P.item); rear.disabled = !dir; const sp = rear.querySelector('span'); if (sp) sp.textContent = 'OBJET ↓'; rear.setAttribute('aria-label', dir ? (trap ? 'Poser le piège derrière' : 'Lancer l’objet derrière') : 'Cet objet n’a qu’une action : bouton OBJET'); const main = $('#pad .p-item span'); if (main) main.textContent = P.item ? (dir ? 'OBJET ↑' : 'OBJET') : 'OBJET'; } }
   if (key === 'roll') hudRoulette(P);
   else if (key !== lastItemShown) { hud.item.dataset.rar = P.item ? RARITY[P.item] || '' : ''; const was = lastItemShown; hud.item.innerHTML = P.item ? ICONS[P.item] + (P.item === 'triple' ? '<b class="ibadge">×' + P.uses + '</b>' : '') + (P.bag && P.bag.length ? '<b class="ibadge bag">+' + P.bag.length + '</b>' : '') : ''; lastItemShown = key; hud.item.classList.remove('roll'); if (P.item && was && was[0] === 'r') { hud.item.classList.remove('got'); void hud.item.offsetWidth; hud.item.classList.add('got'); } }
   { const sf = hudEl('#speedfx'); const on = P.boost > 0 && P.speed > P.maxSpeed * 1.04; if (sf && sf.classList.contains('on') !== on) sf.classList.toggle('on', on); }

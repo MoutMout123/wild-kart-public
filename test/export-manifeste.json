@@ -1,10 +1,10 @@
 {
- "version": "test-1a17f51",
- "commit": "1a17f518dd38a31daa5beab8bd56f920016b5e3e",
+ "version": "test-5ad26d6",
+ "commit": "5ad26d6dcc2caa9de2e60442c8dd6fb5f2d885ad",
  "fichiers": {
-  "index.html": "485109f863a323fa92982929e2f2fc7d3e7d918f6089d0c11b224564b0b58c60",
-  "boot.js": "38cc33cd4f0a1220aad217d800051dd591f04217d1c5ebc1d3a15ccf30a967f1",
-  "game.js": "3ad6c10d94d7ba145bc442363009fc64938168c78de4a2050c0d7a4cf38a5d6c",
+  "index.html": "d2f4d23cb94a85b687da51c789f8512cb40cd19db2bf434f24ac3af763a4de10",
+  "boot.js": "8c210eb3e4111209cbde87b7a3db959874ac739dfd113227382f1eca25572c7d",
+  "game.js": "e44a730a4b0807fa3cfc65c144fed6653370ae149e6a26711ef7183e41e743ca",
   "graphics.js": "a85f232d1779dad69442b919b67e65e59acdb7e8251124d69924a3a0c35182c8",
   "tracks.generated.js": "3120ad0154ed7f5ca03404d765d56454bb33195e23650c8cb3271dcbee3ab5d5",
   "production.js": "2b23a14143b5dba268b6056168046ca18511aa5c09ae1709984ec19906b5ec6a",
@@ -13,7 +13,7 @@
   "nature.js": "3d4978c4546b76165fc3f6f90a712b0db9ab7221c7c309e7dacee6c53579ffea",
   "vivant.js": "2dbeae5675fa2b69f652c30f52b6385f955557630feed72e16234d1fe6554033",
   "bac-a-sable.js": "6a49204e05080f8c9d7922752c6f88e61959ff4a6c47acc481186720c1ca2620",
-  "demarrage.html": "9a3114c5db6bff152c9bfe5dfaddd59d96f8f24ca40eeafa2a1dcfe62b41f599",
+  "demarrage.html": "b41ff3eddd01ee0bbe8da85af900943b6a7e89e0b4d64e4f8c8182b4e79d50ac",
   "demarrage.js": "3443e20136cad9de1381167eec626dab85835f4930ff705c2f488e93cf166963",
   "studio-core.js": "d26d7cc99937f85c2a1b270b5c91c8faaadd94de288ac3d7f0dee6de0e016ed1",
   "studio3d.js": "d211facf4893027212493af739e667f86cdc539a87f702a6ac0acc5130180c15",
@@ -252,12 +252,12 @@
   "tracks/tirebouchon.json": "76e8f713d9f14c21a0c3f2a5e881dd13e2dfe87ec97fd71c2dc6c2119a807840",
   "tracks/tonton.json": "2cca5284ddfddd1de57680462b6f114585ee2240c923460c0346adba74fdaea6",
   "tracks/trainfou.json": "fe6466fa99af33b5bb029922db2c414ea4b513f84dced61e123f1554955c95de",
-  "wk-test.js": "4e6ffbbcb29f7274b7e85a741d100736612c3ffea3dc52bb3925e504079282f6",
-  "prototypes-test.js": "8f620299d66cafda4b5d85d28c0a27a83b344ecbb7d1620f3997c6e49ca3e15c",
-  "assets/apercus/prototype-orig-spec-3-long-difficile.jpg": "a0f8e1b19bf34a2198063ba456760db7a1524c71d2bb3dcf7e0e079a6788fdf9",
-  "sw.js": "d99edceafb68823d9fd70ecde5c310d4da7745ccb03cce87ffdfe34cb614d86a",
+  "wk-test.js": "893544cbd4de7c3fae0c5d0b4a7b9461be81e9727bb16d9c5f76d1c4bad51638",
+  "prototypes-test.js": "1f0173d2289f3da00e7de5a624e2ebc717b742ce3e544510931a9b5775ed92a8",
+  "assets/apercus/prototype-orig-spec-3-long-difficile.jpg": "83ab8cbfff259f085ac2208847fdbe4f3426593c0c9e9ea5de409da13baf7055",
+  "sw.js": "f8e678fca1ee7823cfaba7a8334067cade99a83b3da1a9284ec3506b93f72ef1",
   "manifest.webmanifest": "431dee22703211320cad19a23418d932e75e4446d50e5bee479e10ac510d2ea3",
-  "version.json": "3a0a1e88a489e66eba8d0fe82f2a6814ff2b368da5ef5428c9e6ed4e20ef66d2",
-  "LISEZMOI-TEST.txt": "4dcd340c33e83b9f95e782752ef805c12018d9191197a4e1f4e9b07a34f9f015"
+  "version.json": "0c9080c316ca5f0293d793f6f783b55adbcb53a3e67502322ba9387077c8d304",
+  "LISEZMOI-TEST.txt": "23127bc1afc670c09defd3d30648b18539ace7465c6a22931dbdf4a6c7bc6a34"
  }
 }
