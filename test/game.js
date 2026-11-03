@@ -1240,7 +1240,7 @@ function* buildWorldSteps(ti) {
   yield* drainPixelJobs(); yield 0.52;
   buildGores(W, bmats);
   planGates(W); buildGates(W);
-  W.clock = 0; if (RACE_OPTS.obst) planObstacles(W); else { W.obst = []; W.ramps = []; } buildObstacleMeshes(W);
+  W.clock = 0; if (RACE_OPTS.obst) planObstacles(W); else { W.obst = []; W.ramps = []; } temoinPlan(W); buildObstacleMeshes(W);
   if (W.bumps && W.bumps.length) {
     const bt = BUMP_TEX.clone(); bt.needsUpdate = true; bt.repeat.set(Math.max(2, Math.round(hw / 2.2)), 1);
     const bmat = new T.MeshStandardMaterial({ map: bt, roughness: .7, envMapIntensity: .3, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }); W.bumpMat = bmat;
@@ -1276,6 +1276,7 @@ function* buildWorldSteps(ti) {
   buildWarpSupports(W);
   buildVivants(W);
   // Kit Nature : terrain PBR, végétation modélisée et horizon des circuits naturels (aucun effet sur les collisions).
+  temoinBuild(W);   // scène témoin #36/#37 (Cascades) : avant la Nature, qui évite ses zones (W.noDecor)
   if (window.WKNature && window.WKNature.handles(W)) { if (window.WKNature.buildSteps) yield* window.WKNature.buildSteps(W, SAVE.quality, renderer); else window.WKNature.build(W, SAVE.quality, renderer); }
   yield* drainPixelJobs(); yield 0.85;
   // Plan lointain à la taille du monde : la couronne de montagnes (brouillard atténué) était tranchée jusqu'à 66 % du champ
@@ -1306,7 +1307,9 @@ const DECOR = {};
 // Essai C2-3 (ticket #27, désactivé par défaut, décor de Claude 1) : géométries allégées pour les décors copiés par milliers
 // (palmes : capsule 340 → ~50 triangles ; buissons : icosaèdre détail 2 → 1). Mesuré par scripts/perf-decor.cjs --leger.
 let DECOR_LEGER = false;
-const frondGeo = () => (DECOR_LEGER ? new T.CapsuleGeometry(.3, 3, 1, 6) : new T.CapsuleGeometry(.3, 3, 4, 10));
+// Palme allégée par défaut (#37 §4, proposition de Claude 2 « palmes allégées ») : 3 491 palmes sur Croisière = 1,19 M triangles ;
+// la palme est aplatie (×0,22) : 6 segments suffisent, apparence identique aux captures de jeu (docs/audit/decors/leger), −45 % de triangles.
+const frondGeo = () => new T.CapsuleGeometry(.3, 3, 1, 6);
 const SHADE_GEO = { hill: [.8, 1.08], crown: [.6, 1.14], crown2: [.64, 1.12], bush: [.68, 1.1], pine1: [.58, 1.1], pine2: [.6, 1.1], pine3: [.64, 1.12], rock: [.7, 1.08], drybush: [.74, 1.08], cactus: [.78, 1.06] };
 function shadeGeo(g, lo, hi) {
   // dégradé sombre en bas, clair en haut + petites variations : donne du volume aux arbres et rochers
@@ -5187,6 +5190,98 @@ function obstVisual(o, t) {
 
 /* ================= v8 : quatre grands mondes (Sakura, Safari, Fête foraine, Espace) ================= */
 function addTick(W, f) { (W.tick = W.tick || []).push(f); }
+
+/* ================= #36/#37 Scène témoin : la Grande Cascade (Cascades) =================
+   Lot vertical : falaise en massif (face rocheuse, plateau, pente arrière, extrémités fondues dans le sol), vraie cascade animée,
+   bassin de pierre, brume, écume, végétation accrochée, pont de corde suspendu (repère, 20 m au-dessus de la route) et geysers
+   annoncés qui jaillissent sur la moitié de la route côté falaise (ralentissent sans faire tourner, l'autre moitié reste libre,
+   les bots les évitent). Tracé, largeur, physique de la route : inchangés. Tout est hors de l'enveloppe roulable sauf les geysers
+   (obstacles du système existant, actifs seulement si les obstacles sont activés). */
+function temoinPlan(W) {
+  if (!W.def || W.def.id !== 'cascade' || W.def.production || window.__noTemoin) return;   // __noTemoin : captures « avant » des bancs
+  const S = W.S, N = S.N, hw = W.hw, bad = (i) => { const j = ((i % N) + N) % N; return (S.wz && S.wz[j]) || (S.glide && S.glide[j]) || (S.tun && S.tun[j]) || Math.abs(S.curv[j]) > .006; };
+  const mouth = (i) => W.branches.some((B) => [B.i0, B.i1].some((m) => Math.min(Math.abs(i - m), N - Math.abs(i - m)) < 30));
+  let best = -1, bs = 1e9;
+  for (let c = Math.floor(N * .5); c < Math.floor(N * .78); c += 2) { let ok = true, sc = 0; for (let o = -60; o <= 60 && ok; o += 3) { if (bad(c + o) || mouth(c + o)) ok = false; sc += Math.abs(S.curv[((c + o) % N + N) % N]); } if (ok && sc < bs) { bs = sc; best = c; } }
+  if (best < 0) return;
+  // Côté : celui sans branche voisine (la falaise ne doit masquer aucune bouche ni raccourci).
+  const side = W.branches.some((B) => B.side < 0 && Math.min(Math.abs(best - B.i0), Math.abs(best - B.i1)) < 120) ? 1 : -1;
+  W.temoin = { c: best, side, L: 70 }; const at3 = (i) => ((i % N) + N) % N;
+  if (W.obst && RACE_OPTS.obst) for (let q = 0; q < 3; q++) { const i = at3(best - 9 + q * 9), lat = side * hw * .48; W.obst.push({ kind: 'jet', style: 'eau', P: S, i, lat, r: 2.4, per: 5.2, ph: q * 1.15, x: S.px[i] + S.rx[i] * lat, z: S.pz[i] + S.rz[i] * lat, y: S.py[i], down: false }); }
+}
+function temoinBuild(W) {
+  const T0 = W.temoin; if (!T0) return; const S = W.S, N = S.N, hw = W.hw, sd = T0.side, c = T0.c, L = T0.L, scene = W.scene, low = SAVE.quality === 'low';
+  const at = (i) => ((i % N) + N) % N, gH = (x, z, d) => (W.hAt ? W.hAt(x, z) : d), hash = (a, b) => { const v = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return v - Math.floor(v); };
+  const rockM = Graphics && Graphics.material ? Graphics.material('rock', '#9a8f7e') : lam('#8a7f70'); rockM.userData.wkProduction = true;
+  // --- massif : sections transversales (avant → plateau → pente arrière), hauteur fondue aux extrémités, anse plus profonde au centre
+  const D = (j) => hw + 15 + 9 * Math.exp(-(((j - c) / 18) ** 2)), env = (u) => smoothstep(0, .28, u) * smoothstep(0, .28, 1 - u);
+  const Hc = 46, R = 12, pos = [], uv = [], idx = [], secs = [];
+  for (let k = -L; k <= L; k++) { const j = at(c + k), u = (k + L) / (2 * L), ox = S.rx[j] * sd, oz = S.rz[j] * sd, d = D(c + k);
+    const bx = S.px[j] + ox * d, bz = S.pz[j] + oz * d, g = gH(bx, bz, S.py[j]) - 1.5, H = Math.max(1, Hc * env(u) * (.92 + .1 * Math.sin(k * .13 + 1) + .05 * Math.sin(k * .41)));
+    const pts = []; for (let r = 0; r <= R; r++) { const v = r / R, rough = (hash(k, r) - .5) * 2.2 + Math.sin(v * 7 + k * .21) * 1.1 * v; pts.push([rough - v * 1.2, H * v]); }
+    pts.push([5, H + 1.6], [11, H + 1], [18, H * .82], [18 + H * 1.6, -3]);
+    secs.push({ ox, oz, bx, bz, g, pts, H });
+    let acc = 0; for (let q = 0; q < pts.length; q++) { if (q) acc += Math.hypot(pts[q][0] - pts[q - 1][0], pts[q][1] - pts[q - 1][1]); const [a, h] = pts[q]; pos.push(bx + ox * a, g + h, bz + oz * a); uv.push((k + L) * S.seg / 9, acc / 9); } }
+  const M = secs[0].pts.length; for (let k = 0; k < secs.length - 1; k++) for (let q = 0; q < M - 1; q++) { const a = k * M + q, b = a + M; if (sd > 0) idx.push(a, b, a + 1, b, b + 1, a + 1); else idx.push(a, a + 1, b, b, a + 1, b + 1); }
+  const mg = new T.BufferGeometry(); mg.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); mg.setAttribute('uv', new T.Float32BufferAttribute(uv, 2)); mg.setIndex(idx); mg.computeVertexNormals();
+  // Couleurs par sommet : grès chaud en strates, mousse sur les corniches et le plateau (normale tournée vers le ciel).
+  { const P = mg.attributes.position, Nn = mg.attributes.normal, col = new Float32Array(P.count * 3), cA = new T.Color('#c9ab84'), cB = new T.Color('#9a7b5c'), cM = new T.Color('#6f9a3e'), cc = new T.Color();
+    for (let q = 0; q < P.count; q++) { const y = P.getY(q), st = .5 + .5 * Math.sin(y * .55 + Math.sin(P.getX(q) * .05) * 2); cc.copy(cA).lerp(cB, st * .7); const up = Nn.getY(q); if (up > .5) cc.lerp(cM, smoothstep(.5, .85, up)); col.set([cc.r, cc.g, cc.b], q * 3); }
+    mg.setAttribute('color', new T.Float32BufferAttribute(col, 3)); }
+  const rockV = rockM.clone(); rockV.vertexColors = true; rockV.color = new T.Color('#ffffff'); rockV.userData.wkProduction = true;
+  const massif = new T.Mesh(mg, rockV); massif.castShadow = massif.receiveShadow = true; scene.add(massif);
+  // zones interdites au décor Nature (massif, bassin) : rien ne pousse à travers la roche
+  W.noDecor = W.noDecor || []; for (let k = -L; k <= L; k += 6) { const s0 = secs[k + L]; W.noDecor.push({ x: s0.bx + s0.ox * 12, z: s0.bz + s0.oz * 12, r: 9 + s0.H * .55 }); }
+  // --- cascade : deux rubans d'eau animés devant la face, au fond de l'anse
+  const mid = secs[L], Hm = mid.H, wx = mid.bx - mid.ox * 1.2, wz = mid.bz - mid.oz * 1.2, ang = Math.atan2(mid.ox, mid.oz);
+  const streak = canvasTex(64, 256, (x, w, h) => { const gr = x.createLinearGradient(0, 0, w, 0); gr.addColorStop(0, 'rgba(190,235,255,0)'); gr.addColorStop(.2, 'rgba(210,245,255,.85)'); gr.addColorStop(.8, 'rgba(210,245,255,.85)'); gr.addColorStop(1, 'rgba(190,235,255,0)'); x.fillStyle = gr; x.fillRect(0, 0, w, h);
+    for (let q = 0; q < 140; q++) { x.fillStyle = 'rgba(255,255,255,' + (.25 + Math.random() * .6).toFixed(2) + ')'; x.fillRect(4 + Math.random() * (w - 8), Math.random() * h, 1 + Math.random() * 2.5, 10 + Math.random() * 40); } });
+  streak.wrapS = streak.wrapT = T.RepeatWrapping; streak.repeat.set(1, Math.max(2, Math.round(Hm / 14)));
+  const layers = []; for (const [wd, sp, op, dz] of low ? [[18, 1.5, .9, 0]] : [[18, 1.5, .85, 0], [12, 2.3, .6, -.6], [7, 3.1, .5, -1.1]]) { const t = streak.clone(); t.needsUpdate = true; t.repeat.copy(streak.repeat);
+    const pg = new T.PlaneGeometry(wd, Hm + 2, 1, 10); const pa = pg.attributes.position; for (let q = 0; q < pa.count; q++) { const y = pa.getY(q), v = (y + (Hm + 2) / 2) / (Hm + 2); pa.setZ(q, -2.2 * (1 - v) ** 2); } pg.computeVertexNormals();
+    const wm = new T.MeshBasicMaterial({ map: t, transparent: true, opacity: op, depthWrite: false, side: T.DoubleSide, color: '#e9fbff' }); wm.userData.wkProduction = true;
+    const wf = new T.Mesh(pg, wm); wf.position.set(wx - mid.ox * dz, mid.g + Hm / 2 + .5, wz - mid.oz * dz); wf.rotation.y = ang + Math.PI; scene.add(wf); layers.push({ t, sp }); }
+  // --- bassin : rebord de pierre et eau animée (surélevé : le terrain n'est pas modifié)
+  const pR = 7, pc = [mid.bx - mid.ox * (pR + 1), mid.bz - mid.oz * (pR + 1)]; let pg0 = Infinity; for (let a = 0; a < TAU; a += .5) pg0 = Math.min(pg0, gH(pc[0] + Math.cos(a) * pR, pc[1] + Math.sin(a) * pR, mid.g));
+  const rim = new T.Mesh(new T.TorusGeometry(pR, 1, 10, 40), rockM); rim.rotation.x = Math.PI / 2; rim.scale.set(1, 1, 1.4); rim.position.set(pc[0], pg0 + .6, pc[1]); scene.add(rim);
+  const rip = canvasTex(128, 128, (x, w, h) => { x.fillStyle = '#3aa6c8'; x.fillRect(0, 0, w, h); for (let q = 0; q < 60; q++) { x.strokeStyle = 'rgba(220,250,255,' + (.15 + Math.random() * .35).toFixed(2) + ')'; x.lineWidth = 1 + Math.random() * 2; x.beginPath(); x.ellipse(Math.random() * w, Math.random() * h, 6 + Math.random() * 18, 2 + Math.random() * 5, 0, 0, TAU); x.stroke(); } });
+  rip.wrapS = rip.wrapT = T.RepeatWrapping; rip.repeat.set(2, 2);
+  const pm = new T.MeshStandardMaterial({ map: rip, color: '#7fd6ef', roughness: .08, metalness: .1, transparent: true, opacity: .9, emissive: '#1d6f8f', emissiveIntensity: .25 }); pm.userData.wkProduction = true;
+  const pool = new T.Mesh(new T.CircleGeometry(pR - .2, 40), pm); pool.rotation.x = -Math.PI / 2; pool.position.set(pc[0], pg0 + 1.1, pc[1]); scene.add(pool);
+  // --- écume et brume
+  const foamM = lam('#ffffff', { transparent: true, opacity: .85 }); foamM.userData.wkProduction = true; const foam = []; for (let q = 0; q < 18; q++) { const a = hash(q, 9) * TAU, r = hash(q, 4) * 3.5; foam.push({ x: pc[0] + mid.ox * 3 + Math.cos(a) * r, y: pg0 + 1.2, z: pc[1] + mid.oz * 3 + Math.sin(a) * r, s: .6 + hash(q, 2) * 1.2 }); }
+  instanced(scene, [{ geo: new T.IcosahedronGeometry(1, 1), mat: foamM }], foam);
+  const mistTex = canvasTex(64, 64, (x, w) => { const gr = x.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); gr.addColorStop(0, 'rgba(255,255,255,.75)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = gr; x.fillRect(0, 0, w, w); });
+  const mists = []; for (let q = 0; q < (low ? 3 : 7); q++) { const sm = new T.SpriteMaterial({ map: mistTex, transparent: true, opacity: .45, depthWrite: false }); const sp = new T.Sprite(sm); const s0 = 8 + q * 2.2; sp.scale.set(s0, s0 * .7, 1); sp.position.set(pc[0] + mid.ox * 2 + (hash(q, 1) - .5) * 9, pg0 + 2 + q * 1.4, pc[1] + mid.oz * 2 + (hash(q, 7) - .5) * 9); scene.add(sp); mists.push({ sp, y0: sp.position.y, ph: q }); }
+  // --- végétation accrochée : buissons sur le plateau et en corniche, lianes pendantes
+  const bushes = [], vines = []; for (let k = -L + 8; k <= L - 8; k += 4) { const s0 = secs[k + L]; if (s0.H < 8) continue;
+    bushes.push({ x: s0.bx + s0.ox * (6 + hash(k, 5) * 6), y: s0.g + s0.H + 1.2, z: s0.bz + s0.oz * (6 + hash(k, 5) * 6), s: 1.1 + hash(k, 6) * 1.3 });
+    if (Math.abs(k) > 6 && hash(k, 8) < .55) { const len = 6 + hash(k, 11) * 12; vines.push({ x: s0.bx - s0.ox * .4, y: s0.g + s0.H - len / 2, z: s0.bz - s0.oz * .4, s: 1, sy: len }); } }
+  instanced(scene, [{ geo: decorGeo('bush'), mat: lam('#ffffff'), off: tr(0, .7, 0), colors: ['#3f8f3a', '#4fa23e', '#2f7a34'] }], bushes);
+  instanced(scene, [{ geo: new T.CylinderGeometry(.18, .12, 1, 5), mat: lam('#2f6b2c'), colors: ['#2f6b2c', '#3d7d33'] }], vines);
+  // --- pont de corde : du plateau du massif à une tour de bois de l'autre côté, ≥ 20 m au-dessus de la route (aucune collision)
+  const jb = at(c + 30), sb = secs[L + 30], A = new T.Vector3(sb.bx + sb.ox * 4, sb.g + sb.H + .5, sb.bz + sb.oz * 4), ob = -(hw + 26), Bx = S.px[jb] + S.rx[jb] * sd * ob, Bz = S.pz[jb] + S.rz[jb] * sd * ob;
+  const Bg = gH(Bx, Bz, S.py[jb]), Btop = Math.max(Bg + 6, A.y), B = new T.Vector3(Bx, Btop, Bz), wood = lam('#7a5232'); wood.userData.wkProduction = true;
+  if (A.y - S.py[jb] > 22) {
+    const tower = new T.Mesh(new T.CylinderGeometry(.6, .8, Btop - Bg + 1, 8), wood); tower.position.set(Bx, (Btop + Bg) / 2, Bz); scene.add(tower);
+    const planks = []; const n = Math.round(A.distanceTo(B) / 1.1); for (let q = 0; q <= n; q++) { const u = q / n, p = A.clone().lerp(B, u); p.y -= Math.sin(u * Math.PI) * 4.5; planks.push({ x: p.x, y: p.y, z: p.z, r: Math.atan2(B.x - A.x, B.z - A.z), s: 1, sx: 2.6, sy: .18, sz: .7 }); }
+    instanced(scene, [{ geo: new T.BoxGeometry(1, 1, 1), mat: wood, colors: ['#7a5232', '#8a6040', '#6a4628'] }], planks);
+    for (const off of [-1.3, 1.3]) { const pts = []; const perp = new T.Vector3(B.z - A.z, 0, -(B.x - A.x)).normalize().multiplyScalar(off); for (let q = 0; q <= 24; q++) { const u = q / 24, p = A.clone().lerp(B, u).add(perp); p.y += 1 - Math.sin(u * Math.PI) * 4.5; pts.push(p); }
+      scene.add(new T.Mesh(new T.TubeGeometry(new T.CatmullRomCurve3(pts), 40, .07, 5), lam('#d8c08a'))); }
+  }
+  // --- animation (une fonction, coût négligeable) : eau qui tombe, bassin qui ondule, brume qui respire
+  // écume au sommet de la chute
+  { const lip = new T.Mesh(new T.SphereGeometry(1, 16, 10), foamM); lip.scale.set(9, 1.2, 2.2); lip.position.set(wx - mid.ox * .4, mid.g + Hm + .8, wz - mid.oz * .4); lip.rotation.y = ang; scene.add(lip); }
+  const spray = [pc[0] + mid.ox * 3, pg0 + 1.5, pc[1] + mid.oz * 3];
+  addTick(W, (dt, now) => { if (W.parts && camera.position.distanceToSquared(new T.Vector3(spray[0], spray[1], spray[2])) < 160 * 160) for (let q = 0; q < (low ? 1 : 3); q++) W.parts.emit(spray[0] + rand(-4, 4), spray[1], spray[2] + rand(-4, 4), rand(-2, 2), rand(3, 9), rand(-2, 2), pick(['#ffffff', '#e9fbff', '#cdeffc']), .9, 0); });
+  addTick(W, (dt, now) => { for (const l of layers) l.t.offset.y += dt * l.sp * .35; rip.offset.x += dt * .03; rip.offset.y -= dt * .02; for (const m of mists) { m.sp.position.y = m.y0 + Math.sin(now * .6 + m.ph) * .8; m.sp.material.opacity = .32 + Math.sin(now * .8 + m.ph * 1.7) * .12; } });
+  // Lumière de la scène témoin (direction artistique proposée, soumise au propriétaire) : brume claire bleu-vert au lieu du vert
+  // grisâtre, horizon plus profond, ciel bleu tropical. Données du circuit inchangées (réglage à l'exécution, réversible).
+  if (scene.fog) { scene.fog.color.set('#cfe9e6'); scene.fog.near *= 1.35; scene.fog.far *= 1.4; }
+  if (W.sky && W.sky.material.uniforms) { W.sky.material.uniforms.top.value.set('#2f8fd0'); W.sky.material.uniforms.bottom.value.set('#e2f4ee'); }
+  if (renderer && renderer.setClearColor) renderer.setClearColor('#cfe9e6');
+  W.temoin.stats = { sections: secs.length, triangles: idx.length / 3, hauteur: Hc, cote: sd };
+}
 function stripeTex(a, b, n = 8, vertical = true) { return canvasTex(128, 128, (x, w, h) => { for (let i = 0; i < n; i++) { x.fillStyle = i % 2 ? b : a; if (vertical) x.fillRect(i * w / n, 0, w / n + 1, h); else x.fillRect(0, i * h / n, w, h / n + 1); } }); }
 function glowPoints(W, list, color, size = 5, op = .85) { if (!list.length) return null; const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(list, 3)); const p = new T.Points(g, new T.PointsMaterial({ color, size, map: DOT_TEX, transparent: true, depthWrite: false, blending: T.AdditiveBlending, opacity: op })); W.scene.add(p); return p; }
 function nearBranchWin(W, i, pad = 20) { return W.branches.some((B) => (i >= B.winA[0] - pad && i <= B.winA[1] + pad) || (i >= B.winB[0] - pad && i <= B.winB[1] + pad)); }
@@ -6410,10 +6505,10 @@ function obstMesh11(o, W) {
     const gl = o.lat - o.side * o.reach; glow.position.set(P.px[i] + P.rx[i] * gl, P.py[i] + .16, P.pz[i] + P.rz[i] * gl); g.add(glow);
     petalM.emissive = new T.Color(pal[1]); petalM.emissiveIntensity = .05;
     g.userData = { pivot, jaw, petals, glow, eyes, leaves, head, petalM }; g.traverse((m) => { if (m.isMesh && m !== glow) m.castShadow = true; }); return g; }
-  if (o.kind === 'jet') { const lava = o.style !== 'steam';
+  if (o.kind === 'jet') { const lava = o.style !== 'steam' && o.style !== 'eau';
     const base = new T.Mesh(new T.CylinderGeometry(R * .9, R, .5, 16), stdMat('#3a3440', .5, .6)); base.position.y = .25; g.add(base);
     const glow = new T.Mesh(new T.CircleGeometry(R * .8, 20), new T.MeshBasicMaterial({ color: lava ? '#ff6a1a' : '#bfefff', transparent: true, opacity: .2 })); glow.rotation.x = -Math.PI / 2; glow.position.y = .52; g.add(glow);
-    const fl = new T.Mesh(new T.ConeGeometry(R * .9, 9, 14, 1, true), new T.MeshBasicMaterial({ color: lava ? '#ffb02a' : '#e8fbff', transparent: true, opacity: .8, blending: T.AdditiveBlending, depthWrite: false, side: T.DoubleSide })); fl.geometry.translate(0, -4.5, 0); fl.rotation.x = Math.PI; fl.position.y = .5; g.add(fl);
+    const eau = o.style === 'eau', fl = new T.Mesh(new T.ConeGeometry(R * (eau ? 1.1 : .9), eau ? 7 : 9, 14, 1, true), eau ? new T.MeshStandardMaterial({ color: '#d4f3ff', emissive: '#7fd6f0', emissiveIntensity: .35, roughness: .15, transparent: true, opacity: .82, depthWrite: false, side: T.DoubleSide }) : new T.MeshBasicMaterial({ color: lava ? '#ffb02a' : '#e8fbff', transparent: true, opacity: .8, blending: T.AdditiveBlending, depthWrite: false, side: T.DoubleSide })); fl.geometry.translate(0, -4.5, 0); fl.rotation.x = Math.PI; fl.position.y = .5; g.add(fl);
     g.userData.flame = fl; g.userData.glow = glow; g.position.set(o.x, o.y, o.z); return g; }
   if (o.kind === 'pillar' && o.style === 'bumper') {
     const b = new T.Mesh(new T.CylinderGeometry(R, R * 1.05, 1.6, 28), stdMat('#ff3a8a', .25, .3)); b.position.y = .8; g.add(b);
@@ -6438,6 +6533,9 @@ function obstMesh11(o, W) {
 }
 // collisions de ces pièges ; retourne true si géré
 function obstHit11(k, o, R, nx, nz, vn) {
+  // Geyser de la Grande Cascade : douche qui ralentit et pousse vers la route libre, sans tête-à-queue ; immunité 1,6 s (pas de coups répétés).
+  if (o.kind === 'jet' && o.style === 'eau') { if (o.down && k.star <= 0 && !(k.obstCd > 0)) { k.speed = Math.min(k.speed, k.maxSpeed * .55); k.obstCd = 1.6; const P = o.P, j = clamp(o.i, 0, P.N - 1), away = -Math.sign(o.lat) || 1; k.x += P.rx[j] * away * .9; k.z += P.rz[j] * away * .9;
+      if (G.W.parts) for (let q = 0; q < 24; q++) G.W.parts.emit(k.x, k.y + 1, k.z, rand(-4, 4), rand(3, 9), rand(-4, 4), pick(['#e9fbff', '#bfefff', '#ffffff']), .6); if (k.isPlayer) { banner('Geyser !', .8, true); vibrate(30); } } return 'nosolid'; }
   if (o.kind === 'jet') { if (o.down && k.star <= 0 && k.spin <= 0) { hitKart(k, null); if (k.isPlayer) banner('Ça brûle !', .8, true); } return 'nosolid'; }
   if (o.kind === 'snapper') { if (o.down && k.star <= 0 && k.spin <= 0) { hitKart(k, null); if (k.isPlayer) { banner('Croqué !', .8, true); vibrate(40); } } return 'nosolid'; }
   if (o.kind === 'pillar' && o.style === 'bumper') { if (vn < 0) { const vx = Math.sin(k.vh), vz = Math.cos(k.vh), d = vx * nx + vz * nz; k.vh = Math.atan2(vx - 2 * d * nx, vz - 2 * d * nz); k.h += angDiff(k.h, k.vh) * .7; k.speed = Math.max(k.speed * .85, 26); k.boost = Math.max(k.boost, .25);
@@ -7613,6 +7711,7 @@ function hudRoulette(P) {
 
 /* ---- IA ---- */
 function lineSteer(k) { const [P, ti] = aheadOn(k, 14, null); const d = angDiff(k.h, Math.atan2(P.px[ti] - k.x, P.pz[ti] - k.z)); return clamp(-d * 2.4, -1, 1); }
+const AI_VIRAGE_A = 70;   // accélération latérale admise par les bots près du vide (m/s²) : réglée par mesure (bots-course Flipper)
 function aiControl(k, dt) {
   const W = G.W, S = W.S, N = S.N, ai = k.ai, R = G.race;
   ai.laneT -= dt; if (ai.laneT <= 0) { ai.laneT = rand(2, 5); ai.laneGoal = rand(-.42, .42); } ai.lane = lerp(ai.lane, ai.laneGoal, dt * .6);
@@ -7664,7 +7763,16 @@ function aiControl(k, dt) {
   let drift = false;
   if (ai.drifty && sharp > .1 && k.speed > k.maxSpeed * .55 && Math.abs(steer) > .45) drift = true;
   if (k.drift && Math.abs(steer) > .2 && sharp > .05) drift = true;
-  const throttle = k.speed < tgt * bombAiSpeed(k) ? 1 : 0;
+  // Virage serré avec le vide côté extérieur (RISQUÉ de Flipper, corniches) : vitesse de sécurité v = √(A / courbure max à venir) ;
+  // au-dessus, l'IA freine. Avant : elle levait seulement le pied et sortait par l'extérieur (16-18 chutes sur 3 courses de Flipper).
+  // Tracés et physique inchangés : seule la conduite des bots change (consigne propriétaire, Flipper préservé).
+  let brake = false;
+  { let mc = 0, sg = 0; for (let o = 2; o <= 30; o += 4) { const c = back != null ? S.curv[(back + o) % N] : aheadCurv(k, o, wb); if (Math.abs(c) > mc) { mc = Math.abs(c); sg = Math.sign(c); } }
+    if (mc > .025 && !k.air) { const [P2, j2] = AH(10); if (edgeOpen(P2, j2, sg) || edgeOpen(TP, ti, sg) || edgeOpen(CP, ci, sg)) { const vs = Math.sqrt((window.__AI_A || AI_VIRAGE_A) / mc); tgt = Math.min(tgt, vs); if (k.speed > vs * 1.06) brake = true; } } }
+  // Survitesse (boost dans une descente : jusqu'à 88 m/s dans le RISQUÉ du Barbecue) avec un bord ouvert dans les ~40 m : freinage
+  // jusqu'à la vitesse maximale normale ; sinon la direction ne suffit plus à suivre la route et le bot sort par le vide.
+  if (!brake && !k.air && k.speed > k.maxSpeed * 1.08) { for (let o = 4; o <= 20 && !brake; o += 4) { const [P3, j3] = AH(o); if (edgeOpen(P3, j3, -1) || edgeOpen(P3, j3, 1)) brake = true; } }
+  const throttle = !brake && k.speed < tgt * bombAiSpeed(k) ? 1 : 0;
   // coincé contre un obstacle ou un mur : marche arrière puis on repart
   if (R.state === 'race' && !k.air && k.spin <= 0 && Math.abs(k.speed) < 3) ai.stuckT = (ai.stuckT || 0) + dt; else ai.stuckT = 0;
   if (ai.stuckT > 1.1) { ai.stuckT = 0; ai.backT = rand(.75, 1); ai.backS = steer > 0 ? -1 : 1; }
@@ -7689,7 +7797,7 @@ function aiControl(k, dt) {
       if (use) { useItem(k); if (k.item === 'triple') ai.itemT = rand(.6, 1.5); }
     }
   }
-  return { steer, throttle, drift, noBrake: true };
+  return { steer, throttle, drift: drift && !brake, brake, noBrake: !brake };
 }
 
 /* ---- boucle de simulation ---- */

@@ -1,11 +1,11 @@
 /* Version TEST : portée …/test/ uniquement. */
 /* Wild Kart : cache hors-ligne. Toutes les adresses de scripts portent la version (?v=) : une nouvelle page ne peut pas recevoir
    d'anciens fichiers du cache (au premier lancement après une mise à jour, l'ancien service worker sert encore son cache). */
-const CACHE = 'wktest-test-aaa2402';
-const CORE = ['./', 'index.html', 'wk-test.js?v=test-aaa2402', 'boot.js?v=test-aaa2402', 'game.js?v=test-aaa2402', 'graphics.js?v=test-aaa2402', 'tracks.generated.js?v=test-aaa2402', 'production.js?v=test-aaa2402', 'surfaces.js?v=test-aaa2402', 'scenery.js?v=test-aaa2402', 'nature.js?v=test-aaa2402', 'vivant.js?v=test-aaa2402', 'bac-a-sable.js?v=test-aaa2402', 'three.min.js', 'peerjs.min.js', 'nacl.min.js', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png'];
+const CACHE = 'wktest-test-b023102';
+const CORE = ['./', 'index.html', 'wk-test.js?v=test-b023102', 'boot.js?v=test-b023102', 'game.js?v=test-b023102', 'graphics.js?v=test-b023102', 'tracks.generated.js?v=test-b023102', 'production.js?v=test-b023102', 'surfaces.js?v=test-b023102', 'scenery.js?v=test-b023102', 'nature.js?v=test-b023102', 'vivant.js?v=test-b023102', 'bac-a-sable.js?v=test-b023102', 'three.min.js', 'peerjs.min.js', 'nacl.min.js', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png'];
 for(const profile of ['pc','mobile'])for(const material of ['clean_asphalt','sandstone_cracks'])for(const role of ['albedo','normal','roughness'])CORE.push('assets/materials/'+profile+'/'+material+'-'+role+'.webp');
 // « reload » : on prend les fichiers tout frais (le site peut garder une ancienne copie 10 minutes)
-const OPTIONAL = ['demarrage.html', 'demarrage.js?v=test-aaa2402', 'studio-core.js?v=test-aaa2402', 'studio3d.js?v=test-aaa2402', 'studio.js?v=test-aaa2402', 'diag.js?v=test-aaa2402', 'assets/logo/lettrage-wild-kart.webp', 'assets/logo/lettrage-wild-kart.png']; // animation de démarrage, Wild Kart Studio et relevé ?diag=1 : facultatifs (le jeu démarre sans eux)
+const OPTIONAL = ['demarrage.html', 'demarrage.js?v=test-b023102', 'studio-core.js?v=test-b023102', 'studio3d.js?v=test-b023102', 'studio.js?v=test-b023102', 'diag.js?v=test-b023102', 'assets/logo/lettrage-wild-kart.webp', 'assets/logo/lettrage-wild-kart.png']; // animation de démarrage, Wild Kart Studio et relevé ?diag=1 : facultatifs (le jeu démarre sans eux)
 self.addEventListener('install', (e) => {
   const optional = (c) => Promise.all(OPTIONAL.map((u) => c.add(new Request(u, { cache: 'reload' })).catch(() => {})));
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(CORE.map((u) => new Request(u, { cache: 'reload' }))).then(() => optional(c))).then(() => self.skipWaiting()));
