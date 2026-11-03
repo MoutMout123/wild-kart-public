@@ -11,7 +11,7 @@
   'use strict';
   if (!/[?&]diag=1(&|$)/.test(location.search)) return;
   const now = () => performance.now(), R = Math.round;
-  const D = window.WK_DIAG = { v: 2, selections: [], memMax: 0, debut: R(now()), marks: {}, boot: [], longues: [], lancements: [], course: [] };
+  const D = window.WK_DIAG = { v: 3, selections: [], memMax: 0, debut: R(now()), marks: {}, boot: [], longues: [], lancements: [], course: [] };
   let gapsCible = null; // tableau qui reçoit les intervalles d'images en cours (démarrage, chargement, course)
   // Intervalles entre images (fenêtre principale ; l'animation de démarrage partage ce fil sur Chrome et Safari).
   const extra = new Set(); // collectes supplémentaires (toucher d'une carte de circuit)
@@ -26,11 +26,39 @@
   // Lancements de circuits : on suit G.prep (préparation par tranches de game.js).
   let lanc = null, raceGaps = null, raceT = 0, acc = null;
   // Chaque image de course (game.js, frame) : logique, rendu côté processeur, appels de rendu, triangles.
-  D.image = (lo, re, ap, tr, racing) => { if (!acc || !racing || acc.lo.length > 2000) return; acc.lo.push(lo); acc.re.push(re); acc.ap.push(ap); acc.tr.push(tr); };
+  D.image = (lo, re, ap, tr, racing) => { if (racing) sonde(); if (!acc || !racing || acc.lo.length > 2000) return; acc.lo.push(lo); acc.re.push(re); acc.ap.push(ap); acc.tr.push(tr); };
+  // Surfaces noires (signalement Samsung, ticket #27) : toutes les 2 s de course, lecture de 4 lignes de l'image juste après le rendu.
+  // Pixel « noir » : r+g+b < 12/765. Si plus de 1 % de noir, on identifie l'objet sous un pixel noir (matériau, rôle, relief, textures).
+  D.noir = { mesures: 0, max: 0, cas: [] }; let tNoir = 0;
+  const texEtat = (m) => ['map', 'normalMap', 'roughnessMap'].filter((k) => m[k]).map((k) => { const t = m[k], im = t.image; return k.replace('Map', '').replace('map', 'couleur') + (!im ? ':absente' : (im.width || im.videoWidth || 0) === 0 ? ':vide' : ''); }).join(',');
+  function sonde() {
+    const t = now(); if (t - tNoir < 2000) return; tNoir = t;
+    const K = window.__TK, G = K && K.G, r = K && K.renderer; if (!r || !G || !G.W) return;
+    try { const gl = r.getContext(), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, buf = new Uint8Array(w * 4); let noirs = 0, total = 0, ex = null;
+      for (const f of [.35, .25, .15, .06]) { const y = Math.floor(h * f); gl.readPixels(0, y, w, 1, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+        for (let x = 0; x < w; x += 2) { total++; if (buf[x * 4] + buf[x * 4 + 1] + buf[x * 4 + 2] < 12) { noirs++; if (!ex) ex = [x / w, f]; } } }
+      const pc = 100 * noirs / Math.max(1, total); D.noir.mesures++; D.noir.max = Math.max(D.noir.max, +pc.toFixed(1));
+      if (pc > 1 && ex && D.noir.cas.length < 12) { const T = window.THREE, rc = new T.Raycaster(), P = G.race && G.race.player;
+        rc.setFromCamera(new T.Vector2(ex[0] * 2 - 1, ex[1] * 2 - 1), K.camera); const hit = rc.intersectObjects(G.W.scene.children, true).find((o) => o.object.visible && !o.object.isSprite);
+        let obj = '—'; if (hit) { const o = hit.object, m = Array.isArray(o.material) ? o.material[0] : o.material, role = (G.W.roles && G.W.roles.get(m)) || '';
+          obj = (o.name || o.geometry.type) + ' · ' + m.type + (m.userData.wkSurface ? ':' + m.userData.wkSurface : '') + (role ? ' · rôle ' + role : '') + (m.normalMap ? ' · relief' : '') + (m.userData.wkPBR ? ' · PBR' : '') + ' · textures ' + (texEtat(m) || 'aucune') + ' · à ' + Math.round(hit.distance) + ' m'; }
+        D.noir.cas.push({ pc: +pc.toFixed(1), circuit: G.W.def.name || G.W.def.id, pos: P && G.W.S ? +(((P.idx || 0) / G.W.S.N)).toFixed(3) : null, chemin: P && P.P && P.P !== G.W.S ? 'raccourci' : 'route', obj }); }
+    } catch (e) { D.noir.erreur = String(e).slice(0, 120); } }
+  // Interrupteurs de diagnostic sur appareil (?diag=1&noir=relief,ombres,env,pbr) : à comparer un par un pour isoler la cause du noir.
+  const NOIR = (new URLSearchParams(location.search).get('noir') || '').split(',').filter(Boolean); D.noirOff = NOIR; let wNoir = null;
+  if (NOIR.length) setInterval(() => { const K = window.__TK, G = K && K.G; if (!G || !G.W || G.W === wNoir || G.prep) return; wNoir = G.W;
+    if (NOIR.includes('ombres') && K.renderer) K.renderer.shadowMap.enabled = false;
+    if (NOIR.includes('env')) G.W.scene.environment = null;
+    G.W.scene.traverse((o) => { if (!o.material) return; for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+      if (NOIR.includes('relief') && m.normalMap) { m.normalMap = null; m.needsUpdate = true; }
+      if (NOIR.includes('env') && 'envMapIntensity' in m) { m.envMapIntensity = 0; m.needsUpdate = true; }
+      if (NOIR.includes('ombres')) m.needsUpdate = true; } });
+    if (NOIR.includes('pbr')) G.W.scene.traverse((o) => { if (o.isMesh && o.material && o.material.isMeshStandardMaterial && !o.material.onBeforeCompile.toString().includes('wk')) { const m = o.material; o.material = new window.THREE.MeshLambertMaterial({ color: m.color, map: m.map, side: m.side, vertexColors: m.vertexColors, transparent: m.transparent, opacity: m.opacity }); } });
+  }, 500);
   // Toucher d'une carte de circuit dans le menu (C2-1) : retour de la main, plus long gel des 6 s suivantes, temps jusqu'au nouveau décor.
   document.addEventListener('click', (e) => { const c = e.target && e.target.closest && e.target.closest('#track-cards .card'); if (!c) return; const K = window.__TK, G = K && K.G; if (!G || D.selections.length > 20) return;
-    const t0 = now(), sel = { gaps: [], ti: +c.dataset.ti }; extra.add(sel.gaps); setTimeout(() => { sel.main = R(now() - t0); }, 0);
-    const iv = setInterval(() => { if (sel.decor == null && G.W && G.W.ti === sel.ti && G.race && G.race.state === 'attract') sel.decor = R(now() - t0); }, 50);
+    const t0 = now(), W0 = G.W, sel = { gaps: [], ti: +c.dataset.ti }; extra.add(sel.gaps); setTimeout(() => { sel.main = R(now() - t0); }, 0);
+    const iv = setInterval(() => { if (sel.decor == null && G.W && G.W !== W0 && G.W.ti === sel.ti && G.race && G.race.state === 'attract') sel.decor = R(now() - t0); }, 50);
     setTimeout(() => { clearInterval(iv); extra.delete(sel.gaps); D.selections.push(sel); }, 6000); }, true);
   setInterval(() => { const K = window.__TK, G = K && K.G; if (!G) return;
     if (G.prep && (!lanc || lanc.fin)) { lanc = { debut: R(now()), pendant: [], apres: [] }; gapsCible = lanc.pendant; }
@@ -76,8 +104,11 @@
     L.push('  (lecture : « reste » grand devant logique + rendu = limite de la carte graphique ; logique ou rendu grands = limite du processeur)');
     L.push('');
     L.push('SÉLECTION D\'UN CIRCUIT DANS LE MENU : ' + (D.selections.length ? '' : 'aucune (touche une carte dans Entraînement)'));
-    for (const x of D.selections.slice(-6)) { const g = stats(x.gaps); L.push('  ' + (((window.__TK || {}).TRACKS || [])[x.ti] || {}).name + ' : main rendue en ' + (x.main != null ? x.main + ' ms' : '?') + ', décor du menu prêt en ' + (x.decor != null ? x.decor + ' ms' : '> 6 s') + ', plus long gel ' + g.max + ' ms, gels >250 ms ' + g.gels250); }
+    for (const x of D.selections.slice(-6)) { const g = stats(x.gaps); L.push('  ' + (((window.__TK || {}).TRACKS || [])[x.ti] || {}).name + ' : main rendue en ' + (x.main != null ? x.main + ' ms' : '?') + (x.decor != null ? ', décor du menu reconstruit en ' + x.decor + ' ms' : ', décor du menu non reconstruit (aperçu seul)') + ', plus long gel ' + g.max + ' ms, gels >250 ms ' + g.gels250); }
     if (D.memMax) L.push('MÉMOIRE JS : pic ' + Math.round(D.memMax / 1048576) + ' Mo');
+    L.push(''); const N0 = D.noir; L.push('SURFACES NOIRES (pixels noirs en course, toutes les 2 s) : ' + (N0.mesures ? N0.mesures + ' mesures, pire ' + N0.max + ' %' : 'aucune mesure (fais une course)') + (D.noirOff.length ? ' ; interrupteurs coupés : ' + D.noirOff.join(', ') : '') + (N0.erreur ? ' ; erreur ' + N0.erreur : ''));
+    for (const c of N0.cas) L.push('  ' + c.pc + ' % noir — ' + c.circuit + ' (' + c.chemin + ', position ' + c.pos + ') — sous le pixel : ' + c.obj);
+    const Sf = window.WKSurfaces; if (Sf && Sf.errors && Sf.errors.length) L.push('  textures PBR non chargées : ' + Sf.errors.join(', '));
     return L.join('\n');
   }
   D.resume = resume;

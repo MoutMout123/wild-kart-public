@@ -575,7 +575,7 @@ function instancedMesh(geo, mat, n, color, shadow) {
 function build(W, quality, renderer) { const g = buildSteps(W, quality, renderer); for (;;) { const r = g.next(); if (r.done) return r.value; } }
 function* buildSteps(W, quality, renderer) {
   if (!handles(W)) return null;
-  mobile = quality === 'low'; anisotropy = Math.min(8, renderer && renderer.capabilities ? renderer.capabilities.getMaxAnisotropy() : 4);
+  mobile = quality === 'low' || !!(root.matchMedia && root.matchMedia('(pointer:coarse)').matches); // 512 px sur écran tactile (Claude 2, ticket #27 : démarrage Samsung) anisotropy = Math.min(8, renderer && renderer.capabilities ? renderer.capabilities.getMaxAnisotropy() : 4);
   const biomeId = DECOR_TO_BIOME[W.th.decor], B = BIOMES[biomeId], q = quality === 'low' ? .4 : quality === 'medium' ? .75 : 1, R = rng(((W.th.terrain.seed || 17) * 7919 + W.def.id.length * 131) >>> 0);
   const group = new T.Group(); group.name = 'Kit Nature — ' + biomeId; group.userData.wkNature = true; W.scene.add(group);
   const low = quality === 'low', time = { value: 0 }, state = { low, group, biome: biomeId, time, pops: [], grassCells: [], hidden: [], stats: {} };

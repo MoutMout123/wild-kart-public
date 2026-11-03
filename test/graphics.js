@@ -598,5 +598,5 @@ function dispose(W, shared, cached, materials, texs) {
   }
   W.gfx = null;
 }
-window.WKGraphics = { tile, decorGeometry, jungleGeometry, tunnelStyle, tunnel, gapScenery, canyonFormation, pilotWorld, prepare, applyMode, setBudget, dispose, stats: () => ({ textures: textures.size, geometries: geometries.size }) };
+window.WKGraphics = { tile, material, decorGeometry, jungleGeometry, tunnelStyle, tunnel, gapScenery, canyonFormation, pilotWorld, prepare, applyMode, setBudget, dispose, stats: () => ({ textures: textures.size, geometries: geometries.size }) };
 })();

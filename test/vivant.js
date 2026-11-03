@@ -66,13 +66,17 @@ function build(W, quality) {
   const G = geometries(), pal = th.night ? PALETTES.night : PALETTES.default, wallD = W.wallD;
   const ground = (x, z, i) => (W.hAt ? W.hAt(x, z) : S.py[i]);
   const busy = (i) => Math.min(i, N - i) < N * .05 || S.glide[i] || (S.wz && S.wz[i]) || (S.nowall && S.nowall[i]) || W.branches.some((B) => { const d = (j) => Math.min(Math.abs(i - j), N - Math.abs(i - j)); return d(B.i0) < 45 || d(B.i1) < 45; });
+  // Emplacement sur une autre route (branche qui longe la route principale) : refusé. Avant, seules les bouches étaient évitées et deux
+  // tribunes de la Glissade se posaient sur la POUDREUSE et sur l'ENVOL (retour Samsung du 2 novembre).
+  const surBranche = (x, z) => W.branches.some((B) => { const r2 = (B.wallD + 3) ** 2; for (let j = 0; j < B.N; j += 2) if ((B.px[j] - x) ** 2 + (B.pz[j] - z) ** 2 < r2) return true; return false; });
+  const tribuneLibre = (i, side) => { for (const dc of [-12, -6, 0, 6, 12]) { const j = ((i + dc) % N + N) % N; for (const r of [0, 3]) { const off = side * (wallD + 4 + r * 1.6), x = S.px[j] + S.rx[j] * off, z = S.pz[j] + S.rz[j] * off; if (surBranche(x, z) || Math.abs(ground(x, z, j) - S.py[j]) > 3.5) return false; } } return true; }; // ni sur une autre route, ni flottante au-dessus d'un sol plus bas (ou enterrée)
   // 1. Tribunes : les épingles les plus serrées (côté extérieur) et les réceptions de planeur.
   const spots = [];
   const curvAt = (i) => { let c = 0; for (let o = -12; o <= 12; o++) c += S.curv[((i + o) % N + N) % N]; return c / 25; };
   const cands = []; for (let i = 0; i < N; i += 6) if (!busy(i)) cands.push([Math.abs(curvAt(i)), i]);
   cands.sort((a, b) => b[0] - a[0]);
-  for (const [c, i] of cands) { if (spots.length >= 3 || c < .012) break; if (spots.some((s) => Math.min(Math.abs(s.i - i), N - Math.abs(s.i - i)) < N * .12)) continue; spots.push({ i, side: -Math.sign(curvAt(i)) || 1, kind: 'épingle' }); }
-  for (let i = 0; i < N; i++) if (S.glide[i] && !S.glide[(i + 1) % N]) { const j = (i + 25) % N; if (!busy(j)) spots.push({ i: j, side: R() < .5 ? -1 : 1, kind: 'réception' }); }
+  for (const [c, i] of cands) { if (spots.length >= 3 || c < .012) break; if (spots.some((s) => Math.min(Math.abs(s.i - i), N - Math.abs(s.i - i)) < N * .12)) continue; const sd0 = -Math.sign(curvAt(i)) || 1; if (!tribuneLibre(i, sd0)) continue; spots.push({ i, side: sd0, kind: 'épingle' }); }
+  for (let i = 0; i < N; i++) if (S.glide[i] && !S.glide[(i + 1) % N]) { const j = (i + 25) % N; const sd1 = R() < .5 ? -1 : 1; if (!busy(j) && tribuneLibre(j, sd1)) spots.push({ i: j, side: sd1, kind: 'réception' }); }
   const bodies = [], heads = [], stands = [];
   for (const sp of spots) {
     const rows = 4, cols = Math.round(14 * q) + 4;
@@ -90,7 +94,7 @@ function build(W, quality) {
   // 2. Drapeaux le long des lignes droites, alternés des deux côtés, derrière les barrières.
   const flags = [];
   for (let i = 0; i < N; i += Math.max(22, Math.round(36 / q))) { if (busy(i) || Math.abs(S.curv[i]) > .025) continue;
-    for (const sd of [-1, 1]) { if (R() < .35) continue; const off = sd * (wallD + 2.2), x = S.px[i] + S.rx[i] * off, z = S.pz[i] + S.rz[i] * off; flags.push({ x, y: Math.max(ground(x, z, i), S.py[i]) - .1, z, r: S.hd[i] + (R() - .5) * .6, s: 1 }); } }
+    for (const sd of [-1, 1]) { if (R() < .35) continue; const off = sd * (wallD + 2.2), x = S.px[i] + S.rx[i] * off, z = S.pz[i] + S.rz[i] * off; if (surBranche(x, z)) continue; flags.push({ x, y: Math.max(ground(x, z, i), S.py[i]) - .1, z, r: S.hd[i] + (R() - .5) * .6, s: 1 }); } }
   if (flags.length) {
     group.add(instanced(G.pole, new T.MeshStandardMaterial({ color: '#e9ecf4', roughness: .3, metalness: .7 }), flags));
     group.add(instanced(G.flag, animated('#ffffff', 'flag', time, { side: T.DoubleSide, roughness: .8 }), flags.map((f) => Object.assign({}, f, { y: f.y + 5.6 })), () => pal[Math.floor(R() * pal.length)]));

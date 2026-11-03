@@ -539,9 +539,16 @@
     "base": "glissade",
     "corrections": [
       {
-        "quoi": "ENVOL : point de passage 1 lissé (cassure 6.3°/m fr 0.0943)",
-        "avant": 2,
+        "quoi": "ENVOL : point de passage 5 lissé (cassure 6.1°/m fr 0.8553)",
+        "avant": 1,
         "apres": 2,
+        "bloquantsApres": 0,
+        "gardee": false
+      },
+      {
+        "quoi": "ENVOL : raccord de retour allongé (to + 0,01) (cassure 6.1°/m fr 0.8553)",
+        "avant": 1,
+        "apres": 1,
         "bloquantsApres": 0,
         "gardee": false
       }
@@ -551,20 +558,26 @@
         "graine": 7,
         "corrections": [
           {
-            "quoi": "ENVOL : point de passage 1 lissé (cassure 6.3°/m fr 0.0943)",
-            "avant": 2,
+            "quoi": "ENVOL : point de passage 5 lissé (cassure 6.1°/m fr 0.8553)",
+            "avant": 1,
             "apres": 2,
+            "bloquantsApres": 0,
+            "gardee": false
+          },
+          {
+            "quoi": "ENVOL : raccord de retour allongé (to + 0,01) (cassure 6.1°/m fr 0.8553)",
+            "avant": 1,
+            "apres": 1,
             "bloquantsApres": 0,
             "gardee": false
           }
         ],
         "bloquants": 0,
-        "aCorriger": 2,
+        "aCorriger": 1,
         "mineurs": 10,
-        "ms": 2966,
+        "ms": 3211,
         "premiers": [
-          "C À CORRIGER cassure de direction de la route affichée 6.3°/m fr 0.0943",
-          "C À CORRIGER cassure de direction de la route affichée 7.0°/m fr 0.8428"
+          "C À CORRIGER cassure de direction de la route affichée 6.1°/m fr 0.8553"
         ]
       }
     ]

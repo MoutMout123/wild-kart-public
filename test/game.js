@@ -3,6 +3,14 @@
 'use strict';
 const T = window.THREE;
 const Graphics = window.WKGraphics;
+// Surfaces noires sur Mali (signalement Samsung, ticket #27) : une normale nulle ou non finie (repère de relief dégénéré, normale
+// interpolée qui s'annule) donne NaN dans l'éclairage, donc un pixel noir. Garde-fou : on retombe sur la normale géométrique (ou
+// face à la caméra). Sans effet visible quand la normale est valide (même résultat qu'avant sur PC).
+(function gardeNormales(C) { if (!C) return;
+  const rep = (k, a, b) => { if (C[k] && C[k].includes(a)) C[k] = C[k].split(a).join(b); };
+  rep('normal_fragment_begin', 'vec3 normal = normalize( vNormal );', 'vec3 normal = dot( vNormal, vNormal ) > 1e-12 ? normalize( vNormal ) : vec3( 0.0, 0.0, 1.0 );');
+  rep('normal_fragment_maps', 'normal = normalize( tbn * mapN );', '{ vec3 wkNm = tbn * mapN; float wkL = dot( wkNm, wkNm ); normal = ( wkL > 1e-12 && wkL < 1e12 ) ? normalize( wkNm ) : normal; }');
+})(T.ShaderChunk);
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -987,7 +995,10 @@ function tubeAlong(S, lat, y, r, seg = 8, step = 2, skip) {
 function quadAt(S, i, lat, halfW, halfL, y) {
   const fx = S.fx[i], fz = S.fz[i], rx = S.rx[i], rz = S.rz[i];
   const cx = S.px[i] + rx * lat, cz = S.pz[i] + rz * lat, cy = S.py[i] + y;
-  const P = (sx, sl) => [cx + rx * sx + fx * sl, cy, cz + rz * sx + fz * sl];
+  // Plaque inclinée comme la route (pente locale) : posée à plat sur une rampe raide (RAMPE de Flipper, ≈ 45 %), son bord dépassait
+  // d'environ 1 m au-dessus de la chaussée (contrôle caméra du concepteur).
+  const N = S.N, a = S.closed === false ? Math.max(0, i - 1) : (i - 1 + N) % N, b = S.closed === false ? Math.min(N - 1, i + 1) : (i + 1) % N, pente = (S.py[b] - S.py[a]) / (Math.hypot(S.px[b] - S.px[a], S.pz[b] - S.pz[a]) || 1);
+  const P = (sx, sl) => [cx + rx * sx + fx * sl, cy + pente * sl, cz + rz * sx + fz * sl];
   const pos = [...P(-halfW, -halfL), ...P(halfW, -halfL), ...P(-halfW, halfL), ...P(halfW, halfL)];
   const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3));
   g.setAttribute('uv', new T.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 1, 1], 2)); g.setIndex([0, 1, 2, 1, 3, 2]); g.computeVertexNormals(); return g;
@@ -1121,7 +1132,9 @@ function* buildWorldSteps(ti) {
     } }
   const sun = new T.DirectionalLight(th.sun, th.sunI); sun.position.set(220, 320, 120); scene.add(sun); scene.add(sun.target); W.sun = sun;
   if (qual().shadows) { sun.castShadow = true; sun.shadow.mapSize.set(isTouch ? 1024 : 2048, isTouch ? 1024 : 2048); const sc = sun.shadow.camera; sc.left = -60; sc.right = 60; sc.top = 60; sc.bottom = -60; sc.near = 20; sc.far = 500; sun.shadow.bias = -.0005; sun.shadow.normalBias = .04; }
-  if (window.WKSurfaces) window.WKSurfaces.configure(SAVE.quality === 'low', renderer.capabilities.getMaxAnisotropy());
+  // Cartes PBR 512 px (jeu « mobile ») sur écran tactile ou en qualité basse : 4 fois moins de pixels à décoder et envoyer qu'en
+  // 1024 px (ticket #27 : démarrage du Samsung) et moins de mémoire ; 1024 px gardé sur ordinateur.
+  if (window.WKSurfaces) window.WKSurfaces.configure(SAVE.quality === 'low' || isTouch, renderer.capabilities.getMaxAnisotropy());
   buildBranches(W); computeGore(W); computeWallBlock(W); planBumps(W); planKickers(W); buildWarp(S, def, hw);
   if (def.production) window.WKProduction.installJunctions(W);
   if (def.production) window.WKProduction.applyFrames(S, def);
@@ -1260,6 +1273,7 @@ function* buildWorldSteps(ti) {
   if (def.production) { W.roles.set(W.mudMat, 'mud'); W.roles.set(railMat, 'rail'); window.WKScenery.mergeRoad(W); window.WKScenery.buildDecks(W); }
   if (!def.production) clearWarpCorridor(W);
   buildPlafondCage(W);
+  buildWarpSupports(W);
   buildVivants(W);
   // Kit Nature : terrain PBR, végétation modélisée et horizon des circuits naturels (aucun effet sur les collisions).
   if (window.WKNature && window.WKNature.handles(W)) { if (window.WKNature.buildSteps) yield* window.WKNature.buildSteps(W, SAVE.quality, renderer); else window.WKNature.build(W, SAVE.quality, renderer); }
@@ -1680,7 +1694,12 @@ function buildEnvolBits(W) {
   for (const B of W.branches) {
     if (B.glideA == null) continue;
     const skirtM = new T.MeshLambertMaterial({ map: skirtTex(th.skirt), side: T.DoubleSide }), padM = new T.MeshBasicMaterial({ map: BOOST_TEX, color: '#8fd8ff', transparent: true, opacity: .97 });
-    for (const [j, facing] of [[B.glideA, 1], [B.glideB, -1]]) scene.add(new T.Mesh(cliffQuad(B, j, th, B.wallD, facing), skirtM));
+    // Cartes à relief : face de l'envol et de la réception arrêtée au terrain (−1 m) et habillée de la roche du décor. Avant : mur de
+    // 30 m à texture de jupe sombre, visible en plein vol comme une grande dalle noire (réception de l'ENVOL de Cascades, retour Samsung).
+    for (const [j, facing] of [[B.glideA, 1], [B.glideB, -1]]) { if (!W.hAt || !th.terrain) { scene.add(new T.Mesh(cliffQuad(B, j, th, B.wallD, facing), skirtM)); continue; }
+      let low = Infinity; for (const f of [-1, -.5, 0, .5, 1]) low = Math.min(low, W.hAt(B.px[j] + B.rx[j] * B.wallD * f, B.pz[j] + B.rz[j] * B.wallD * f)); const haut = B.py[j] + .06 - (low - 1); if (haut < .3) continue;
+      const g = cliffQuad(B, j, Object.assign({}, th, { terrain: { drop: haut - 4.06 } }), B.wallD, facing), uv = g.attributes.uv; for (let q = 0; q < 4; q++) uv.setXY(q, uv.getX(q) / 4 * (2 * B.wallD / 8), uv.getY(q) * haut / 8);
+      const rock = Graphics && Graphics.material ? Graphics.material('rock', TERRAIN_ROCK[th.ground] || '#9a9488') : skirtM; rock.side = T.DoubleSide; scene.add(new T.Mesh(g, rock)); }
     for (const j of [B.glideA - 6, Math.min(B.N - 8, B.glideB + 10)]) { scene.add(new T.Mesh(quadAt(B, j, 0, B.hw * .9, 3.2, .15), padM)); W.pads.push({ i: j, lat: 0, P: B }); }
     rings = rings || new T.MeshBasicMaterial({ color: '#7ff4ff', transparent: true, opacity: .75, depthWrite: false });
     // Anneaux turbo placés par le concepteur (B.def.anneaux : [fraction de la branche, hauteur au-dessus de la ligne, écart latéral]) : sur la vraie
@@ -3839,9 +3858,7 @@ async function launchPrepared(ti, cc, who) {
     // compileAsync (three r158) ne se termine jamais si un matériau change pendant l'attente (erreur dans son minuteur) : 5 s au plus.
     try { if (renderer.compileAsync) await Promise.race([renderer.compileAsync(G.W.scene, camera), new Promise((r) => setTimeout(r, 5000))]); } catch (e) { /* compilation au premier rendu */ }
     mk('shaders'); RACE_LOADER.set(.9);
-    try { await runSlicedLoad((function* () { const seen = new Set();
-      G.W.scene.traverse((o) => { for (const m of [].concat(o.material || [])) for (const k in m) { const t = m[k]; if (t && t.isTexture && !t.isRenderTargetTexture && !seen.has(t)) seen.add(t); } });
-      for (const t of seen) { renderer.initTexture(t); yield; } })()); } catch (e) { /* téléversement au premier rendu */ }
+    try { await texturesPretes(G.W.scene); await runSlicedLoad(televerser(G.W.scene)); } catch (e) { /* téléversement au premier rendu */ }
     mk('textures'); RACE_LOADER.set(1);
     // Premières images rendues sous l'écran de chargement (envoi des géométries, ombres, premiers dessins) : la course n'apparaît
     // qu'une fois ces images passées. (Un envoi par petits lots a été essayé : il multiplie les attentes de la carte graphique.)
@@ -3892,6 +3909,19 @@ function startAttract(ti) {
 // revenir au menu, reconstruisait tout le monde d'un bloc : 2 à 5 s de gel sur téléphone). L'ancien décor reste affiché jusqu'à ce
 // que le nouveau soit prêt ; un lancement de course (launchPrepared) ou un nouveau choix annule la construction en cours.
 let ATTRACT_ID = 0, ATTRACT_P = null, ATTRACT_TI = -1;
+// Textures d'une scène (cartes des matériaux et textures des uniformes de shaders).
+function texturesScene(scene) { const seen = new Set(), add = (t) => { if (t && t.isTexture && !t.isRenderTargetTexture) seen.add(t); };
+  scene.traverse((o) => { for (const m of [].concat(o.material || [])) { for (const k in m) add(m[k]); for (const U of [m.uniforms, m.userData && m.userData.uniforms]) if (U) for (const k in U) add(U[k] && U[k].value); } }); return seen; }
+// Avant le téléversement par tranches (ticket #27 : Samsung, tâche de 1,2 s au premier rendu) : les images des matériaux PBR
+// (chargées à part) doivent être arrivées, sinon elles sont décodées et envoyées toutes ensemble dans la première image ; et on
+// les décode hors du fil principal (img.decode), pour que chaque tranche ne fasse plus que l'envoi. 3 s d'attente au plus.
+async function texturesPretes(scene) {
+  const borne = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(r, ms))]);
+  try { await borne(Promise.all([window.WKSurfaces, window.WKNature].filter((m) => m && m.ready).map((m) => m.ready())), 3000); } catch (e) { /* rien */ }
+  const imgs = [...texturesScene(scene)].map((t) => t.image).filter((im) => im && typeof HTMLImageElement !== 'undefined' && im instanceof HTMLImageElement && im.decode);
+  try { await borne(Promise.all(imgs.map((im) => im.decode().catch(() => {}))), 3000); } catch (e) { /* rien */ } }
+// Téléversement des textures une par une (une tranche chacune) ; les textures déjà envoyées ne coûtent rien.
+function* televerser(scene) { for (const t of texturesScene(scene)) { renderer.initTexture(t); yield; } }
 function attractAsync(ti) {
   if (ATTRACT_P && ATTRACT_TI === ti) return ATTRACT_P; // déjà en cours pour ce circuit
   const id = ++ATTRACT_ID; ATTRACT_TI = ti;
@@ -4063,8 +4093,16 @@ function buildBranches(W) {
     // la rampe d'envol garde son profil (sinon son vibreur traversait la route : Glissade).
     if (!B.offroad) { const needR = W.hw + B.hw + 1, orig = Float32Array.from(B.py), envol = B.glideA != null; mi = i0; let jR = 0; while (jR < M - 1 && sep(jR) < needR) jR++; mi = i1; let jS = M - 1; while (jS > jR + 20 && sep(jS) < needR) jS--;
       const plat = (from, to, dir, g0) => { let g = g0, y = 0; for (let j = from; dir > 0 ? j <= to : j >= to; j += dir) { g = mainY(j, g); y = S.py[g]; if (Math.abs(B.py[j] - y) > .02) fixe = true; B.py[j] = y; } return y; };
-      if (!envol && jR > 0 && jR < jS) { const yA = plat(0, jR, 1, i0); for (let j = jR + 1; j <= Math.min(jS - 1, jR + 10); j++) B.py[j] = yA + (orig[j] - yA) * smoothstep(jR, jR + 10, j); }
-      if (!envol && jS < M - 1 && jS > jR) { const yB = plat(M - 1, jS, -1, i1); for (let j = jS - 1; j >= Math.max(jR + 1, jS - 10); j--) B.py[j] = yB + (B.py[j] - yB) * smoothstep(jS, jS - 10, j); }
+      // Longueur du raccord adaptée au dénivelé : pente ≤ 15 % (ou la pente propre de la branche si elle est plus forte). Avec 10 échantillons
+      // fixes, la CORNICHE DES EMBRUNS de Cascades rattrapait 15 m en 20 m (88 %) : tremplin involontaire juste avant son bord ouvert,
+      // bots qui décollaient et tombaient (régression signalée par Claude 2).
+      const raccord = (y0, prof, j0, dir) => { const lim = Math.max(10, Math.floor((jS - jR) / 2)); let best = 10;
+        for (let L = 10; L <= lim; L += 2) { let mx = 0, own = 0; const at = (q) => { const j = j0 + dir * q; return y0 + (prof[j] - y0) * smoothstep(0, L, q); };
+          for (let q = 1; q <= L; q++) { mx = Math.max(mx, Math.abs(at(q) - at(q - 1)) / B.seg); own = Math.max(own, Math.abs(prof[j0 + dir * q] - prof[j0 + dir * (q - 1)]) / B.seg); }
+          best = L; if (mx <= Math.max(.15, own * 1.05)) break; }
+        return best; };
+      if (!envol && jR > 0 && jR < jS) { const yA = plat(0, jR, 1, i0), L = raccord(yA, orig, jR, 1); for (let j = jR + 1; j <= Math.min(jS - 1, jR + L); j++) B.py[j] = yA + (orig[j] - yA) * smoothstep(jR, jR + L, j); B.raccordA = L; }
+      if (!envol && jS < M - 1 && jS > jR) { const yB = plat(M - 1, jS, -1, i1), prof = Float32Array.from(B.py), L = raccord(yB, prof, jS, -1); for (let j = jS - 1; j >= Math.max(jR + 1, jS - L); j--) B.py[j] = yB + (prof[j] - yB) * smoothstep(jS, jS - L, j); B.raccordB = L; }
       // Bouche : la chaussée de la branche (rendu ET physique) épouse la vraie surface de la route principale tant qu'elle la recouvre,
       // puis rejoint son propre profil sur 8 m. Mise à plat seule (hauteur de l'axe) : la route principale montant dans son sens, l'écart
       // en travers de la branche atteignait 0,36 m (ARÊTE de la Glissade : route principale au-dessus de la branche d'un côté, branche
@@ -4607,6 +4645,8 @@ function kartPhysics(k, inp, dt) { if (k.spect) return;
   } else k.h -= steerEff * k.turn * (EV ? EV.turn : 1) * (k.drift ? 1.32 : 1) * ts * dt * airF * (k.speed < 0 ? -1 : 1);
   const ice = (W.def.grip || 1) * (EV ? EV.grip : 1) * (W.wx ? W.wx.grip : 1); const grip = k.air ? 3 : (k.drift ? 5.6 : (k.off ? 6.5 : 11)) * (k.off ? 1 : ice);
   k.vh += angDiff(k.vh, k.h) * (1 - Math.exp(-grip * dt));
+  // Montée frontale (expérimental) : gravité le long de la pente affichée, moins la part déjà portée par la pente physique de la rampe.
+  if (S.montee && P0 === S && S.montee[j0] && !k.air) k.speed = Math.max(k.maxSpeed * .2, k.speed - 9.8 * Math.max(0, S.montee[j0] - (S.slope[j0] || 0)) * dt);
   const ws = S.wscale && P0 === S ? S.wscale[j0] : 1; // zones anti-gravité : la piste dépliée est plus courte
   // Seule la composante longitudinale (le long de la tangente f) est mise à l'échelle : le rendu applique la largeur sans
   // déformation (wo + wr·lat), donc le déplacement latéral reste à 100 % et le pilote garde tout son contrôle dans les loopings.
@@ -4712,6 +4752,7 @@ function airPhysics(k, P, overGap, inp, pressed, dt) {
   if (k.trickOK && !k.trick && wantTrick && k.airT < 1.2) { k.trick = true; k.trickT = .45; k.trickDir = Math.random() < .5 ? -1 : 1; k.aiTrickAt = null; if (k.isPlayer) { AudioSys.tone(660, .12, 'square', .08, 1.8); vibrate(15); } }
   let g;
   if (k.air === 'glide') g = overGap ? 9 : 30; else if (k.air === 'hop') g = overGap ? 7 : 22; else g = 24;
+  if (k.gfall) g = k.gcut > 0 ? -k.gfall : 36;   // coupure anti-gravité : le kart se décroche du plafond, puis l'adhérence le ramène
   k.vy -= g * dt * ((zoneEnv(k) || {}).grav || 1);
   const dive = k.air === 'glide' && overGap && k.isPlayer && !G.autopilot && inp && inp.drift && !(k.trickT > 0) && k.airT > .5;
   if (dive) { k.vy += (-9 - k.vy) * (1 - Math.exp(-dt * 3)); k.speed = Math.min(k.maxSpeed * 1.1, k.speed + 14 * dt); }   // piqué
@@ -4723,6 +4764,7 @@ function airPhysics(k, P, overGap, inp, pressed, dt) {
   }
   if (k.airH <= 0 && !overGap) {
     // atterrissage
+    k.gfall = 0;
     const hard = k.vy < -9; if (k.isPlayer) camKick = Math.min(.55, Math.max(.12, -k.vy * .025)); k.air = false; k.airH = 0; k.vy = 0; k.airT = 0; k.squash = hard ? .3 : .2; k.hop = .12;
     if (k.trick) { k.boost = Math.max(k.boost, .85); if (k.isPlayer) { AudioSys.sfx('mini'); banner('Figure réussie !', .9); } }
     k.trick = false; k.trickOK = false;
@@ -5847,7 +5889,8 @@ function buildBranchGeo2(W, B, mats) {
   for (const o of [-2.1, 2.1]) { const post = new T.Mesh(new T.CylinderGeometry(.1, .1, 4.2, 8), stdMat('#e9ecf4', .3, .7)); post.position.set(sx + S.fx[si] * 0 + Math.cos(S.hd[si]) * o, by + 1.6, sz - Math.sin(S.hd[si]) * o); scene.add(post); }
 }
 // plaques turbo, boîtes et dos d'âne : jamais dans une jonction
-function clearOfJunctions(W, t) { const S = W.S, N = S.N; let i = Math.floor(t * N); for (let k = 0; k < 80; k++) { const bad = W.branches.some((B) => inWin(i, [B.winA[0] - 10, B.winA[1] + 10]) || inWin(i, [B.winB[0] - 10, B.winB[1] + 10])); if (!bad) return i / N; i = (i + 3) % N; } return t; }
+// … ni dans une section déformée (±12) : une plaque posée à la position physique y flotterait loin de la route affichée (Gravité Zéro).
+function clearOfJunctions(W, t) { const S = W.S, N = S.N; let i = Math.floor(t * N); for (let k = 0; k < 80; k++) { const bad = W.branches.some((B) => inWin(i, [B.winA[0] - 10, B.winA[1] + 10]) || inWin(i, [B.winB[0] - 10, B.winB[1] + 10])) || !!(S.wz && [-12, -6, 0, 6, 12].some((o) => S.wz[((i + o) % N + N) % N])); if (!bad) return i / N; i = (i + 3) % N; } return t; }
 
 /* ================= v11 : moteur étendu ================= */
 // ---------- anti-gravité : la piste se tord (inclinaisons, murs, loopings) ----------
@@ -5927,9 +5970,26 @@ function buildWarp(S, def, hw) {
         wo[i * 3] += F0[0] * df + R0[0] * dl; wo[i * 3 + 1] += dy; wo[i * 3 + 2] += F0[2] * df + R0[1] * dl; S.wz[i] = 1; S.ag[i] = 1; }
     } else if (z.type === 'spiral') {
       // tire-bouchon : la route fait un tour complet sur elle-même (on roule la tête en bas au milieu)
-      const turns = z.turns || 1, sd = z.side || 1, R0 = hw * .6 + 3;
+      const turns = z.turns || 1, sd = z.side || 1, R0 = z.rayon != null ? Math.max(hw * .4, z.rayon) : hw * .6 + 3; // z.rayon : rayon de rotation réglable (concepteur ; défaut inchangé)
       for (let q = 0; q <= n; q++) { const i = (i0 + q) % N, u = q / n, e = smoothstep(0, 1, u), a = TAU * turns * e * sd;
         roll[i] = a; wo[i * 3 + 1] += levage(a, u, R0, hw) + (z.rise || 0) * Math.sin(Math.PI * u); S.wz[i] = 1; S.ag[i] = 1; }
+    } else if (z.type === 'montee') {
+      // EXPÉRIMENTAL (laboratoire uniquement, non disponible pour le concepteur) : montée frontale sur un mur. La route affichée part à
+      // plat, se courbe (rayon z.rayon) jusqu'à z.angle (≤ 88°), monte le mur, se recourbe et finit sur une plate-forme qui rejoint la
+      // route physique à la fin de la zone. La route physique doit être droite et monter du même dénivelé H en rampe douce (données) :
+      // aucun décalage latéral (pas de « traction »), mais la pente physique (H / longueur) n'est pas celle du mur affiché.
+      const ang = clamp(z.angle || 80, 30, 88) * DEG, H = S.py[i1 % N] - S.py[i0 % N], F0 = [S.fx[i0 % N], S.fz[i0 % N]], P0 = [S.px[i0 % N], S.py[i0 % N], S.pz[i0 % N]], Lh = (S.px[i1 % N] - P0[0]) * F0[0] + (S.pz[i1 % N] - P0[2]) * F0[1]; // distance horizontale réelle
+      let r = Math.max(6, z.rayon || 20); if (2 * r * (1 - Math.cos(ang)) > H * .9) r = H * .9 / (2 * (1 - Math.cos(ang)));
+      const Lw = Math.max(0, (H - 2 * r * (1 - Math.cos(ang))) / Math.sin(ang)), sx = 2 * r * Math.sin(ang) + Lw * Math.cos(ang), libre = Math.max(0, Lh - sx), a0 = libre * clamp(z.place != null ? z.place : .35, 0, 1), a1 = libre - a0;
+      const segs = [[a0, 0, 0], [r * ang, 1 / r, 0], [Lw, 0, ang], [r * ang, -1 / r, ang], [a1, 0, 0]], Ld = segs.reduce((t, g) => t + g[0], 0);
+      // point affiché à l'abscisse curviligne σ (intégration par pas de 0,25 m)
+      const pts = []; { let x = 0, y = 0, phi = 0; const st = .25; pts.push([0, 0]); for (const [len, k, phi0] of segs) { if (k === 0) phi = phi0; for (let d = 0; d < len - 1e-9; d += st) { const h = Math.min(st, len - d); phi += k * h / 2; x += Math.cos(phi) * h; y += Math.sin(phi) * h; phi += k * h / 2; pts.push([x, y]); } } }
+      const at = (sig) => { const f = clamp(sig / Ld, 0, 1) * (pts.length - 1), q0 = Math.floor(f), t = f - q0, a = pts[q0], b = pts[Math.min(pts.length - 1, q0 + 1)]; return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; };
+      const fin = at(Ld), ex = Lh / (fin[0] || 1), ey = H / (fin[1] || 1); // recalage exact de l'arrivée sur la route physique
+      for (let q = 0; q <= n; q++) { const i = (i0 + q) % N, [sd, yd] = at(Ld * q / n); wo[i * 3] = P0[0] + F0[0] * sd * ex; wo[i * 3 + 1] = P0[1] + yd * ey; wo[i * 3 + 2] = P0[2] + F0[1] * sd * ex; S.wz[i] = 1; S.ag[i] = 1; }
+      // Pente affichée par échantillon (sinus) : la physique en tient compte (gravité), sinon le kart grimpait le mur sans rien perdre.
+      S.montee = S.montee || new Float32Array(N); for (let q = 1; q < n; q++) { const i = (i0 + q) % N, a = (i0 + q - 1) % N, b = (i0 + q + 1) % N, dy = wo[b * 3 + 1] - wo[a * 3 + 1], dh = Math.hypot(wo[b * 3] - wo[a * 3], wo[b * 3 + 2] - wo[a * 3 + 2]); S.montee[i] = dy / (Math.hypot(dy, dh) || 1); }
+      z.reglage = { experimental: true, angle: +(ang / DEG).toFixed(0), rayon: +r.toFixed(1), mur: +Lw.toFixed(1), denivele: +H.toFixed(1), pentePhysique: +(H / Lh * 100).toFixed(1), longueurAffichee: +Ld.toFixed(0), longueurPhysique: +Lh.toFixed(0) };
     } else if (z.type === 'plafond') {
       // Route à l'envers (anti-gravité) : demi-tour sur son axe pendant la première part « twist » de la zone, longue portion au
       // plafond (≈ 2·R0 au-dessus du sol), puis retour à l'endroit. Retournements à pente nulle (smoothstep) : le kart et la caméra
@@ -5957,6 +6017,11 @@ function buildWarp(S, def, hw) {
   // lissage léger de l'échelle de vitesse
   const sc = S.wscale.slice(); for (let i = 0; i < N; i++) { let a = 0; for (let o = -3; o <= 3; o++) a += sc[((i + o) % N + N) % N]; S.wscale[i] = a / 7; }
   Object.assign(S, { wo, wr, wu, wf });
+  // Surfaces où agit la « Coupure anti-gravité » (#28) : plafond (2), paroi inclinée de 55° ou plus (1), montée frontale (3).
+  // Jamais les loopings ni les vrilles : Grand Plongeon, Flipper et les loopings restent hors de portée de l'objet.
+  S.gsurf = new Uint8Array(N); S.gsurfN = 0;
+  for (const z of def.warp) { if (z.type === 'loop' || z.type === 'spiral') continue;
+    for (let i = z.i0; i <= z.i1; i++) { const j = ((i % N) + N) % N, uy = wu[j * 3 + 1]; if (!S.wz[j] || uy > .574) continue; S.gsurf[j] = uy < -.2 ? 2 : z.type === 'montee' ? 3 : 1; S.gsurfN++; } }
 }
 const _wv = new T.Vector3(), _wm = new T.Matrix4(), _wq = new T.Quaternion(), _we = new T.Euler(), _wx = new T.Vector3(), _wy = new T.Vector3(), _wzv = new T.Vector3();
 // Point déformé entre deux échantillons (Catmull-Rom uniforme sur i-1, i, i+1, i+2) : rendu lisse des loopings et vrilles.
@@ -5989,12 +6054,15 @@ function clearWarpCorridor(W) {
   if (!pts.length) return 0; const reach = W.wallD + 3, boxes = new Set(W.boxes.map((b) => b.mesh)), m = new T.Matrix4(), v = new T.Vector3(), zero = new T.Matrix4().makeScale(0, 0, 0);
   const inside = (p) => { for (let k = 0; k < pts.length; k += 3) { const dy = p.y - pts[k + 1]; if (dy < -3 || dy > 14) continue; if ((p.x - pts[k]) ** 2 + (p.z - pts[k + 2]) ** 2 < reach * reach) return true; } return false; };
   let hidden = 0; W.scene.updateMatrixWorld(true);
+  const dansBoite = (o) => { for (let p = o; p; p = p.parent) if (boxes.has(p)) return true; return false; };
   W.scene.traverse((o) => {
+    // Boîtes à objets (coque et badge « ? ») : jamais masquées. Le badge est un sprite : sans ce test, il disparaissait près
+    // des loopings, vrilles et plafonds alors que la coque restait (signalement Samsung, ticket #27).
+    if ((o.isSprite || o.isMesh) && dansBoite(o)) return;
     // Halos et lueurs : sprites isolés et nuages de points.
     if (o.isSprite && o.visible) { v.setFromMatrixPosition(o.matrixWorld); if (inside(v)) { o.visible = false; hidden++; } return; }
     if (o.isPoints && o.parent !== W.sky) { const p = o.geometry.attributes.position; let changed = false; for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i).applyMatrix4(o.matrixWorld); if (inside(v)) { p.setY(i, -9999); changed = true; hidden++; } } if (changed) p.needsUpdate = true; return; }
     if (!o.isMesh || !o.visible || (W.roles && W.roles.has(o.material)) || o === W.terrain || o === W.sky) return;
-    let p = o; while (p) { if (boxes.has(p)) return; p = p.parent; }
     if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere(); if (o.geometry.boundingSphere.radius > 30) return;
     if (o.isInstancedMesh) { let changed = false; for (let i = 0; i < o.count; i++) { o.getMatrixAt(i, m); v.setFromMatrixPosition(m.premultiply(o.matrixWorld)); if (inside(v)) { o.setMatrixAt(i, zero); changed = true; hidden++; } } if (changed) o.instanceMatrix.needsUpdate = true; }
     else { v.setFromMatrixPosition(o.matrixWorld); if (inside(v)) { o.visible = false; hidden++; } }
@@ -6005,6 +6073,17 @@ function warpNoDecor(W) { const S = W.S; if (!S.wz) return; for (let i = 0; i < 
 // Cage des sections « plafond » : anneaux lumineux autour de l'axe du retournement, reliés par six longerons. Dans un décor sans
 // sol (espace), elle rend lisible le passage à l'envers : la structure défile au-dessus de la tête puis sous les roues. Un anneau
 // trop proche d'une autre route (hors zone et raccords) n'est pas posé. Décor seul : aucune collision.
+// Piliers sous les sections déformées surélevées (vrilles, plafonds, parois, loopings) des cartes à relief : un pilier tous les 8
+// échantillons sous le point le plus bas de la coupe de la chaussée (coque comprise, 1,7 m), seulement à plus de 3 m du sol, et jamais
+// à travers une autre route (fût et coupe contrôlés). Retour Samsung du 2 novembre : routes à 90° qui semblaient plonger dans le sol.
+function buildWarpSupports(W) {
+  const S = W.S, N = S.N; if (!S.wz || !W.hAt || W.def.production || W.th.floating || W.th.noGround) return; const hw = W.hw, mats = [], roads = [S, ...W.branches];
+  const libre = (x, z, y0, y1) => roads.every((P) => { for (let j = 0; j < P.N; j += 2) { const wz = P === S && S.wz[j]; const px = wz ? S.wo[j * 3] : P.px[j], pz = wz ? S.wo[j * 3 + 2] : P.pz[j], py = wz ? S.wo[j * 3 + 1] : P.py[j]; if ((px - x) ** 2 + (pz - z) ** 2 < ((P.hw || hw) + 3) ** 2 && py > y0 - 1 && py < y1 + 3) return false; } return true; });
+  for (let i = 0; i < N; i += 8) { if (!S.wz[i]) continue; const k = i * 3; let lo = null;
+    for (const l of [-hw, -hw / 2, 0, hw / 2, hw]) { const x = S.wo[k] + S.wr[k] * l - S.wu[k] * 1.7, y = S.wo[k + 1] + S.wr[k + 1] * l - S.wu[k + 1] * 1.7, z = S.wo[k + 2] + S.wr[k + 2] * l - S.wu[k + 2] * 1.7; if (!lo || y < lo[1]) lo = [x, y, z]; }
+    const g = W.hAt(lo[0], lo[2]); if (lo[1] - g < 3 || !libre(lo[0], lo[2], g, lo[1] - 2.5)) continue; mats.push(new T.Matrix4().compose(new T.Vector3(lo[0], (g + lo[1]) / 2 - .5, lo[2]), new T.Quaternion(), new T.Vector3(1, lo[1] - g + 1, 1))); }
+  if (!mats.length) return; const geo = new T.CylinderGeometry(.75, 1.05, 1, 10), m = new T.InstancedMesh(geo, W.hullMat || stdMat('#8a8f9c', .7, .2), mats.length); mats.forEach((x, q) => m.setMatrixAt(q, x)); m.computeBoundingSphere(); m.name = 'Piliers des sections déformées'; W.scene.add(m); W.warpSupports = mats.length;
+}
 function buildPlafondCage(W) {
   const S = W.S, N = S.N; if (!S.wz) return; const zs = (W.def.warp || []).filter((z) => z.type === 'plafond' && z.i0 != null); if (!zs.length) return;
   const R0 = W.hw * .6 + 3, Rr = Math.hypot(R0, W.hw) + 2.4, step = 6, rings = [], q = new T.Quaternion(), e = new T.Euler(), m = new T.Matrix4(), one = new T.Vector3(1, 1, 1), up = new T.Vector3(0, 1, 0), d = new T.Vector3(), p = new T.Vector3();
@@ -6352,15 +6431,29 @@ function warpKartPose(k, M) {
 }
 function warpDir(k, outF, outU) { const S = G.W.S, [lo, tt] = warpParam(k), d = angDiff(warpHd(k), k.vh);
   warpVecCurve(S, S.wu, lo, tt, outU); warpVecCurve(S, S.wf, lo, tt, outF).multiplyScalar(Math.cos(d)).addScaledVector(warpVecCurve(S, S.wr, lo, tt, _wx), -Math.sin(d)).normalize(); }
+let camCorr = 0; // correction de hauteur de la caméra dans les sections déformées (lissée)
 function warpCamera(k, dt, portrait) {
-  if (!inWarp(k)) { _camUp.lerp(_wu2.set(0, 1, 0), 1 - Math.exp(-dt * 4)); camera.up.copy(_camUp); return false; }
+  if (!inWarp(k)) { camCorr = 0; _camUp.lerp(_wu2.set(0, 1, 0), 1 - Math.exp(-dt * 4)); camera.up.copy(_camUp); return false; }
   warpAtK(k, k.lat, Math.max(0, k.y - k.groundY) + 1.4, _wp); warpDir(k, _wf2, _wu2);
-  const dist = portrait ? 10.5 : 8.8, hgt = portrait ? 3.6 : 2.8;
+  // Mêmes recul et hauteur que la caméra ordinaire (8,6 m ; 1,4 + 2,1 = 3,5 m au-dessus de la route) : avant, 8,8 m et 4,2 m, la cible
+  // sautait de 0,7 m en entrant dans la section (à-coup mesuré à l'entrée des loopings à cadence irrégulière).
+  const dist = portrait ? 10.5 : 8.6, hgt = portrait ? 3.0 : 2.1;
   tmpV.copy(_wp).addScaledVector(_wf2, -dist).addScaledVector(_wu2, hgt);
+  // Section déformée : caméra au moins 0,6 m au-dessus de la chaussée affichée située dist mètres derrière (sortie du plafond de Gravité
+  // Zéro : la route qui redescend derrière le kart passait au-dessus de la caméra).
+  // Point « derrière » interpolé de façon continue (sinon saut d'un échantillon à l'autre : caméra saccadée, banc rendu-loopings).
+  { const S = G.W.S, [lo, tt] = warpParam(k), w = (q) => S.closed === false ? clamp(q, 0, S.N - 1) : ((q % S.N) + S.N) % S.N, len = (a, b) => Math.hypot(S.wo[b * 3] - S.wo[a * 3], S.wo[b * 3 + 1] - S.wo[a * 3 + 1], S.wo[b * 3 + 2] - S.wo[a * 3 + 2]);
+    let b = lo, L = -tt * len(lo, w(lo + 1)), a = b, fr = 0; for (let q = 0; q < 60; q++) { a = w(b - 1); const sl = len(a, b) || 1e-6; if (L + sl >= dist) { fr = (dist - L) / sl; break; } L += sl; b = a; fr = 0; }
+    const R = [0, 1, 2].map((c) => S.wo[b * 3 + c] + (S.wo[a * 3 + c] - S.wo[b * 3 + c]) * fr), U = [0, 1, 2].map((c) => S.wu[b * 3 + c] + (S.wu[a * 3 + c] - S.wu[b * 3 + c]) * fr), ul = Math.hypot(...U) || 1;
+    const d = ((tmpV.x - R[0]) * U[0] + (tmpV.y - R[1]) * U[1] + (tmpV.z - R[2]) * U[2]) / ul; camCorr += (Math.max(0, .6 - d) - camCorr) * (1 - Math.exp(-dt * 6)); if (camCorr > 1e-3) tmpV.addScaledVector(_wv.set(U[0] / ul, U[1] / ul, U[2] / ul), camCorr); } // correction lissée dans le temps // 0,6 m : dans un looping la route derrière est naturellement ≈ 1 m sous la caméra ; à 1,8 m la règle agissait sans cesse (caméra saccadée)
   // Caméra quasi solidaire de la piste (28 s⁻¹, comme l'anti-gravité de MK8) : à 10/6 s⁻¹, elle traînait de ~20° derrière la
   // rotation du looping et l'image restait penchée de ~40° au sommet (désorientant, impression de perdre le contrôle).
-  if (camSnap) camera.position.copy(tmpV); else camera.position.lerp(tmpV, 1 - Math.exp(-dt * 28));
-  _camUp.lerp(_wu2, 1 - Math.exp(-dt * 28)).normalize(); camera.up.copy(_camUp);
+  // Lissage de 9 s⁻¹ (caméra ordinaire) à 28 s⁻¹ sur les 10 premiers et derniers échantillons de la section : passer d'un coup de 9 à 28
+  // faisait rattraper ≈ 3 m de retard en quelques images (à-coup de 1,47 m relevé par Claude 2 à l'entrée du looping de Gravité Zéro).
+  const Sw = G.W.S, iw = clamp(k.idx, 0, Sw.N - 1); let bord = 0; while (bord < 10 && Sw.wz[(iw + bord + 1) % Sw.N] && Sw.wz[(iw - bord - 1 + Sw.N) % Sw.N]) bord++;
+  const kc = 9 + 19 * smoothstep(0, 10, bord);
+  if (camSnap) camera.position.copy(tmpV); else camera.position.lerp(tmpV, 1 - Math.exp(-dt * kc));
+  _camUp.lerp(_wu2, 1 - Math.exp(-dt * kc)).normalize(); camera.up.copy(_camUp);
   lookV.copy(_wp).addScaledVector(_wf2, 6); camera.lookAt(lookV); camH.v = k.vh; camSnap = false; return true;
 }
 // percuter un adversaire en anti-gravité : petit turbo pour les deux
@@ -6861,6 +6954,7 @@ function itemOdds13(k, place) {
   if (G.lastEclair != null && now - G.lastEclair < 25) w.eclair = 0;                                      // un éclair toutes les 25 s maximum
   if ((G.lastComete != null && now - G.lastComete < 30) || G.rockets.some((x) => x.kind === 'comete')) w.comete = 0;   // une comète à la fois, 30 s entre deux
   if (G.karts.some((o) => o.star > 0)) w.etoile *= .3;
+  if (!gravAvail()) w.gravite = 0;                                                                        // seulement sur les cartes à plafond / paroi compatibles
   if ((G.karts || []).length <= 2) { w.comete *= .3; w.eclair *= .5; }
   const hist = (k && k.lastItems) || []; hist.forEach((it, i) => { if (w[it] != null) w[it] *= [.1, .4, .7, .9][i] || 1; });   // presque jamais 2 fois de suite le même
   return w;
@@ -7146,13 +7240,26 @@ Object.assign(ICONS, {
   teleport: '<svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="18" fill="#a87dff" stroke="#17143a" stroke-width="3"/><path d="M14 20h16l-5-5M34 28H18l5 5" stroke="#fffdf7" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   sac: '<svg viewBox="0 0 48 48"><path d="M12 18h24l4 24H8z" fill="#ffc531" stroke="#17143a" stroke-width="3" stroke-linejoin="round"/><path d="M17 18c0-8 14-8 14 0" fill="none" stroke="#17143a" stroke-width="3"/><text x="24" y="37" font-size="15" font-weight="900" text-anchor="middle" fill="#17143a">×3</text><path d="M6 10l3 3M42 10l-3 3M24 4v4" stroke="#ff4f7a" stroke-width="3" stroke-linecap="round"/></svg>',
 });
-Object.assign(ITEM_FR, { verglas: 'Verglas', fumigene: 'Fumigène', trampoline: 'Trampoline', petard: 'Pétard', chewing: 'Chewing-gum', miroir: 'Miroir', parebuffle: 'Pare-buffle', bouquet: 'Bouquet final', meteores: 'Météores', teleport: 'Téléporteur', sac: 'Sac surprise' });
-Object.assign(RARITY, { verglas: 'c', fumigene: 'c', trampoline: 'c', petard: 'u', chewing: 'u', miroir: 'u', parebuffle: 'r', bouquet: 'r', meteores: 'r', sac: 'r', teleport: 'v' });
+Object.assign(ICONS, { gravite: '<svg viewBox="0 0 48 48"><rect x="4" y="3" width="40" height="7" rx="2" fill="#a87dff" stroke="#17143a" stroke-width="3"/><path d="M10 13l4 3M38 13l-4 3" stroke="#a87dff" stroke-width="3" stroke-linecap="round"/><rect x="12" y="15" width="24" height="9" rx="3" fill="#ff4f3a" stroke="#17143a" stroke-width="3"/><circle cx="17" cy="13" r="3" fill="#17143a"/><circle cx="31" cy="13" r="3" fill="#17143a"/><path d="M24 27v11" stroke="#17143a" stroke-width="9" stroke-linecap="round"/><path d="M15 34l9 10 9-10z" fill="#ffc531" stroke="#17143a" stroke-width="3" stroke-linejoin="round"/><path d="M24 27v9" stroke="#ffc531" stroke-width="4" stroke-linecap="round"/></svg>' });
+// Icônes refaites (#28) : silhouettes épaisses lisibles à 30 px sur mobile ; règles des objets inchangées.
+Object.assign(ICONS, {
+  rocket: '<svg viewBox="0 0 48 48"><path d="M14 19l-11 5 11 5z" fill="#ffc531" stroke="#17143a" stroke-width="2.5" stroke-linejoin="round"/><path d="M18 17l-5-9h8l7 9M18 31l-5 9h8l7-9" fill="#ffc531" stroke="#17143a" stroke-width="3" stroke-linejoin="round"/><path d="M13 16h20c6 0 10 4 12 8-2 4-6 8-12 8H13z" fill="#ff4f3a" stroke="#17143a" stroke-width="3" stroke-linejoin="round"/><circle cx="32" cy="24" r="3.5" fill="#bfefff" stroke="#17143a" stroke-width="2.5"/></svg>',
+  colle: '<svg viewBox="0 0 48 48"><ellipse cx="24" cy="41" rx="19" ry="5" fill="#ffd84a" stroke="#17143a" stroke-width="3"/><path d="M13 14h22v19a4 4 0 0 1-4 4H17a4 4 0 0 1-4-4z" fill="#fff3c4" stroke="#17143a" stroke-width="3"/><path d="M13 15h22v6c-3 0-3 7-6 7s-2-5-5-5-3 9-6 9-2-7-5-7z" fill="#ffd84a" stroke="#17143a" stroke-width="2.5" stroke-linejoin="round"/><rect x="10" y="7" width="28" height="8" rx="2" fill="#ff8a1e" stroke="#17143a" stroke-width="3"/></svg>',
+  aspirateur: '<svg viewBox="0 0 48 48"><rect x="3" y="24" width="17" height="17" rx="3" fill="#ffc531" stroke="#17143a" stroke-width="3"/><path d="M11.5 29.5c0-3 5-3 5 0 0 2-2.5 2-2.5 4M14 37v.5" stroke="#17143a" stroke-width="3" fill="none" stroke-linecap="round" transform="translate(-2 0)"/><path d="M33 32L44 8" stroke="#17143a" stroke-width="8" stroke-linecap="round"/><path d="M33 32L44 8" stroke="#a87dff" stroke-width="4" stroke-linecap="round"/><path d="M23 26l11 2-3 12-11-3z" fill="#a87dff" stroke="#17143a" stroke-width="3" stroke-linejoin="round"/><path d="M22 14l-4 4M28 12v5M15 14l1 4" stroke="#38b6ff" stroke-width="3" stroke-linecap="round"/></svg>',
+  grappin: '<svg viewBox="0 0 48 48"><path d="M5 43l21-21" stroke="#17143a" stroke-width="6" stroke-linecap="round"/><path d="M5 43l21-21" stroke="#c89a5a" stroke-width="3" stroke-linecap="round" stroke-dasharray="4 3"/><g fill="none" stroke-linecap="round"><path d="M24 24l14-14M38 10c-8-3-14 1-15 6M38 10c3 8-1 14-6 15M38 10l6-6" stroke="#17143a" stroke-width="8"/><path d="M24 24l14-14M38 10c-8-3-14 1-15 6M38 10c3 8-1 14-6 15M38 10l6-6" stroke="#c8ccd8" stroke-width="4"/></g></svg>',
+  tourbillon: '<svg viewBox="0 0 48 48"><g fill="#bfefff" stroke="#17143a" stroke-width="3"><ellipse cx="24" cy="10" rx="19" ry="6"/><ellipse cx="22" cy="21" rx="14" ry="4.5"/><ellipse cx="25" cy="30.5" rx="9" ry="3.5"/><ellipse cx="22" cy="38.5" rx="5" ry="2.5"/></g><path d="M22 41v5" stroke="#17143a" stroke-width="3" stroke-linecap="round"/><path d="M12 10h16" stroke="#38b6ff" stroke-width="3" stroke-linecap="round"/></svg>',
+  nitro: '<svg viewBox="0 0 48 48"><path d="M27 18c7 1 10-3 18-1-4 3-3 5 0 7-4 0-4 4 0 7-8 2-11-2-18-1z" fill="#ffc531" stroke="#17143a" stroke-width="2.5" stroke-linejoin="round"/><path d="M27 21c5 1 7-1 11 0-2 2-2 4 0 6-4 1-6-1-11 0z" fill="#ff4f3a"/><rect x="5" y="12" width="20" height="32" rx="6" fill="#38b6ff" stroke="#17143a" stroke-width="3"/><rect x="10" y="5" width="10" height="8" rx="2" fill="#c8ccd8" stroke="#17143a" stroke-width="3"/><path d="M17 19l-5 9h6l-4 9" stroke="#fffdf7" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  miroir: '<svg viewBox="0 0 48 48"><ellipse cx="13" cy="20" rx="9" ry="15" fill="#e9f6ff" stroke="#17143a" stroke-width="3"/><path d="M10 11l4-3M9 18l7-6" stroke="#38b6ff" stroke-width="3" stroke-linecap="round"/><path d="M13 35v9" stroke="#17143a" stroke-width="4" stroke-linecap="round"/><path d="M44 10L24 20l18 12" fill="none" stroke="#17143a" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><path d="M44 10L24 20l18 12" fill="none" stroke="#ff4f3a" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M42 26l1 7-7-1z" fill="#ff4f3a" stroke="#17143a" stroke-width="2" stroke-linejoin="round"/></svg>',
+  parebuffle: '<svg viewBox="0 0 48 48"><path d="M3 20l5 3M45 20l-5 3M24 2v6M14 5l3 5M34 5l-3 5" stroke="#ff8a1e" stroke-width="3.5" stroke-linecap="round"/><rect x="10" y="12" width="28" height="17" rx="5" fill="#ff4f3a" stroke="#17143a" stroke-width="3"/><rect x="16" y="15" width="16" height="6" rx="2" fill="#bfefff" stroke="#17143a" stroke-width="2"/><circle cx="13" cy="41" r="4.5" fill="#2b2b3a"/><circle cx="35" cy="41" r="4.5" fill="#2b2b3a"/><rect x="3" y="27" width="42" height="10" rx="3" fill="#c8ccd8" stroke="#17143a" stroke-width="3"/><path d="M13 27v10M24 27v10M35 27v10" stroke="#17143a" stroke-width="2.5"/></svg>',
+  bouquet: '<svg viewBox="0 0 48 48"><path d="M24 44V18M14 44l-5-22M34 44l5-22" stroke="#ff8a1e" stroke-width="3" stroke-dasharray="3 3" stroke-linecap="round"/><g stroke="#17143a" stroke-width="2.5" stroke-linejoin="round"><path d="M24 3l6 13h-12z" fill="#ffc531"/><path d="M6 8l9 13-8 2z" fill="#ff4f7a"/><path d="M42 8l-9 13 8 2z" fill="#38b6ff"/></g><path d="M18 2l-2-1M30 2l2-1M3 4l-1-2M45 4l1-2" stroke="#ffc531" stroke-width="2.5" stroke-linecap="round"/></svg>',
+});
+Object.assign(ITEM_FR, { verglas: 'Verglas', fumigene: 'Fumigène', trampoline: 'Trampoline', petard: 'Pétard', chewing: 'Chewing-gum', miroir: 'Miroir', gravite: 'Coupure anti-gravité', parebuffle: 'Pare-buffle', bouquet: 'Bouquet final', meteores: 'Météores', teleport: 'Téléporteur', sac: 'Sac surprise' });
+Object.assign(RARITY, { verglas: 'c', fumigene: 'c', trampoline: 'c', petard: 'u', chewing: 'u', miroir: 'u', gravite: 'r', parebuffle: 'r', bouquet: 'r', meteores: 'r', sac: 'r', teleport: 'v' });
 ITEM_KEYS.length = 0; ITEM_KEYS.push(...Object.keys(RARITY));
-Object.assign(ODDS13, { verglas: [7, 3, .5], fumigene: [5, 3, 1], trampoline: [5, 2.5, .5], petard: [3, 4.5, 3], chewing: [3, 4, 3], miroir: [4, 2.5, 1],
+Object.assign(ODDS13, { verglas: [7, 3, .5], fumigene: [5, 3, 1], trampoline: [5, 2.5, .5], petard: [3, 4.5, 3], chewing: [3, 4, 3], miroir: [4, 2.5, 1], gravite: [.5, 2.5, 3],
   parebuffle: [0, 2, 3], bouquet: [0, 1.5, 3], meteores: [0, 1, 2.5], sac: [0, 1.6, 3], teleport: [0, 0, 2] });
 Object.assign(ITEM_DESC, { verglas: 'Verglas : plaque de glace derrière toi, on y perd le volant', fumigene: 'Fumigène : nuage derrière toi, on n\'y voit plus rien', trampoline: 'Trampoline : posé derrière, il fait rebondir et ralentit',
-  petard: 'Pétard : lancé en cloche devant, il explose au sol', chewing: 'Chewing-gum : tiré tout droit, il colle le kart touché', miroir: 'Miroir : renvoie le prochain tir à son lanceur (même la comète !)',
+  petard: 'Pétard : lancé en cloche devant, il explose au sol', chewing: 'Chewing-gum : tiré tout droit, il colle le kart touché', miroir: 'Miroir : renvoie le prochain tir à son lanceur (même la comète et la coupure anti-gravité !)', gravite: 'Coupure anti-gravité : ceux sur une paroi ou au plafond décrochent un instant',
   parebuffle: 'Pare-buffle : 6 s, tout kart que tu touches part en toupie', bouquet: 'Bouquet final : 3 fusées sur les 3 karts devant toi', meteores: 'Météores : pluie de rochers sur ceux de devant',
   teleport: 'Téléporteur : tu échanges ta place avec le kart devant toi', sac: 'Sac surprise : 3 objets d\'un coup !' });
 const HZ13 = new Set(['verglas', 'trampoline', 'fumee']);
@@ -7168,6 +7275,7 @@ function useItem13x(k, it, online) {
   if (it === 'petard' || it === 'chewing') { const rear = throwBack(k); let sp = rear ? (it === 'petard' ? 26 : 55) : it === 'petard' ? Math.max(58, k.speed + 22) : Math.max(84, k.speed + 32); const A = rear ? { h: k.h + Math.PI, tg: null } : it === 'petard' ? aim13(k, 50, 90, .85) : aim13(k, sp), h = A.h, x = k.x + Math.sin(h) * 2.6, z = k.z + Math.cos(h) * 2.6, id = online ? netNewId() : null;
     if (it === 'petard' && A.tg) sp = clamp((A.d - 2.6) / .85, 20, 90);   // vol de 0,85 s : il retombe sur la cible
     spawnRocket(x, z, k.y, h, sp, k, null, id, it); if (A.tg) G.rockets[G.rockets.length - 1].aimTg = A.tg; if (id) netEmit({ e: 'rocket', kind: it, id, x: r2(x), z: r2(z), y: r2(k.y), h: r3(h), sp: r2(sp), o: k.netId, tg: null }); if (k.isPlayer) AudioSys.sfx('rocket'); return true; }
+  if (it === 'gravite') { gravPulse(k, online); return true; }
   if (it === 'miroir') { k.mirror = 8; if (k.isPlayer) { AudioSys.sfx('shield'); banner('Miroir : le prochain tir repart à l\'envoyeur', 1.6); } return true; }
   if (it === 'parebuffle') { k.ram = 6; if (k.isPlayer) { AudioSys.sfx('boost'); banner('Pare-buffle !', 1); vibrate(40); } return true; }
   if (it === 'bouquet' || it === 'meteores') { const seg = G.W.S.seg, list = G.karts.filter((o) => o !== k && !o.finished && !o.spect && (o.prog - k.prog) * seg > 0 && (o.prog - k.prog) * seg < 260).sort((a, b) => a.prog - b.prog).slice(0, 3);
@@ -7203,6 +7311,7 @@ function itemStatus13x(k, inp, dt) {
   if (k.gum > 0) { k.gum -= dt; const cap = k.maxSpeed * .45; if (k.speed > cap) k.speed = lerp(k.speed, cap, 1 - Math.exp(-dt * 6)); inp.steer *= .55; inp.drift = false; }
   if (k.ram > 0) { k.ram -= dt; if (G.W.parts && Math.random() < .6) G.W.parts.emit(k.x + Math.sin(k.h) * 2, k.y + .7, k.z + Math.cos(k.h) * 2, rand(-2, 2), rand(0, 2), rand(-2, 2), pick(['#ff8a1e', '#ffc531']), .3, 0); }
   if (k.mirror > 0) k.mirror -= dt;
+  if (k.gcut > 0 || k.gvl) gravStep(k, inp, dt);
   if (k.smokeT > 0) k.smokeT -= dt;
   if (k.isPlayer) { const el = smoke13(); const o = k.smokeT > 0 ? Math.min(1, k.smokeT * 2) * .85 : 0; if (Math.abs((+el.style.opacity || 0) - o) > .02) el.style.opacity = o.toFixed(2); }
   if (!k.item && !(k.roll > 0) && k.bag && k.bag.length) { k.bagT = (k.bagT || 0) + dt; if (k.bagT > .4) { k.item = k.bag.shift(); k.uses = k.item === 'triple' ? 3 : 0; k.bagT = 0; if (k.isPlayer) AudioSys.sfx('got'); } }
@@ -7214,6 +7323,7 @@ function aiUse13x(k, ahead, behind, ai) {
     case 'petard': { const a = ahead(35), b = !a && behind(20); k.aiBack = b; return a || b || ai.itemT < -5; }
     case 'chewing': { const a = ahead(40), b = !a && behind(20); k.aiBack = b; return a || b || ai.itemT < -5; }
     case 'miroir': return G.rockets.some((r) => r.target === k) || ai.itemT < -2;
+    case 'gravite': return G.karts.some((o) => o !== k && !o.finished && !o.spect && gravExposed(o)) || ai.itemT < -14;
     case 'parebuffle': return G.karts.some((o) => o !== k && !o.finished && (o.x - k.x) ** 2 + (o.z - k.z) ** 2 < 400) || ai.itemT < -3;
     case 'bouquet': case 'meteores': return ahead(150) || ai.itemT < -2;
     case 'teleport': return ahead(55) || ai.itemT < -8;
@@ -7225,7 +7335,62 @@ function mirror13(r, k, quiet) { const was = r.owner; r.owner = k; r.target = wa
   if (!quiet && r.id && G.race && G.race.online) netEmit({ e: 'reflect', id: r.id, by: k.netId });
   if (G.W.parts) for (let i = 0; i < 20; i++) G.W.parts.emit(r.x, r.y + 1, r.z, rand(-5, 5), rand(1, 6), rand(-5, 5), pick(['#e9f6ff', '#bfefff', '#fffdf7']), .5, 0);
   if (k.isPlayer) { AudioSys.sfx('shield'); banner('Renvoyé à l\'envoyeur !', 1.3); } if (r.target && r.target.isPlayer) banner('Ton tir revient vers toi !', 1.4, true); return true; }
+/* ---------- Coupure anti-gravité (#28) ----------
+   Onde lancée sur tous les autres concurrents. N'agit que sur un kart posé sur une surface compatible (S.gsurf : plafond, paroi ≥ 55°,
+   montée frontale) ; ailleurs : aucun effet et aucune protection consommée. Pendant GCUT_T secondes, l'adhérence anti-gravité est
+   coupée : la vraie gravité (projetée dans le repère de la chaussée affichée) fait décrocher le kart d'un plafond (vol libre loin de la
+   chaussée), glisser vers le bas d'une paroi ou reculer sur une montée ; puis l'adhérence revient (rappel 36 m/s², glissade amortie).
+   Priorité : étoile/fantôme (immunisé) > miroir (annule, renvoie UNE fois au lanceur, se consomme) > bouclier (annule, se consomme).
+   Renvoi : une seule fois par impulsion (identifiant), jamais d'onde globale ; le lanceur subit l'effet seulement s'il est lui-même
+   sur une surface compatible (sinon le renvoi s'éteint) ; son propre miroir annule sans renvoyer, son bouclier annule.
+   En ligne : chaque client applique l'onde à SES karts (joueur, bots de l'hôte) ; le renvoi est appliqué par le client du lanceur,
+   une seule fois par identifiant même si plusieurs miroirs l'ont renvoyé. */
+const GCUT_T = .45, GCUT_A = 20;
+function gravAvail() { const S = G.W && G.W.S; return !!(S && S.gsurfN > 0); }
+function gravSurf(k) { const S = G.W && G.W.S; if (!S || !S.gsurf || (k.P && k.P !== S)) return 0; return S.gsurf[clamp(k.idx | 0, 0, S.N - 1)]; }
+function gravExposed(k) { return !k.spect && !k.finished && !(k.fallT > 0) && !(k.cage > 0) && !(k.air && !k.gfall) && gravSurf(k) > 0; }
+function gravRec(id) { const R = G.race || {}; R.gp = R.gp || new Map(); let r = R.gp.get(id); if (!r) { r = { reflected: false, applied: false }; R.gp.set(id, r); } return r; }
+function gravPulse(src, online) { const R = G.race || {}; R.gpSeq = (R.gpSeq || 0) + 1; const id = online ? netNewId() : 'g' + R.gpSeq, rec = gravRec(id); rec.src = src; rec.seen = true;
+  if (online) netEmit({ e: 'gpulse', id, o: src.netId });
+  if (G.W && G.W.parts) for (let i = 0; i < 36; i++) { const a = i / 36 * TAU; G.W.parts.emit(src.x, src.y + 1, src.z, Math.cos(a) * 14, rand(.5, 2), Math.sin(a) * 14, pick(['#a87dff', '#38b6ff', '#fffdf7']), .55, 0); }
+  if (src.isPlayer) { AudioSys.sfx('zap'); } return gravWave(src, id); }
+// Onde : renvoie le nombre de karts réellement décrochés (pour les essais et le message du lanceur).
+function gravWave(src, id) { let n = 0;
+  for (const o of G.karts) { if (o === src || o.isRemote || !gravExposed(o)) continue;
+    if (o.star > 0 || o.ghost > 0) continue;
+    if (o.mirror > 0) { o.mirror = 0; if (o.isPlayer) { AudioSys.sfx('shield'); banner('Miroir : coupure renvoyée !', 1.3); } gravReflect(src, id, o); continue; }
+    if (o.shield > 0) { o.shield = 0; if (o.isPlayer || src.isPlayer) AudioSys.sfx('shield'); continue; }
+    if (gravHit(o, src)) n++; }
+  if (src.isPlayer) banner(n ? 'Coupure anti-gravité : ' + n + ' décroché' + (n > 1 ? 's' : '') : 'Coupure anti-gravité : personne sur paroi', 1.4);
+  return n; }
+function gravReflect(src, id, by) { const rec = gravRec(id); if (rec.reflected) return; rec.reflected = true; if (!src) return;
+  if (src.isRemote) { if (G.race && G.race.online) netEmit({ e: 'greflect', id, by: by.netId, o: src.netId }); return; }
+  gravBack(src, id, by); }
+// Renvoi appliqué au lanceur (sur le client qui le simule), une seule fois par impulsion.
+function gravBack(src, id, by) { const rec = gravRec(id); if (rec.applied) return false; rec.applied = true; rec.reflected = true;
+  if (!gravExposed(src) || src.star > 0 || src.ghost > 0) { if (src.isPlayer) banner('Coupure renvoyée… sans effet hors paroi', 1.3); return false; }
+  if (src.mirror > 0) { src.mirror = 0; if (src.isPlayer) AudioSys.sfx('shield'); return false; }   // pas de second rebond
+  if (src.shield > 0) { src.shield = 0; if (src.isPlayer) AudioSys.sfx('shield'); return false; }
+  if (src.isPlayer) banner('Ta coupure t\'est renvoyée !', 1.4, true); return gravHit(src, by); }
+function gravHit(o, src) { if (o.gcut > 0) return false; const sf = gravSurf(o); if (!sf) return false;
+  o.gcut = GCUT_T; o.gvl = o.gvl || 0; if (o.drift) endDrift(o, false);
+  if (sf === 2) { o.air = 'jump'; o.gfall = GCUT_A; o.vy = 1.5; o.airH = Math.max(o.airH || 0, .05); o.trickOK = false; o.trick = false; }
+  psHit(src, o); if (src && o !== src) recEvent(3 * (src.isPlayer ? 1.2 : 1), (src.isPlayer ? 'Tu décroches ' : src.name + ' décroche ') + o.name, o, null, src);
+  if (G.W.parts) for (let i = 0; i < 16; i++) G.W.parts.emit(o.x, o.y + 1, o.z, rand(-3, 3), rand(-2, 2), rand(-3, 3), pick(['#a87dff', '#fffdf7']), .5, 0);
+  if (o.isPlayer) { banner('Coupure anti-gravité !', 1.1, true); vibrate([40, 30, 40]); } return true; }
+// Pas physique : gravité réelle projetée dans le repère de la chaussée affichée (wr latéral, wu normale, wf avant).
+function gravStep(k, inp, dt) { const S = G.W.S, on = k.gcut > 0;
+  if (on) { k.gcut -= dt; inp.steer *= .2; inp.drift = false; k.speed *= Math.pow(.75, dt);
+    const sf = gravSurf(k); if (sf) { const j = clamp(k.idx | 0, 0, S.N - 1) * 3, ry = S.wr[j + 1], fy = S.wf[j + 1];
+      k.gvl += -GCUT_A * ry * dt * (k.air ? .3 : 1); if (sf === 3) k.speed += -GCUT_A * fy * dt; } }
+  else { k.gvl *= Math.exp(-dt * 6); if (Math.abs(k.gvl) < .05) k.gvl = 0; }
+  if (k.gvl) { const P = k.P || S, j = clamp(k.idx | 0, 0, P.N - 1); k.x += P.rx[j] * k.gvl * dt; k.z += P.rz[j] * k.gvl * dt; }
+  if (k.gcut <= 0) k.gcut = 0; }
+function gravNet(d, K) { const src = K(d.o);
+  if (d.e === 'gpulse') { const rec = gravRec(d.id); if (rec.seen) return; rec.seen = true; rec.src = src; if (src) gravWave(src, d.id); return; }
+  if (d.e === 'greflect') { if (!src || src.isRemote) return; gravBack(src, d.id, K(d.by)); } }
 function net13(d, K) {
+  if (d.e === 'gpulse' || d.e === 'greflect') { gravNet(d, K); return; }
   if (d.e === 'reflect') { const r = G.rockets.find((x) => x.id === d.id), k = K(d.by); if (r && k) mirror13(r, k, true); return; }
   if (d.e === 'swap') { const k = K(d.tg); if (k && !k.isRemote && d.s) { place13(k, d.s); if (k.isPlayer) { const o = K(d.o); banner((o ? o.name : 'Quelqu\'un') + ' a pris ta place !', 1.6, true); flashScreen(); } } }
 }
@@ -7365,6 +7530,9 @@ function aiControl(k, dt) {
   // pont du Barbecue : le bot qui a choisi la route reste du bon côté avant la bifurcation (sinon il glisse sur le pont)
   if (!wb && CP === S) for (const B of W.branches) { const d = B.i0 - ci; if (B.hasBridge && d > -6 && d < 45 && ai.br && ai.br[B.id] && !ai.br[B.id].take) lat = B.side > 0 ? Math.min(lat, -thw * .35) : Math.max(lat, thw * .35); }
   lat = clamp(lat, -thw * .82, thw * .82);
+  // Bord ouvert (corniche, branche RISQUÉ) ici ou un peu devant : l'IA garde la moitié de la demi-largeur entre elle et le vide (avant :
+  // 82 % comme le long d'un mur ; chutes rares mais instables d'une version à l'autre sur la CORNICHE DES EMBRUNS de Cascades).
+  { const t2 = Math.min(TP.N - 1, ti + 6); if (edgeOpen(TP, ti, -1) || edgeOpen(TP, t2, -1)) lat = Math.max(lat, -thw * .5); if (edgeOpen(TP, ti, 1) || edgeOpen(TP, t2, 1)) lat = Math.min(lat, thw * .5); }
   let tx = TP.px[ti] + TP.rx[ti] * lat, tz = TP.pz[ti] + TP.rz[ti] * lat;
   // décors interactifs (avalanche annoncée ou neige sur la route, 0 à 70 m devant) : côté libre
   if (CP === S) { const va = vivantAhead(W, ci); if (va) lat = va.side > 0 ? Math.min(lat, -thw * .45) : Math.max(lat, thw * .45); }
@@ -7753,6 +7921,12 @@ function updateVisuals(dt) { emoTick(dt);
   for (const k of G.karts) { if (k === tgt) { k.mesh.g.visible = true; if (k.mesh.productionLOD) k.mesh.productionLOD.visible = false; continue; } const d2 = (k.x - camera.position.x) ** 2 + (k.z - camera.position.z) ** 2 + (k.y + 1 - camera.position.y) ** 2; k.mesh.g.visible = d2 > 12; if (W.def.production) window.WKScenery.updateKartLOD(W, k, camera); }
 }
 let camKick = 0;
+// Hauteur de la chaussée dist mètres derrière le kart sur son chemin : la caméra reste au moins 1,8 m au-dessus. Avant, quand la route
+// remontait derrière le kart (sortie de branche, descente raide), la caméra passait sous la chaussée : moitié basse de l'image masquée
+// (contrôleur du concepteur, contrôle « V » ; Soldes, Barbecue, Cascades, Flipper).
+// Position continue (idx + along − dist) interpolée : un échantillon entier faisait sauter la caméra (banc rendu-loopings).
+function routeDerriere(k, dist) { const P = k.P || G.W.S, sg = P.seg || 2, u = (k.idx | 0) + (k.along || 0) / sg - dist / sg, f = Math.floor(u), t = u - f, w = (q) => P.closed === false ? clamp(q, 0, P.N - 1) : ((q % P.N) + P.N) % P.N;
+  return P.py[w(f)] + (P.py[w(f + 1)] - P.py[w(f)]) * t; }
 function updateCamera(dt) {
   const R = G.race; const S = G.W.S;
   let k = R.spec || R.player, mode = 'chase';
@@ -7772,7 +7946,7 @@ function updateCamera(dt) {
   }
   if (mode === 'side') { tmpV.set(k.x + Math.cos(camH.v) * 9 - fx * 3, k.y + 2.5, k.z - Math.sin(camH.v) * 9 - fz * 3); lookV.set(k.x + fx * 3, k.y + 1, k.z + fz * 3); }
   else if (mode === 'front') { tmpV.set(k.x + fx * 11, k.y + 1.6, k.z + fz * 11); lookV.set(k.x, k.y + 1.2, k.z); }
-  else { const dist = (portrait ? 10.5 : 8.6) + (k.air === 'glide' ? 1.2 : 0), hgt = (portrait ? 4.4 : 3.5) + (k.air === 'glide' ? 1.5 : k.air ? 1.0 : 0); tmpV.set(k.x - fx * dist, k.y + hgt, k.z - fz * dist); lookV.set(k.x + fx * 6, k.y + 1.5, k.z + fz * 6); }
+  else { const dist = (portrait ? 10.5 : 8.6) + (k.air === 'glide' ? 1.2 : 0), hgt = (portrait ? 4.4 : 3.5) + (k.air === 'glide' ? 1.5 : k.air ? 1.0 : 0); tmpV.set(k.x - fx * dist, Math.max(k.y + hgt, routeDerriere(k, dist) + 1.8), k.z - fz * dist); lookV.set(k.x + fx * 6, k.y + 1.5, k.z + fz * 6); }
   if (camSnap) camera.position.copy(tmpV); else camera.position.lerp(tmpV, 1 - Math.exp(-dt * (mode === 'chase' ? 9 : 4)));
   camera.position.y = Math.max(camera.position.y, k.y + 1.2);
   if (camKick > 0) { camera.position.y -= camKick * Math.sin(camKick * 18); camKick = Math.max(0, camKick - dt * 1.6); }   // atterrissage : la caméra encaisse
@@ -8845,7 +9019,7 @@ function onNetEvent(d) {
   if (d.e === 'bomb') { bombNet(d); return; }
   if (d.e === 'emo') { emoShow(String(d.n || '').slice(0, 12), String(d.x || '')); return; }
   if (d.e === 'kemo') { const k = (G.karts || []).find((q) => q.netId === d.id && !q.isPlayer); if (k) kartEmote(k, String(d.x || '')); return; }
-  if (d.e === 'reflect' || d.e === 'swap') { net13(d, K); return; }
+  if (d.e === 'reflect' || d.e === 'swap' || d.e === 'gpulse' || d.e === 'greflect') { net13(d, K); return; }
   if (d.e === 'hit' && R.bombMode && Net.host) bombHitPass(K(d.v), K(d.src));
   if (d.e === 'oil') { const n0 = G.hazards.length; spawnOil(+d.x, +d.z, +d.y, K(d.o), d.id, d.kind || 'oil'); if (Array.isArray(d.fly)) flyTrap(n0, { x0: +d.fly[0], z0: +d.fly[1], y0: +d.fly[2], t: 0, T: clamp(+d.fly[3] || .6, .2, 2) }); }
   else if (d.e === 'rocket') spawnRocket(+d.x, +d.z, +d.y, +d.h, +d.sp, K(d.o), K(d.tg), d.id, d.kind || 'rocket');
@@ -9330,7 +9504,7 @@ function openStudio() {
   if (window.WKStudio) { window.WKStudio.open(); return; }
   const load = (src) => new Promise((ok, ko) => { const sc = document.createElement('script'); sc.src = src; sc.onload = ok; sc.onerror = () => ko(new Error(src)); document.head.appendChild(sc); });
   toast('Ouverture du Studio…', 1500);
-  load(studioSrc('studio-core.js')).then(() => load(studioSrc('studio.js'))).then(() => window.WKStudio.open()).catch(() => toast('Le Studio n\'a pas pu se charger (connexion ?).'));
+  load(studioSrc('studio-core.js')).then(() => load(studioSrc('studio3d.js')).catch(() => null)).then(() => load(studioSrc('studio.js'))).then(() => window.WKStudio.open()).catch(() => toast('Le Studio n\'a pas pu se charger (connexion ?).'));
 }
 function toMenu() { resetPerf(); if (Net.peer) netReset(); UI.quiz = null; UI.party = null; UI.mode = 'quick'; G.race = null; G.paused = false; showHud(false); AudioSys.engine(0, false); AudioSys.stopMusic(); UI.gp = null; show('title'); const back = UI.afterMenu; UI.afterMenu = null; if (back) back(); }
 
@@ -9512,18 +9686,26 @@ function buildTrackCards() {
       b.innerHTML = '<div class="thumb"><canvas></canvas></div><h3></h3><p></p><div class="meta"><span class="lvl"></span><span class="rec"></span></div>'; b.dataset.ti = i;
       // Aperçu du circuit (C2-8) : image légère pré-rendue (scripts/apercus.cjs), chargée quand la carte devient visible ; le plan 2D
       // passe en incrustation. Rien n'est construit au toucher. Sans image (circuit du Studio, hors ligne) : plan 2D seul, comme avant.
-      if (!def.studio) { const th = b.querySelector('.thumb'), im = new Image(); im.className = 'apercu'; im.alt = ''; im.loading = 'lazy'; im.decoding = 'async';
+      if (!def.studio) { const th = b.querySelector('.thumb'), im = new Image(); im.className = 'apercu'; im.alt = ''; im.decoding = 'async';
         im.onload = () => th.classList.add('photo'); im.onerror = () => im.remove(); im.src = 'assets/apercus/' + def.id + '.webp'; th.prepend(im); }
       b.querySelector('h3').textContent = def.name; b.querySelector('p').textContent = def.desc;
       b.querySelector('.lvl').innerHTML = [1, 2, 3].map((n) => '<i class="' + (n <= def.level ? 'on' : '') + '"></i>').join('');
       b.querySelector('.rec').textContent = rec.lap ? 'Record ' + fmtTime(rec.lap) : '';
       thumbInto(b.querySelector('canvas'), i);
-      b.onclick = () => { AudioSys.sfx('click'); UI.track = i; SAVE.track = i; store(); $$('#track-cards .card').forEach((c) => c.classList.remove('sel')); b.classList.add('sel'); if (!G.race || G.race.state === 'attract') { if (G.W.ti !== i || ATTRACT_P) attractAsync(i); } };
+      // Toucher une carte : sélection seulement (ticket #27, demande du propriétaire). Le décor 3D du menu n'est plus reconstruit à
+      // chaque toucher : l'aperçu pré-rendu de la carte suffit ; le circuit n'est construit qu'au bouton « Démarrer ».
+      b.onclick = () => { AudioSys.sfx('click'); UI.track = i; SAVE.track = i; store(); $$('#track-cards .card').forEach((c) => c.classList.remove('sel')); b.classList.add('sel'); };
       wrap.appendChild(b); }
   }
   syncCC();
 }
+// Aperçus des circuits (26 images, ~380 Ko) préchargés une fois, au repos, après l'arrivée au menu : l'écran Entraînement les
+// affiche aussitôt (et le service worker les garde pour le hors-ligne). Rien n'est construit en 3D.
+let APERCUS_OK = false;
+function prechargerApercus() { if (APERCUS_OK) return; APERCUS_OK = true; const go = () => { for (const def of TRACKS) if (!def.studio) { const im = new Image(); im.decoding = 'async'; im.src = 'assets/apercus/' + def.id + '.webp'; } };
+  setTimeout(() => (window.requestIdleCallback ? requestIdleCallback(go, { timeout: 4000 }) : go()), 2500); }
 function refreshTitle() {
+  prechargerApercus();
   { const rb = $('#b-rejoin'); if (rb) { const ok = BUILD === 'pwa' && SAVE.lastCode && Date.now() - (SAVE.lastCodeAt || 0) < 3 * 3600e3; rb.hidden = !ok; if (ok) rb.textContent = 'Revenir dans la partie ' + SAVE.lastCode; } }
   const chip = $('#ctrl-chip'); const c = SAVE.control;
   chip.classList.toggle('warn', c === 'tilt' && Input.listening && !Input.tiltSeen && isTouch);
@@ -9624,7 +9806,9 @@ function frame(now) {
   { const st = window.WKStudio && window.WKStudio.state; if (st && st.el && !st.el.hidden) return; } // Wild Kart Studio plein écran : la 3D cachée derrière n'est ni calculée ni dessinée (éditeur plus fluide au téléphone)
   const racing = !!G.race.player && G.race.state !== 'attract';
   // en menu derrière un écran plein (roulette, questions…), on rafraîchit la 3D moins souvent
-  const overlay = !racing && ['mini', 'card', 'wheel', 'wedit', 'party', 'online', 'settings', 'install', 'results'].includes(UI.screen);
+  // Choix du circuit (« tracks ») compris : le décor de démonstration reste visible entre les cartes, mais une image sur trois suffit
+  // (ticket #27 : navigation entre les cartes plus légère pour la carte graphique du téléphone).
+  const overlay = !racing && ['mini', 'card', 'wheel', 'wedit', 'party', 'online', 'settings', 'install', 'results', 'tracks'].includes(UI.screen);
   if (overlay && (frameN++ % 3)) return;
   if (REPLAY.on) { replayFrame(dt); renderer.render(G.W.scene, camera); return; }
   const DG = window.WK_DIAG && window.WK_DIAG.image, tA = DG ? performance.now() : 0; // relevé ?diag=1 : logique et rendu de chaque image
@@ -9674,9 +9858,7 @@ listenMotion();
   try { if (renderer.compileAsync) await renderer.compileAsync(G.W.scene, camera); } catch (e) { /* compilation au premier rendu */ }
   prog(.9);
   // Téléversement des textures une par une (sinon toutes dans la première image : 0,6 s d'un bloc, 2,5 s sur un téléphone modeste).
-  try { await runSliced((function* () { const seen = new Set();
-    G.W.scene.traverse((o) => { for (const m of [].concat(o.material || [])) for (const k in m) { const t = m[k]; if (t && t.isTexture && !t.isRenderTargetTexture && !seen.has(t)) seen.add(t); } });
-    for (const t of seen) { renderer.initTexture(t); yield; } })()); } catch (e) { /* téléversement au premier rendu */ }
+  try { await texturesPretes(G.W.scene); await runSliced(televerser(G.W.scene)); } catch (e) { /* téléversement au premier rendu */ }
   prog(.95);
   renderer.render(G.W.scene, camera); // première image : téléversement des textures et tampons pendant que le chargement est encore affiché
   await new Promise((r) => requestAnimationFrame(() => r()));
@@ -9720,5 +9902,5 @@ if (window.TK_TEST) (function testPanel() {
 
 // accès pour les tests automatisés
 window.__TK = { buildWorldSteps, disposeWorld, QAUTO, adaptPerf, PERF, setInstZone: (v) => { INST_ZONE = v; }, setDecorLeger: (v) => { DECOR_LEGER = !!v; delete DECOR.bush; }, startAttract, simStep, netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, updateItems, throwFwd, FRONT_TRAPS, onNetEvent, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, videoReady, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner, progOpen, weekDefs, updateObstacles, bridgeAvoid, brAt, raftsAvoid, playerEmote, kartEmote, aiControl, collideKarts, openStudio, toMenu, zoneEnv, studioSurfAt, obstacleHits };
-Object.assign(window.__TK, { Graphics, adaptPerf, enhancedGraphics });
+Object.assign(window.__TK, { Graphics, adaptPerf, enhancedGraphics, gravPulse, gravExposed, gravSurf, gravAvail, aiUse13x, GCUT_T, ICONS, ITEM_FR });
 })();
