@@ -48,7 +48,7 @@ const WHEELS = {
   offroad: { name: 'Tout-terrain', speed: -.06, accel: .07, handling: .02, weight: .05, off: .4 },
   neon: { name: 'Néon', speed: .03, accel: .03, handling: .03, weight: -.05, off: -.05 },
 };
-const PILOTS = { casque: { name: 'Casque' }, casquette: { name: 'Casquette' }, capuche: { name: 'Capuche' }, robot: { name: 'Robot' } };
+const PILOTS = { casque: { name: 'Casque' }, casquette: { name: 'Casquette' }, capuche: { name: 'Capuche' }, robot: { name: 'Robot' }, heros: { name: 'Héros (prototype)' } };
 const ACCS = { aucun: { name: 'Aucun' }, antenne: { name: 'Antenne' }, crete: { name: 'Crête' }, couronne: { name: 'Couronne' }, cornes: { name: 'Cornes' }, aileron: { name: 'Aileron' } };
 const FINISHES = { brillant: { name: 'Brillant', r: .26, m: .35 }, mat: { name: 'Mat', r: .78, m: .04 }, chrome: { name: 'Chromé', r: .1, m: .95 } };
 const DECOS = { aucune: { name: 'Aucune' }, bande: { name: 'Bandes' }, damier: { name: 'Damier' } };
@@ -2218,7 +2218,7 @@ function rimGeo(R, w) {
   const g = new T.LatheGeometry(pts, 28); g.rotateZ(Math.PI / 2); return g;
 }
 const WHEEL_DIM = { standard: { r: .43, w: .44 }, slicks: { r: .4, w: .66 }, offroad: { r: .56, w: .52 }, neon: { r: .44, w: .42 } };
-const HEAD_TOP = { casque: 2.04, casquette: 1.97, capuche: 2.04, robot: 1.92 };
+const HEAD_TOP = { casque: 2.04, casquette: 1.97, capuche: 2.04, robot: 1.92, heros: 2.1 };
 const BODY_W = { bolide: [1.12, .11], libellule: [1.45, .22], equilibre: [1.3, .13], buggy: [1.2, .1] };
 
 function kartGeometry(cfg) {
@@ -2233,7 +2233,7 @@ function kartGeometry(cfg) {
   let flames = [{ x: -.24, y: .86, z: -1.9, s: 1 }, { x: .24, y: .86, z: -1.9, s: 1 }];
   let deco = null;
   const xb = extraBody(body, add, limb, cap, V);
-  if (xb) { flames = xb; } else if (body === 'fusee') {
+  if (xb) { flames = xb; } else if (body === 'galet') { deco = galetBody(add, cap, V, cfg, WHEEL_DIM[cfg.wheels] || WHEEL_DIM.standard); } else if (body === 'fusee') {
     const hull = new T.CapsuleGeometry(.55, 2.1, 10, 28); hull.rotateX(Math.PI / 2); hull.translate(0, .8, .05); add('paint', hull);
     const nose = new T.ConeGeometry(.4, .95, 28); nose.rotateX(Math.PI / 2); nose.translate(0, .8, 1.95); add('paint', nose);
     const bst = new T.CylinderGeometry(.44, .52, .75, 28); bst.rotateX(Math.PI / 2); bst.translate(0, .8, -1.45); add('metal', bst);
@@ -2288,12 +2288,14 @@ function kartGeometry(cfg) {
   }
   // siège + pilote
   add('dark', rbox(.72, .62, .2, .08), trs(0, 1.0, -.64, -.15, 0, 0));
+  // Pilote « Héros » (#36, prototype) : corps, tête, bras et volant animés construits à part dans kartMesh (heroRig).
+  const hz = -.3;
+  if (cfg.pilot !== 'heros') {
   add('suit', new T.CapsuleGeometry(.27, .3, 6, 16), new T.Matrix4().compose(V(0, 1.12, -.42), new T.Quaternion(), V(1, 1, .85)));
   add('dark', new T.CylinderGeometry(.1, .12, .14, 12), tr(0, 1.45, -.35));
   for (const s of [-1, 1]) { limb('suit', V(s * .27, 1.3, -.38), V(s * .22, 1.16, -.02), .085); limb('suit', V(s * .22, 1.16, -.02), V(s * .18, 1.22, .2), .075); add('glove', new T.SphereGeometry(.095, 12, 10), tr(s * .18, 1.22, .21)); }
   add('dark', new T.TorusGeometry(.2, .035, 10, 28), trs(0, 1.2, .23, -.9, 0, 0));
   add('dark', new T.CylinderGeometry(.03, .03, .4, 8), trs(0, 1.08, .38, -.9, 0, 0));
-  const hz = -.3;
   if (cfg.pilot === 'casquette') {
     add('skin', new T.SphereGeometry(.3, 28, 20), tr(0, 1.64, hz));
     add('helm', new T.SphereGeometry(.318, 28, 12, 0, TAU, 0, Math.PI * .46), tr(0, 1.66, hz));
@@ -2314,7 +2316,11 @@ function kartGeometry(cfg) {
     add('visor', new T.SphereGeometry(.382, 28, 14, Math.PI / 2 - .95, 1.9, 1.12, .62), tr(0, 1.68, hz));
     add('paint', new T.TorusGeometry(.373, .045, 10, 40), trs(0, 1.68, hz, 0, Math.PI / 2, 0));
   }
+  }
   const top = HEAD_TOP[cfg.pilot] || 2.04;
+  // Héros : les accessoires suivent la tête animée (parties « h: », rattachées à la tête dans kartMesh).
+  const add0 = add;
+  { const add = cfg.pilot === 'heros' ? (k, g, m) => add0('h:' + k, g, m) : add0;
   if (cfg.acc === 'antenne') { add('dark', cap(.018, .5, .12, top + .2, hz - .12)); add('paint', new T.SphereGeometry(.085, 14, 10), tr(.12, top + .5, hz - .12)); }
   else if (cfg.acc === 'crete') { for (let k = 0; k < 5; k++) { const s = new T.SphereGeometry(.1, 12, 8); s.scale(.45, 1.5 - Math.abs(k - 2) * .25, 1.1); add('paint', s, tr(0, top - .02, hz + .22 - k * .13)); } }
   else if (cfg.acc === 'couronne') { add('gold', new T.TorusGeometry(.2, .035, 8, 28), trs(0, top - .03, hz, Math.PI / 2, 0, 0)); for (let k = 0; k < 6; k++) { const a = k / 6 * TAU; add('gold', new T.ConeGeometry(.055, .2, 8), tr(Math.cos(a) * .2, top + .09, hz + Math.sin(a) * .2)); } }
@@ -2324,6 +2330,7 @@ function kartGeometry(cfg) {
   else if (cfg.acc === 'helice') { add('metal', new T.CylinderGeometry(.02, .02, .2, 8), tr(0, top + .08, hz)); add('paint', rbox(.5, .02, .07, .01), tr(0, top + .19, hz)); add('helm', new T.SphereGeometry(.04, 10, 8), tr(0, top + .2, hz)); }
   else if (cfg.acc === 'aureole') add('gold', new T.TorusGeometry(.17, .025, 8, 28), trs(0, top + .22, hz, Math.PI / 2, 0, 0));
   else if (cfg.acc === 'oreilles') { for (const s of [-1, 1]) add('paint', new T.ConeGeometry(.09, .2, 4), trs(s * .14, top + .04, hz, 0, Math.PI / 4, -s * .3)); }
+  }
   const merged = {}; for (const k in parts) { merged[k] = mergeGeos(parts[k]); merged[k].userData.keep = true; }
   if (deco) deco.userData.keep = true;
   const WD = WHEEL_DIM[cfg.wheels] || WHEEL_DIM.standard;
@@ -2347,7 +2354,9 @@ function kartMesh(cfgIn) {
     helm: stdMat(cfg.helmet, .15, .3), visor: stdMat('#0b0b16', .05, .85), glove: stdMat('#f7f5ee', .6, 0), skin: stdMat(cfg.skin, .72, 0), glass: stdMat('#101018', .05, .75),
     led: glowMat('#2ee6ff'), gold: stdMat('#ffc531', .22, .85), ivory: stdMat('#f1e7cf', .5, 0), water: stdMat('#6fd8ff', .1, .2), duck: stdMat('#ffd23a', .4, 0), beak: stdMat('#ff8a1e', .5, 0),
     canopy: new T.MeshStandardMaterial({ color: '#bfe6ff', transparent: true, opacity: .45, roughness: .05, metalness: .3 }) };
-  for (const k in geo.merged) tilt.add(new T.Mesh(geo.merged[k], mats[k]));
+  mats.arch = new T.MeshStandardMaterial({ color: cfg.color, roughness: F.r, metalness: F.m, side: T.DoubleSide });
+  let rig = null; if (cfg.pilot === 'heros') { rig = heroRig(cfg, mats); tilt.add(rig.root); }
+  for (const k in geo.merged) { if (k.startsWith('h:')) { if (rig) { const m = new T.Mesh(geo.merged[k], mats[k.slice(2)]); m.position.set(0, -1.7, .3); rig.head.add(m); } continue; } tilt.add(new T.Mesh(geo.merged[k], mats[k])); }
   if (geo.deco) tilt.add(new T.Mesh(geo.deco, cfg.deco === 'damier' ? checkerMat() : stdMat(cfg.helmet, F.r, F.m)));
   const WD = geo.WD; const neon = cfg.wheels === 'neon';
   const wt = cfg.wheels; const tireM = wt === 'bois' ? stdMat('#a0703f', .8, 0) : wt === 'ballon' ? stdMat(cfg.helmet, .35, .05) : stdMat('#1c1b24', .85, 0), rimM = neon ? glowMat(cfg.helmet) : wt === 'etoile' ? stdMat('#ffc531', .22, .85) : wt === 'bois' ? stdMat('#5a3c24', .7, 0) : wt === 'ballon' ? stdMat('#fffdf7', .3, .1) : stdMat('#d8dbe4', .2, .9), capM = neon ? stdMat('#1c1b24', .4, .5) : stdMat(cfg.helmet, .3, .4);
@@ -2371,7 +2380,7 @@ function kartMesh(cfgIn) {
   shadow.rotation.x = -Math.PI / 2; shadow.position.y = .05; g.add(shadow);
   shadow.visible = !qual().shadows;
   const sc = (BODIES[bodyId] && BODIES[bodyId].sc) || null; if (sc) tilt.scale.set(sc[0], sc[1], sc[2]);
-  return { g, tilt, wheels, fronts, flames, shield, wheelR: WD.r, trail, glider, sc };
+  return { g, tilt, wheels, fronts, flames, shield, wheelR: WD.r, trail, glider, sc, rig };
 }
 
 /* ================= v7 : nouvelles pièces de garage ================= */
@@ -2385,6 +2394,7 @@ Object.assign(BODIES, {
   requin: { name: 'Requin', shape: 'fusee', sc: [1, .9, 1.15], speed: .12, accel: -.04, handling: -.08, weight: .1, off: 0 },
   tracteur: { name: 'Tracteur', shape: 'monstre', sc: [1.05, 1.1, .95], speed: -.1, accel: 0, handling: -.04, weight: .3, off: .28 },
   comete: { name: 'Comète', shape: 'sport', sc: [.95, .9, 1.12], speed: .16, accel: .04, handling: -.2, weight: -.05, off: 0 },
+  galet: { name: 'Galet (prototype)', speed: 0, accel: 0, handling: 0, weight: 0, off: 0 },
   mini: { name: 'Mini', shape: 'equilibre', sc: [.88, .92, .84] }, fourgon: { name: 'Fourgonnette', shape: 'baignoire', sc: [1.1, 1.22, 1.08] }, limousine: { name: 'Limousine', shape: 'sport', sc: [1, .88, 1.32] },
   herisson: { name: 'Hérisson', shape: 'monstre', sc: [.92, .95, .9] }, torpille: { name: 'Torpille', shape: 'fusee', sc: [.84, .84, 1.28] },
 });
@@ -2413,6 +2423,94 @@ function profileSport() {
   s.quadraticCurveTo(.55, .74, .34, .72); s.lineTo(-.55, .74); s.quadraticCurveTo(-1.05, .8, -1.16, .62); s.quadraticCurveTo(-1.24, .45, -1.15, .32); return s;
 }
 // carrosseries spéciales (appelée par kartGeometry)
+/* ---------- #36 lot pilote : carrosserie « Galet » et pilote « Héros » (prototype soumis au propriétaire) ----------
+   Galet : coque ovoïde lisse, flancs galbés, ailes au-dessus des roues avant, museau arrondi, aileron porté ; mêmes points
+   d'appui des roues et même gabarit que l'Équilibré (aucun effet sur la conduite ni les collisions, statistiques à zéro). */
+function galetBody(add, cap, V, cfg, WD) {
+  // Coque principale lisse + jupe sombre ; habitacle creusé (bord de cockpit) où le pilote est assis ; pare-brise.
+  const shell = new T.SphereGeometry(1, 48, 28); shell.scale(.98, .42, 1.78); shell.translate(0, .7, .02); add('paint', shell);
+  const skirt = new T.SphereGeometry(1, 40, 14, 0, TAU, Math.PI * .5, Math.PI * .2); skirt.scale(1.03, .48, 1.83); skirt.translate(0, .72, .02); add('dark', skirt);
+  const rim = new T.TorusGeometry(.42, .07, 10, 32); rim.scale(1, 1.25, 1); rim.rotateX(Math.PI / 2); rim.translate(0, 1.08, -.45); add('dark', rim);
+  const screen = new T.SphereGeometry(.5, 24, 10, -Math.PI * .35, Math.PI * .7, Math.PI * .28, Math.PI * .22); screen.scale(1, 1, .7); screen.translate(0, .86, .2); add('canopy', screen);
+  const nose = new T.SphereGeometry(.42, 28, 18); nose.scale(1.45, .58, .9); nose.translate(0, .6, 1.62); add('paint', nose);
+  add('dark', cap(.1, 1.2, 0, .38, 1.92, 0, 0, Math.PI / 2));
+  // Coques de roues : demi-cylindres ouverts (double face) qui suivent la taille des roues (roues « Géantes » comprises).
+  const r = WD.r + .14, w = WD.w + .16, fz = 1.05, xw = .92 + WD.w / 2 - .12;
+  for (const s of [-1, 1]) for (const z of [fz, -1]) {
+    // Après rotateZ(π/2) : hauteur = r·sin θ, avant = r·cos θ → arc centré sur θ = π/2 (dessus de la roue).
+    const L = Math.PI * .78, arch = new T.CylinderGeometry(r, r, w, 28, 1, true, Math.PI / 2 - L / 2, L); arch.rotateZ(Math.PI / 2); arch.translate(s * xw, WD.r, z); add('arch', arch);
+  }
+  for (const s of [-1, 1]) {
+    const pod = new T.CapsuleGeometry(.24, .8, 8, 20); pod.rotateX(Math.PI / 2); pod.scale(1, .75, 1); pod.translate(s * .8, .52, -.05); add('paint', pod);
+    const intake = new T.CapsuleGeometry(.1, .3, 4, 12); intake.rotateX(Math.PI / 2); intake.translate(s * .86, .58, .45); add('dark', intake);
+    add('glove', new T.SphereGeometry(.1, 14, 10), tr(s * .42, .7, 1.86));
+    add('dark', cap(.035, .36, s * .45, 1.04, -1.3));
+  }
+  const wing = extrudeSide(airfoilShape(.62, .12), 1.95, .035, 2); wing.applyMatrix4(tr(0, 1.28, -1.36)); add('paint', wing);
+  for (const s of [-1, 1]) { const end = new T.SphereGeometry(.16, 16, 10); end.scale(.4, 1, 1.6); end.translate(s * .99, 1.3, -1.36); add('dark', end); }
+  add('metal', rbox(.78, .4, .5, .14), tr(0, .74, -1.3));
+  for (const s of [-1, 1]) { const ex = new T.CylinderGeometry(.09, .12, .5, 14, 1, true); ex.applyMatrix4(trs(s * .24, .84, -1.66, Math.PI / 2, 0, 0)); add('metal', ex); }
+  // Déco de la boutique : bandes (deux anneaux étroits sur la coque) ou damier (bande centrale) ; même rendu que les autres karts.
+  if (cfg.deco === 'aucune') return null;
+  const band = (c, half) => { const g = new T.SphereGeometry(1.012, 64, 4, 0, TAU, Math.PI / 2 + c - half, half * 2); g.rotateZ(Math.PI / 2); g.scale(.98, .42, 1.78); g.translate(0, .7, .02); return g; };
+  return cfg.deco === 'damier' ? band(0, .14) : mergeGeos([band(-.17, .045), band(.17, .045)]);
+}
+// Pilote Héros : maillages séparés (tête, torse, bras, volant) pour l'animation ; segments de bras = capsules unitaires orientées à chaque image.
+function heroRig(cfg, mats) {
+  // Pièces fixes fusionnées par matériau (tête, volant) : ~20 maillages au lieu de 54 (budget d'appels de rendu mobile).
+  const root = new T.Group(), unit = new T.CapsuleGeometry(.5, 1, 4, 10), V3 = (x, y, z) => new T.Vector3(x, y, z);
+  const G = (g, x, y, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) => { g.applyMatrix4(new T.Matrix4().compose(V3(x, y, z), new T.Quaternion().setFromEuler(new T.Euler(rx, ry, rz)), V3(sx, sy, sz))); return g; };
+  const mesh = (geos, m, parent) => { const o = new T.Mesh(geos.length > 1 ? mergeGeos(geos) : geos[0], m); o.castShadow = true; parent.add(o); return o; };
+  const torso = new T.Group(); torso.position.set(0, 1.08, -.42); root.add(torso);
+  mesh([G(new T.CapsuleGeometry(.29, .26, 8, 18), 0, .04, 0, 0, 0, 0, 1.05, 1, .82)], mats.suit, torso);
+  mesh([G(new T.TorusGeometry(.2, .07, 10, 24), 0, .27, .04, Math.PI / 2)], mats.paint, torso);   // écharpe
+  const head = new T.Group(); head.position.set(0, 1.7, -.3); root.add(head);
+  mesh([G(new T.SphereGeometry(.34, 32, 24), 0, 0, 0, 0, 0, 0, 1, .95, .94), G(new T.SphereGeometry(.05, 12, 10), 0, -.07, .33)], mats.skin, head);
+  mesh([G(new T.SphereGeometry(.355, 32, 16, 0, TAU, 0, Math.PI * .44), 0, .1, -.03, 0, 0, 0, 1.02, 1.05, 1), G(new T.ConeGeometry(.09, .26, 10), .06, .38, .1, .6, 0, -.3)], mats.helm, head);
+  const gog = [], lens = [], cheek = [], whites = [], pupils = [], brows = [];
+  for (const s of [-1, 1]) {
+    gog.push(G(new T.TorusGeometry(.07, .024, 8, 18), s * .11, .3, .19, -1.1)); lens.push(G(new T.CircleGeometry(.055, 16), s * .11, .3, .19, -1.1));
+    cheek.push(G(new T.SphereGeometry(.05, 10, 8), s * .2, -.11, .26, 0, 0, 0, 1, .6, .4));
+    whites.push(G(new T.SphereGeometry(.088, 18, 12), s * .125, 0, 0, 0, 0, 0, 1, 1.15, .55)); pupils.push(G(new T.SphereGeometry(.046, 14, 10), s * .125, 0, .045));
+    brows.push(G(new T.CapsuleGeometry(.024, .1, 4, 8), s * .13, 0, 0, 0, 0, Math.PI / 2 + s * .18));
+  }
+  const detail = [mesh(gog, mats.metal, head), mesh(lens, mats.glass, head), mesh(cheek, stdMat('#ff8fa3', .7, 0), head)];
+  const eyesG = new T.Group(); eyesG.position.set(0, -.01, .28); head.add(eyesG); detail.push(mesh(whites, stdMat('#ffffff', .4, 0), eyesG), mesh(pupils, stdMat('#1a1630', .2, 0), eyesG));
+  const browG = new T.Group(); browG.position.set(0, .12, .31); head.add(browG); detail.push(mesh(brows, mats.dark, browG));
+  const mouth = mesh([new T.TorusGeometry(.08, .02, 8, 16, Math.PI)], mats.dark, head); mouth.position.set(0, -.16, .29); mouth.rotation.z = Math.PI;
+  const open = mesh([new T.SphereGeometry(.075, 14, 10)], stdMat('#5a1020', .6, 0), head); open.position.set(0, -.15, .27); open.scale.set(1.15, .85, .45); open.visible = false;
+  const wheel = new T.Group(); wheel.position.set(0, 1.2, .23); wheel.rotation.x = -.9; root.add(wheel);
+  const spin = new T.Group(); wheel.add(spin); mesh([new T.TorusGeometry(.2, .035, 10, 28)], mats.dark, spin);
+  mesh([0, 2.1, 4.2].map((a) => G(new T.CylinderGeometry(.018, .018, .2, 6), Math.sin(a) * .1, Math.cos(a) * .1, 0, 0, 0, -a)).concat([G(new T.CylinderGeometry(.05, .05, .05, 12), 0, 0, 0, Math.PI / 2)]), mats.metal, spin);
+  const sleeve = stdMat(cfg.color, .55, .05), seg = () => { const m = new T.Mesh(unit, sleeve); m.castShadow = true; root.add(m); return m; };
+  const arms = [-1, 1].map((s) => ({ s, up: seg(), lo: seg(), hand: (() => { const h = new T.Mesh(new T.SphereGeometry(.085, 12, 10), mats.glove); h.castShadow = true; root.add(h); return h; })() }));
+  for (const A of arms) detail.push(A.hand); detail.push(mouth);
+  return { detail, far: false, root, torso, head, eyes: [eyesG], brows: [browG], mouth, open, wheel, spin, arms, ang: 0, blink: 2 + Math.random() * 3, cheer: 0, _a: V3(), _b: V3(), _c: V3(), _q: new T.Quaternion(), _y: V3(0, 1, 0) };
+}
+// Place une capsule unitaire entre deux points (rayon r).
+function heroSeg(m, a, b, r, R) { const d = R._c.subVectors(b, a), L = d.length(); m.position.copy(a).add(b).multiplyScalar(.5); m.quaternion.setFromUnitVectors(R._y, d.divideScalar(L || 1)); m.scale.set(r * 2, Math.max(.01, L) / 2, r * 2); }
+// Animation : volant et mains, regard et inclinaison dans le virage, dérive, boost, choc, saut, victoire, clignement.
+function heroAnimate(R, k, st, dt, now) {
+  const e = 1 - Math.exp(-dt * 10), turn = clamp(st, -1, 1), hit = k.spin > 0, boost = k.boost > 0, win = k.finished && k.place === 1;
+  R.ang = lerp(R.ang, -turn * 1.5, e); R.spin.rotation.z = R.ang;
+  R.head.rotation.y = lerp(R.head.rotation.y, hit ? Math.sin(now * 18) * .5 : -turn * .38 + (k.drift ? -k.drift * .2 : 0), e);
+  R.head.rotation.z = lerp(R.head.rotation.z, turn * .12, e); R.head.rotation.x = lerp(R.head.rotation.x, boost ? -.12 : k.air ? -.18 : 0, e);
+  R.torso.rotation.z = lerp(R.torso.rotation.z, turn * .14 + (k.drift ? k.drift * .1 : 0), e); R.torso.rotation.x = lerp(R.torso.rotation.x, boost ? -.12 : 0, e);
+  R.blink -= dt; const closed = R.blink < .12 || hit; if (R.blink < 0) R.blink = 2 + Math.random() * 3;
+  for (const ey of R.eyes) ey.scale.y = lerp(ey.scale.y, closed ? .12 : boost || win ? 1.15 : 1, 1 - Math.exp(-dt * 30));
+  R.brows[0].position.y = lerp(R.brows[0].position.y, hit ? .08 : boost || k.air ? .16 : .12, e);
+  R.open.visible = boost || win || !!k.air; R.mouth.visible = !R.open.visible; R.mouth.scale.y = lerp(R.mouth.scale.y, hit ? -.8 : 1, e);
+  R.cheer = lerp(R.cheer, win ? 1 : 0, 1 - Math.exp(-dt * 4));
+  // mains : sur la jante du volant (à 10 h 10), qui tourne ; en victoire, bras droit levé
+  R.wheel.updateMatrix();
+  for (const A of R.arms) {
+    const sh = R._a.set(A.s * .34, 1.32, -.36).applyAxisAngle(R._y.set(0, 0, 1), R.torso.rotation.z); R._y.set(0, 1, 0);
+    const ang = A.s * 1.05 + R.ang; let hand = new T.Vector3(Math.sin(ang) * .2, Math.cos(ang) * .2, 0).applyMatrix4(R.wheel.matrix);
+    if (A.s > 0 && R.cheer > .05) hand.lerp(new T.Vector3(.45, 2.25 + Math.sin(now * 9) * .08, -.2), R.cheer);
+    const elbow = R._b.copy(sh).lerp(hand, .5).add(new T.Vector3(A.s * .2, -.12, 0));
+    heroSeg(A.up, sh, elbow, .095, R); heroSeg(A.lo, elbow, hand, .085, R); A.hand.position.copy(hand);
+  }
+}
 function extraBody(body, add, limb, cap, V) {
   if (body === 'monstre') {
     add('dark', rbox(2.05, .2, 3.1, .06), tr(0, .72, 0));
@@ -5960,12 +6058,12 @@ function buildWarp(S, def, hw) {
       const cands = z.ancien ? [{ ancien: true }] : [{ ta: z.ta != null ? z.ta : 25, tb: z.tb != null ? z.tb : 90, s: z.s || 1 }, { ancien: true }];
       if (z.forcer) cands.length = 1; // laboratoire du concepteur uniquement : profil imposé même s'il échoue aux contrôles (défaut volontaire)
       const essais = []; let best = null;
-      for (const c of cands) { const o = c.ancien ? oA : prof(c), g = gap(o), forme = c.ancien || pente(o) <= refP * 1.25, a = angle(o); essais.push({ c, g: +g.toFixed(1), repli: +o.repli.toFixed(2), angle: +a.toFixed(0) });
+      for (const c of cands) { const o = c.ancien ? oA : prof(c), g = gap(o), forme = c.ancien || pente(o) <= refP * 1.25, a = angle(o); essais.push({ c, g: +g.toFixed(1), repli: +o.repli.toFixed(2), angle: +a.toFixed(0), pente: +pente(o).toFixed(2) });
         if (z.forcer || g >= 4.5 && forme && o.repli >= .2) { best = { c, o, g, a }; break; } }
       // Aucun réglage sain : l'ancienne formule par défaut (jamais une chaussée repliée si elle ne l'est pas).
       if (!best) best = { c: { ancien: true }, o: oA, g: gap(oA), a: angle(oA) };
       z.shift = shift;
-      z.reglage = Object.assign({ ecart: +best.g.toFixed(1), pente: +pente(best.o).toFixed(2), penteAncien: +refP.toFixed(2), repli: +best.o.repli.toFixed(2), angle: +best.a.toFixed(0), essais: essais.length }, best.c);
+      z.reglage = Object.assign({ ecart: +best.g.toFixed(1), pente: +pente(best.o).toFixed(2), penteAncien: +refP.toFixed(2), repli: +best.o.repli.toFixed(2), angle: +best.a.toFixed(0), essais: essais.length, detail: essais, n }, best.c);
       for (let q = 0; q <= n; q++) { const i = (i0 + q) % N, [df, dy, dl] = best.o[q];
         wo[i * 3] += F0[0] * df + R0[0] * dl; wo[i * 3 + 1] += dy; wo[i * 3 + 2] += F0[2] * df + R0[1] * dl; S.wz[i] = 1; S.ag[i] = 1; }
     } else if (z.type === 'spiral') {
@@ -7884,6 +7982,10 @@ function updateVisuals(dt) { emoTick(dt);
     for (const w of M.wheels) w.m.rotation.x += k.speed / w.r * dt;
     const st = k.isPlayer && !G.autopilot ? Input.tiltSteer + Input.digSteer + Input.stickSteer : (k.drift ? k.drift * .6 : 0);
     for (const f of M.fronts) f.rotation.y = lerp(f.rotation.y, -clamp(st, -1, 1) * .45, 1 - Math.exp(-dt * 12));
+    // Niveau de détail du pilote Héros : au-delà de 35 m de la caméra, détails du visage et mains masqués, animation suspendue
+    // (-7 appels de rendu par kart lointain ; bras et volant figés, invisibles à cette distance).
+    if (M.rig) { const far = camera.position.distanceToSquared(M.g.position) > 35 * 35; if (far !== M.rig.far) { M.rig.far = far; for (const o of M.rig.detail) o.visible = !far; if (!far) M.rig.open.visible = false; } }
+    if (M.rig && !M.rig.far) heroAnimate(M.rig, k, k.isPlayer && !G.autopilot ? st : clamp(-angDiff(k.h, k.vh) * 3 + (k.drift || 0) * .6, -1, 1), dt, now);
     const fl = k.boost > 0 ? 1.4 + Math.random() * .6 : (k.speed > 1 ? .25 : .05);
     const tc = M.trail; for (const f of M.flames) { f.scale.z = lerp(f.scale.z, fl * (f.userData.s || 1) * .8 + .2 * fl, .5); f.material.color.set(k.boost > 0 ? tc[Math.floor(now * 12) % tc.length] : tc[0]); }
     M.shield.visible = k.shield > 0; if (k.shield > 0) M.shield.scale.setScalar(1 + Math.sin(now * 8) * .04);
@@ -9238,6 +9340,35 @@ $('#we-reset').onclick = () => { SAVE.wheel = DEFAULT_WHEEL.slice(); store(); re
 $('#we-done').onclick = () => { AudioSys.sfx('click'); const back = UI.weBack || 'party'; if (back === 'wheel') { show('wheel'); requestAnimationFrame(wheelPrepare); } else if (back === 'mini' && Net.host) { show('online'); renderOnline(); } else show(back); };
 
 /* ================= Mini-jeux de soirée en ligne ================= */
+/* ================= Questions de soirée triées (3 novembre) =================
+   Critère : chaque carte doit faire raconter une vraie histoire, lancer un débat ou provoquer un fou rire collectif ; pas de question
+   à réponse d'un mot ni de remplissage. Elles alimentent les cartes ET les votes en ligne (« Qui ici… », « Tu préfères », « Qui ici a déjà… »). */
+QUIZ.soft.items.push(...Q_('q', ['{p}, quelle est la chose la plus folle que tu aies faite pour quelqu\'un ?', '{p}, quel conseil donnerais-tu à toi-même à 15 ans ?',
+  '{p}, quelle opinion impopulaire es-tu prêt à défendre devant tout le monde ici ?', '{p}, quel compliment ne t\'a jamais quitté depuis qu\'on te l\'a fait ?',
+  '{p}, si tu devais tout changer dans ta vie demain, tu ferais quoi ?', '{p}, raconte le plus gros malentendu de ta vie.', '{p}, à quel moment as-tu été le plus fier de toi ?',
+  '{p}, sur quoi les gens se trompent-ils toujours à ton sujet ?', '{p}, quel sujet déclenche une dispute à chaque repas de famille chez toi ?', '{p}, quel mauvais conseil as-tu suivi quand même ?',
+  '{p}, quelle compétence totalement inutile maîtrises-tu parfaitement ?', '{p}, raconte la fois où tu as eu le plus de chance.', '{p}, qui ici as-tu mal jugé au premier regard, et pourquoi ?',
+  '{p}, quel fou rire as-tu eu au pire moment possible ?', '{p}, si tu pouvais maîtriser un métier en une nuit, lequel ?',
+  '{p}, quelle phrase de tes parents tu te surprends à répéter ?', '{p}, quelle est la plus belle chose qu\'un inconnu ait faite pour toi ?']),
+  ...Q_('v', ['Qui ici a le plus de secrets ?', 'Qui ici prendrait la tête du groupe en cas d\'apocalypse ?', 'Qui ici a le plus changé depuis qu\'on se connaît ?',
+  'Qui ici ferait le discours de mariage le plus émouvant ?', 'Qui ici a le meilleur instinct pour juger les gens ?', 'Qui ici écrira un livre un jour ?', 'Qui ici sera encore en soirée à 70 ans ?',
+  'Qui ici est l\'ami le plus fidèle ?', 'Qui ici gère le mieux une crise ?', 'Qui ici pourrait convaincre n\'importe qui de n\'importe quoi ?']));
+QUIZ.fun.items.push(...Q_('d', ['{p}, fais deviner un film à {p2} uniquement avec des bruitages.', '{p}, improvise le discours de mariage de {p2} en 30 secondes.',
+  '{p}, présente {p2} comme dans une émission de rencontres.', '{p}, réponds à tout par une question jusqu\'à ton prochain tour.', '{p}, présente la météo de la soirée comme à la télé.',
+  '{p}, vends ton téléphone à {p2} façon télé-achat.', '{p}, raconte comment {p2} et toi vous êtes rencontrés, version film d\'action.', '{p}, trouve trois points communs avec {p2} en 20 secondes.',
+  '{p}, fais la critique gastronomique de la dernière chose que tu as mangée.', '{p}, dis une anecdote vraie ou fausse sur toi ; le groupe vote pour deviner.']),
+  ...Q_('v', ['Qui ici serait le pire témoin de mariage ?',
+'Qui ici aurait le meilleur plan pour un casse ?', 'Qui ici se ferait démasquer en premier pendant un casse ?',
+  'Qui ici deviendrait célèbre par accident ?', 'Qui ici craquerait en premier lors d\'une semaine sans téléphone ?', 'Qui ici rirait pendant une minute de silence ?',
+  'Qui ici serait le meilleur dans un escape game ?', 'Qui ici partirait faire le tour du monde sans prévenir ?', 'Qui ici a toujours une excuse pour tout ?']));
+QUIZ.jamais.items.push(...QN(['relu une conversation entière pour décoder un seul message', 'menti en disant avoir vu un film culte', 'changé de trottoir pour éviter de dire bonjour', 'raconté une anecdote qui était arrivée à quelqu\'un d\'autre',
+  'oublié le prénom de quelqu\'un en pleine conversation', 'chanté une chanson entière avec les mauvaises paroles', 'répondu à un message des semaines plus tard comme si de rien n\'était',
+  'dit « j\'arrive dans cinq minutes » en étant encore sous la douche', 'gardé un cadeau affreux « au cas où la personne viendrait »', 'lu la dernière page d\'un livre avant de le commencer']));
+QUIZ.prefere.items.push(...QP([['connaître la date de ta mort', 'connaître sa cause'], ['revenir 10 secondes en arrière quand tu veux', 'voir 10 secondes dans le futur'],
+  ['que tes pensées s\'affichent une heure par jour', 'que ton historique de recherche soit public'], ['parler à toi-même il y a 10 ans', 'à toi-même dans 10 ans'],
+  ['être le meilleur d\'une équipe nulle', 'le plus nul d\'une équipe de champions'], ['1 million d\'euros aujourd\'hui', '4 000 euros par mois à vie'],
+  ['que tes parents lisent tous tes messages', 'que ton patron les lise'], ['un week-end parfait que tu oublies ensuite', 'un week-end moyen dont tu te souviens toute ta vie'], ['trouver l\'amour à 20 ans et le perdre à 30', 'le trouver à 40 ans pour toujours'],
+  ['savoir quand quelqu\'un te ment', 'pouvoir mentir sans jamais être démasqué'], ['revivre ta meilleure journée en boucle', 'vivre une journée inconnue chaque jour']]));
 const MINI = { cur: null, votes: new Map(), res: new Map(), timer: null, greenAt: 0, sent: false, wheel: { ang: 0 }, wturn: 0 };
 const THEMES = [['random', 'Aléatoire'], ['soft', 'Soft'], ['fun', 'Fun'], ['hot', 'Hot 18+'], ['jamais', 'Je n\'ai jamais'], ['prefere', 'Tu préfères']];
 function miniSips() { return Math.max(1, Math.ceil(2 * (Net.settings.dose || 1))); }
@@ -9902,5 +10033,5 @@ if (window.TK_TEST) (function testPanel() {
 
 // accès pour les tests automatisés
 window.__TK = { buildWorldSteps, disposeWorld, QAUTO, adaptPerf, PERF, setInstZone: (v) => { INST_ZONE = v; }, setDecorLeger: (v) => { DECOR_LEGER = !!v; delete DECOR.bush; }, startAttract, simStep, netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, updateItems, throwFwd, FRONT_TRAPS, onNetEvent, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, videoReady, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner, progOpen, weekDefs, updateObstacles, bridgeAvoid, brAt, raftsAvoid, playerEmote, kartEmote, aiControl, collideKarts, openStudio, toMenu, zoneEnv, studioSurfAt, obstacleHits };
-Object.assign(window.__TK, { Graphics, adaptPerf, enhancedGraphics, gravPulse, gravExposed, gravSurf, gravAvail, aiUse13x, GCUT_T, ICONS, ITEM_FR });
+Object.assign(window.__TK, { Graphics, adaptPerf, enhancedGraphics, gravPulse, gravExposed, gravSurf, gravAvail, aiUse13x, GCUT_T, ICONS, ITEM_FR, heroAnimate, QUIZ });
 })();
