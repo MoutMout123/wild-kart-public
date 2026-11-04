@@ -2315,6 +2315,8 @@ const BODY_WIDE = { buggy: .06, monstre: .2, baignoire: .04, tracteur: .14, heri
 const WHEEL_V2 = new Set();   // roues v2 (rempli plus bas)
 const BODY_V2 = new Set(['equilibre', 'bolide', 'libellule', 'buggy', 'fusee', 'sport', 'monstre', 'baignoire', 'scarabee', 'lutin', 'requin', 'tracteur', 'comete', 'galet', 'mini', 'fourgon', 'limousine', 'herisson', 'torpille']);
 function bodyV2(body, add, cap, V, cfg, WD) {
+  if (window.WKCarrosseriesPrototype && window.WKCarrosseriesPrototype.noms[body]) return window.WKCarrosseriesPrototype.construire(T, add, WD, cfg);
+  if (body === 'equilibre' && window.WKEquilibrePrototype) return window.WKEquilibrePrototype.construire(T, add, WD, cfg);
   if (body === 'galet') return { flames: null, deco: galetBody(add, cap, V, cfg, WD) };
   const fz = BODY_FZ[body] || 1.05, wide = BODY_WIDE[body] || 0, xw = .92 + wide + WD.w / 2 - .12;
   // primitives
@@ -2518,7 +2520,7 @@ function kartGeometry(cfg) {
     }
   }
   // siège + pilote
-  add('dark', rbox(.72, .62, .2, .08), trs(0, 1.0, -.64, -.15, 0, 0));
+  if (!(window.WKCarrosseriesPrototype && window.WKCarrosseriesPrototype.noms[body]) && !(body === 'equilibre' && window.WKEquilibrePrototype)) add('dark', rbox(.72, .62, .2, .08), trs(0, 1.0, -.64, -.15, 0, 0));
   // Pilote « Héros » (#36, prototype) : corps, tête, bras et volant animés construits à part dans kartMesh (heroRig).
   const hz = -.3;
   if (!RIG_PILOTS.has(cfg.pilot)) {
@@ -2734,13 +2736,13 @@ function heroRig(cfg, mats) {
     mesh([G(new T.TorusGeometry(.3, .04, 10, 32), 0, 0, 0, 0, Math.PI / 2, 0), G(new T.CylinderGeometry(.09, .09, .1, 14), -.34, 0, 0, 0, 0, Math.PI / 2), G(new T.CylinderGeometry(.09, .09, .1, 14), .34, 0, 0, 0, 0, Math.PI / 2), G(new T.CylinderGeometry(.015, .015, .22, 6), .14, .38, -.05), G(new T.SphereGeometry(.045, 10, 8), .14, .5, -.05)], mats.dark, head);
     detail.push(mesh([G(rbox(.46, .2, .04, .05), 0, .02, .27)], mats.visor || mats.glass, head));            // écran du visage
   } else {
-    mesh([G(new T.SphereGeometry(style === 'heros' ? .34 : .3, 32, 24), 0, 0, 0, 0, 0, 0, 1, .95, .94), G(new T.SphereGeometry(.05, 12, 10), 0, -.07, style === 'heros' ? .33 : .3)], mats.skin, head);
+    mesh([G(new T.SphereGeometry(style === 'heros' ? .325 : .295, 32, 24), 0, 0, 0, 0, 0, 0, 1, .95, .94), G(new T.SphereGeometry(.05, 12, 10), 0, -.07, style === 'heros' ? .33 : .3)], mats.skin, head);
     for (const s of [-1, 1]) cheek.push(G(new T.SphereGeometry(.05, 10, 8), s * .19, -.1, .24, 0, 0, 0, 1, .6, .4));
     detail.push(mesh(cheek, stdMat('#ff8fa3', .7, 0), head));
   }
   if (style === 'heros') {
     mesh([G(new T.SphereGeometry(.355, 32, 16, 0, TAU, 0, Math.PI * .44), 0, .1, -.03, 0, 0, 0, 1.02, 1.05, 1), G(new T.ConeGeometry(.09, .26, 10), .06, .38, .1, .6, 0, -.3)], mats.helm, head);
-    const gog = [], lens = []; for (const s of [-1, 1]) { gog.push(G(new T.TorusGeometry(.07, .024, 8, 18), s * .11, .3, .19, -1.1)); lens.push(G(new T.CircleGeometry(.055, 16), s * .11, .3, .19, -1.1)); }
+    const gog = [], lens = []; for (const s of [-1, 1]) { gog.push(G(new T.TorusGeometry(.07, .024, 8, 18), s * .11, .29, .3, -.55)); lens.push(G(new T.CircleGeometry(.055, 16), s * .11, .29, .3, -.55)); }
     detail.push(mesh(gog, mats.metal, head), mesh(lens, mats.glass, head));
   } else if (style === 'casquette') {   // casquette à visière, mèches et oreilles
     mesh([G(new T.SphereGeometry(.318, 28, 12, 0, TAU, 0, Math.PI * .47), 0, .03, -.01), G(rbox(.42, .045, .3, .022), 0, .1, .33, .14, 0, 0), G(new T.SphereGeometry(.035, 10, 8), 0, .34, 0)], mats.helm, head);
@@ -2755,7 +2757,7 @@ function heroRig(cfg, mats) {
     detail.push(mesh([G(new T.SphereGeometry(.385, 28, 10, Math.PI / 2 - .9, 1.8, .42, .38), 0, .02, -.02)], mats.visor, head));
   }
   for (const s of [-1, 1]) {
-    whites.push(robot ? G(rbox(.1, .07, .02, .03), s * .11, 0, 0) : G(new T.SphereGeometry(.082, 18, 12), s * .115, 0, 0, 0, 0, 0, 1, 1.15, .55)); pupils.push(G(new T.SphereGeometry(robot ? .028 : .043, 14, 10), s * (robot ? .11 : .115), 0, robot ? .012 : .042));
+    whites.push(robot ? G(rbox(.1, .07, .02, .03), s * .11, 0, 0) : G(new T.SphereGeometry(.07, 18, 12), s * .115, 0, 0, 0, 0, 0, 1, 1.15, .32)); pupils.push(G(new T.SphereGeometry(robot ? .028 : .034, 14, 10), s * (robot ? .11 : .115), 0, robot ? .012 : .023, 0, 0, 0, 1, 1, robot ? 1 : .4));
     brows.push(G(new T.CapsuleGeometry(.022, .09, 4, 8), s * .12, 0, 0, 0, 0, Math.PI / 2 + s * .18));
   }
   const eyesG = new T.Group(); eyesG.position.set(0, robot ? .02 : -.01, robot ? .3 : style === 'heros' ? .28 : .25); head.add(eyesG); detail.push(mesh(whites, robot ? glowMat('#2ee6ff') : stdMat('#ffffff', .4, 0), eyesG), mesh(pupils, robot ? glowMat('#ffffff') : stdMat('#1a1630', .2, 0), eyesG));
@@ -2768,7 +2770,9 @@ function heroRig(cfg, mats) {
   const sleeve = stdMat(cfg.color, .55, .05), seg = () => { const m = new T.Mesh(unit, sleeve); m.castShadow = true; root.add(m); return m; };
   const arms = [-1, 1].map((s) => ({ s, up: seg(), lo: seg(), hand: (() => { const h = new T.Mesh(new T.SphereGeometry(.085, 12, 10), mats.glove); h.castShadow = true; root.add(h); return h; })() }));
   for (const A of arms) detail.push(A.hand, A.up, A.lo); detail.push(mouth);   // loin : bras et mains masqués aussi (budget d'appels Samsung)
-  return { detail, far: false, root, torso, head, eyes: [eyesG], brows: [browG], mouth, open, wheel, spin, arms, ang: 0, blink: 2 + Math.random() * 3, cheer: 0, _a: V3(), _b: V3(), _c: V3(), _q: new T.Quaternion(), _y: V3(0, 1, 0) };
+  const rig = { detail, far: false, root, torso, head, eyes: [eyesG], brows: [browG], mouth, open, wheel, spin, arms, ang: 0, blink: 2 + Math.random() * 3, cheer: 0, _a: V3(), _b: V3(), _c: V3(), _q: new T.Quaternion(), _y: V3(0, 1, 0) };
+  if (window.WKPilotesPrototype) window.WKPilotesPrototype.habiller(T, cfg, mats, rig);
+  return rig;
 }
 // Place une capsule unitaire entre deux points (rayon r).
 function heroSeg(m, a, b, r, R) { const d = R._c.subVectors(b, a), L = d.length(); m.position.copy(a).add(b).multiplyScalar(.5); m.quaternion.setFromUnitVectors(R._y, d.divideScalar(L || 1)); m.scale.set(r * 2, Math.max(.01, L) / 2, r * 2); }
@@ -10505,3 +10509,4 @@ if (window.TK_TEST) (function testPanel() {
 window.__TK = { buildWorldSteps, disposeWorld, QAUTO, adaptPerf, PERF, setInstZone: (v) => { INST_ZONE = v; }, setDecorLeger: (v) => { DECOR_LEGER = !!v; delete DECOR.bush; }, startAttract, simStep, netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, updateItems, throwFwd, FRONT_TRAPS, onNetEvent, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, videoReady, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner, progOpen, weekDefs, updateObstacles, bridgeAvoid, brAt, raftsAvoid, playerEmote, kartEmote, aiControl, collideKarts, openStudio, toMenu, zoneEnv, studioSurfAt, obstacleHits };
 Object.assign(window.__TK, { Graphics, adaptPerf, enhancedGraphics, gravPulse, gravExposed, gravSurf, gravAvail, aiUse13x, GCUT_T, ICONS, ITEM_FR, heroAnimate, QUIZ });
 })();
+

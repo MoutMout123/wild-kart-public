@@ -1,4 +1,6 @@
-WILD KART — VERSION TEST test-019c98c
+WILD KART — VERSION TEST test-beb30ee
 Adresse : https://moutmout123.github.io/wild-kart-public/test/
-Export de refonte-26-audit-production (019c98cbd30480de36c1eb1c59bb1af0ffb2ed1e).
-Séparée du jeu officiel : service worker et cache propres (portée test/), stockage local préfixé « wktest: », mise à jour limitée à test/.
+Export de refonte-26-audit-production (beb30eeb4468b930cba4e2883249c7a170f4bc29).
+19 carrosseries et cinq pilotes retravaillés, modèles originaux pour essai.
+Version officielle préservée ; service worker et cache propres à test/, stockage wktest:.
+Contrôles Node et géométriques passés. npm test complet non réussi faute de Chrome local ; WebGL et Samsung non certifiés.
