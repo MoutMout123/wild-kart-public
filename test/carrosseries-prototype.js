@@ -33,7 +33,9 @@
     function moteur(z = -1.35, y = .88, single = true) {
       B('metal', .58, .34, .42, .05, 0, y, z);for (let i = 0; i < 4; i++) B('metal', .68, .024, .46, .008, 0, y - .12 + i * .08, z);
       B('plast', .34, .1, .3, .025, 0, y + .22, z);
-      for (const side of single ? [1] : [-1, 1]) { tube('metal', [[side * .24, y - .05, z], [side * .5, y - .02, z - .15], [side * .48, y, z - .48]], .06);cyl('metal', .1, .27, side * .48, y, z - .5, Math.PI / 2);cyl('dark', .07, .008, side * .48, y, z - .64, Math.PI / 2); }
+      const sorties = single ? [1] : [-1, 1];
+      flames = sorties.map(side => ({ x: side * .48, y, z: z - .66, s: .8 }));
+      for (const side of sorties) { tube('metal', [[side * .24, y - .05, z], [side * .5, y - .02, z - .15], [side * .48, y, z - .48]], .06);cyl('metal', .1, .27, side * .48, y, z - .5, Math.PI / 2);cyl('dark', .07, .008, side * .48, y, z - .64, Math.PI / 2); }
     }
     // Châssis distinct de l'habillage, avec attaches vers les centres de roues du jeu.
     for (const side of [-1, 1]) {
@@ -44,12 +46,12 @@
     B('plast', .64, .13, .55, .05, 0, .68, -.39, -.08);B('plast', .64, .66, .15, .055, 0, 1.01, -.74, -.15);
     for (const side of [-1, 1]) { tube('dark', [[side * .29, .7, -.12], [side * .31, .86, -.55], [side * .27, 1.3, -.79]], .04);tube('paint', [[side * .45, .7, .45], [side * .47, .76, -.22], [side * .43, .91, -.8]], .04); }
     tube('metal', [[0, .38, .65], [0, .76, .46], [0, 1.17, .25]], .026);
-    let flames = [{ x: .48, y: .88, z: -1.99, s: .8 }];
+    let flames = [];
     switch (body) {
       case 'bolide': {
         hood([[.52, .32, .77, .4], [1.05, .26, .64, .32], [1.65, .16, .5, .34], [2.16, .06, .43, .37]]);
         sills(.65, 'paint', .68, .22, .55);vents(.91, .54, -.25);wing(-1.55, 1.29, 2.05);
-        P('accent', [[1.94, .98, .37, .32], [2.12, 1.02, .4, .32], [2.3, .94, .34, .3]]);moteur(-1.28, .8, false);flames = [{ x: -.48, y: .8, z: -1.92, s: .8 }, { x: .48, y: .8, z: -1.92, s: .8 }];break;
+        P('accent', [[1.94, .98, .37, .32], [2.12, 1.02, .4, .32], [2.3, .94, .34, .3]]);moteur(-1.28, .8, false);break;
       }
       case 'libellule': {
         hood([[.53, .46, .83, .45], [.95, .66, .83, .4], [1.43, .5, .67, .4], [1.72, .16, .59, .46]], false);sills(.78, 'paint', .7, .22);ailes(true, true, 'paint', .72);lamps(1.66, .66, .32, .1);
@@ -145,7 +147,7 @@
       }
     }
     for (const side of [-1, 1]) B('feu', .18, .06, .035, .018, side * .43, .58, -1.7);
-    return { flames, deco };
+    return { flames, deco, echappementIntegre: true };
   }
   root.WKCarrosseriesPrototype = { construire, noms: NOMS, avant: AVANT, largeur: LARGEUR, version: 'lot-19-01' };
 })(typeof window !== 'undefined' ? window : globalThis);

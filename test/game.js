@@ -2571,7 +2571,8 @@ function kartGeometry(cfg) {
       const n = hit.face.normal.clone(); if (n.z * dz < .2) continue; const d = new T.CylinderGeometry(rr, rr * 1.08, .05, 18); d.applyMatrix4(new T.Matrix4().compose(hit.point.clone().addScaledVector(n, .012), new T.Quaternion().setFromUnitVectors(new T.Vector3(0, 1, 0), n), new T.Vector3(1, 1, 1))); add(key, d);
       const ring = new T.TorusGeometry(rr * 1.05, .018, 6, 18); ring.applyMatrix4(new T.Matrix4().compose(hit.point.clone().addScaledVector(n, .02), new T.Quaternion().setFromUnitVectors(new T.Vector3(0, 0, 1), n), new T.Vector3(1, 1, 1))); add('metal', ring); }
     tmp.geometry.dispose(); }
-  { for (const fp of flames) if (fp.s < 1.6) { const t = new T.CylinderGeometry(.12 * fp.s, .14 * fp.s, .28, 14, 1, true); t.rotateX(Math.PI / 2); t.translate(fp.x, fp.y, fp.z + .1); add('metal', t); const c = new T.CircleGeometry(.1 * fp.s, 14); c.rotateY(Math.PI); c.translate(fp.x, fp.y, fp.z + .2); add('dark', c); } }
+  // Les nouveaux constructeurs possèdent leurs vrais embouts : ne pas superposer l'ancien embout générique.
+  if (!(v2 && v2.echappementIntegre)) { for (const fp of flames) if (fp.s < 1.6) { const t = new T.CylinderGeometry(.12 * fp.s, .14 * fp.s, .28, 14, 1, true); t.rotateX(Math.PI / 2); t.translate(fp.x, fp.y, fp.z + .1); add('metal', t); const c = new T.CircleGeometry(.1 * fp.s, 14); c.rotateY(Math.PI); c.translate(fp.x, fp.y, fp.z + .2); add('dark', c); } }
   const merged = {}; for (const k in parts) { merged[k] = mergeGeos(parts[k]); merged[k].userData.keep = true; }
   if (deco) deco.userData.keep = true;
   const WD = WHEEL_DIM[cfg.wheels] || WHEEL_DIM.standard;
@@ -2632,7 +2633,7 @@ function kartMesh(cfgIn) {
   const trail = TRAILS[cfg.trail].c;
   const flameMat = new T.MeshBasicMaterial({ color: trail[0], transparent: true, opacity: .9, blending: T.AdditiveBlending, depthWrite: false });
   const flames = []; const fg = new T.ConeGeometry(.2, 1, 12); fg.rotateX(-Math.PI / 2); fg.translate(0, 0, -.5);
-  for (const fp of geo.flames) { const f = new T.Mesh(fg, flameMat); f.position.set(fp.x, fp.y, fp.z); f.scale.set(fp.s, fp.s, .01); f.userData.s = fp.s; tilt.add(f); flames.push(f); }
+  for (const fp of geo.flames) { const f = new T.Mesh(fg, flameMat); f.position.set(fp.x, fp.y, fp.z); f.scale.set(fp.s, fp.s, .01); f.userData.s = fp.s; f.visible = false; tilt.add(f); flames.push(f); }
   const shield = new T.Mesh(new T.SphereGeometry(2.1, 32, 20), new T.MeshBasicMaterial({ color: '#38b6ff', transparent: true, opacity: .26, depthWrite: false, blending: T.AdditiveBlending }));
   shield.position.y = .9; shield.visible = false; g.add(shield);
   tilt.traverse((o) => { if (o.isMesh && o.material !== flameMat) o.castShadow = true; });
@@ -8461,7 +8462,7 @@ function updateVisuals(dt) { emoTick(dt);
     if (M.rig) { const far = camera.position.distanceToSquared(M.g.position) > (qual().shadows ? 35 * 35 : 16 * 16); if (far !== M.rig.far) { M.rig.far = far; for (const o of M.rig.detail) o.visible = !far; if (!far) M.rig.open.visible = false; } }
     if (M.rig && !M.rig.far) heroAnimate(M.rig, k, k.isPlayer && !G.autopilot ? st : clamp(-angDiff(k.h, k.vh) * 3 + (k.drift || 0) * .6, -1, 1), dt, now);
     const fl = k.boost > 0 ? 1.4 + Math.random() * .6 : (k.speed > 1 ? .25 : .05);
-    const tc = M.trail; for (const f of M.flames) { f.scale.z = lerp(f.scale.z, fl * (f.userData.s || 1) * .8 + .2 * fl, .5); f.material.color.set(k.boost > 0 ? tc[Math.floor(now * 12) % tc.length] : tc[0]); }
+    const tc = M.trail; for (const f of M.flames) { f.visible = true; f.scale.z = lerp(f.scale.z, fl * (f.userData.s || 1) * .8 + .2 * fl, .5); f.material.color.set(k.boost > 0 ? tc[Math.floor(now * 12) % tc.length] : tc[0]); }
     M.shield.visible = k.shield > 0; if (k.shield > 0) M.shield.scale.setScalar(1 + Math.sin(now * 8) * .04);
     if (k.bubble > 0 && !M.bub) { M.bub = new T.Mesh(new T.SphereGeometry(2.4, 24, 16), new T.MeshStandardMaterial({ color: '#bfefff', transparent: true, opacity: .35, roughness: .05, metalness: .2, emissive: '#7fdfff', emissiveIntensity: .25, depthWrite: false })); M.bub.position.y = 1; M.g.add(M.bub); }
     if (M.bub) { M.bub.visible = k.bubble > 0; if (k.bubble > 0) M.bub.scale.setScalar(1 + Math.sin(now * 6) * .05); }

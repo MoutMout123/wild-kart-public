@@ -116,7 +116,7 @@
       boite('feu', .22, .07, .05, .02, s * .4, .67, -1.73);
     }
     boite('ivory', 1.3, .21, .18, .06, 0, .48, -1.73);
-    return { flames: [{ x: .5, y: .9, z: -1.96, s: .8 }], deco };
+    return { flames: [{ x: .5, y: .9, z: -1.96, s: .8 }], deco, echappementIntegre: true };
   }
   root.WKEquilibrePrototype = { construire, outillage, version: 'equilibre-temoin-01' };
 })(typeof window !== 'undefined' ? window : globalThis);
