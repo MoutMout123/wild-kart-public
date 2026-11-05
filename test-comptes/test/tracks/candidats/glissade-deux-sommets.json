@@ -1,0 +1,574 @@
+{
+  "schemaVersion": 1,
+  "id": "glissade",
+  "name": "Pic de la Glissade",
+  "biome": "snow",
+  "status": "relief refait",
+  "route": {
+    "closed": true,
+    "nodes": [
+      {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          220,
+          2,
+          0
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          420,
+          8,
+          30
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          560,
+          20,
+          120
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          600,
+          35,
+          260
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          540,
+          49,
+          380
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          420,
+          62,
+          440
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          280,
+          66,
+          440
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          160,
+          66,
+          500
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          80,
+          62,
+          600
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -60,
+          48,
+          640
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -200,
+          32,
+          600
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -280,
+          18,
+          480
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -300,
+          8,
+          340
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -260,
+          3,
+          200
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -160,
+          0,
+          60
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -80,
+          0,
+          10
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      }
+    ]
+  },
+  "specials": {
+    "glide": [
+      [
+        0.565,
+        0.605
+      ]
+    ],
+    "tunnels": [
+      [
+        0.1295,
+        0.1455
+      ]
+    ],
+    "warp": [
+      {
+        "type": "wall",
+        "angle": 65,
+        "side": 1,
+        "from": 0.7446,
+        "to": 0.8014
+      }
+    ],
+    "massifs": [
+      {
+        "nom": "Pic de la Glissade — deux-sommets",
+        "pics": [
+          {
+            "x": -1,
+            "z": 368,
+            "h": 214,
+            "r": 240,
+            "k": 0.8
+          },
+          {
+            "x": 249,
+            "z": 193,
+            "h": 250,
+            "r": 240,
+            "k": 0.8
+          },
+          {
+            "x": 381,
+            "z": 18,
+            "h": 106,
+            "r": 113,
+            "k": 0.8
+          }
+        ],
+        "rugosite": 0.2,
+        "falaise": 14,
+        "toit": 30
+      }
+    ],
+    "vivants": []
+  },
+  "alternatives": [
+    {
+      "from": 0.6475,
+      "to": 0.8475,
+      "mid": [
+        [
+          -184,
+          575,
+          32
+        ],
+        [
+          -227,
+          502,
+          22
+        ],
+        [
+          -256,
+          419,
+          14
+        ],
+        [
+          -269,
+          330,
+          7
+        ]
+      ],
+      "width": 13,
+      "side": 1,
+      "offroad": false,
+      "label": "POUDREUSE",
+      "boost": false,
+      "narrow": true,
+      "ai": 0.4
+    },
+    {
+      "from": 0.1689,
+      "to": 0.4059,
+      "mid": [
+        [
+          437,
+          150,
+          38
+        ],
+        [
+          420,
+          250,
+          53
+        ],
+        [
+          448,
+          335,
+          60
+        ]
+      ],
+      "width": 13,
+      "side": 1,
+      "narrow": true,
+      "label": "ARÊTE DES NEIGES",
+      "ai": 0.25,
+      "open": true,
+      "role": "risque",
+      "boost": true
+    },
+    {
+      "from": 0.4317,
+      "to": 0.5317,
+      "mid": [
+        [
+          321,
+          451,
+          66
+        ],
+        [
+          291,
+          466,
+          73
+        ],
+        [
+          265,
+          486,
+          82
+        ],
+        [
+          215,
+          517,
+          74
+        ],
+        [
+          176,
+          538,
+          67
+        ]
+      ],
+      "width": 16,
+      "side": 1,
+      "label": "ENVOL",
+      "ai": 0.45,
+      "envol": true,
+      "role": "envol",
+      "vol": [
+        2,
+        4
+      ]
+    }
+  ],
+  "checkpoints": [
+    {
+      "id": "start",
+      "at": 0
+    },
+    {
+      "id": "halfway",
+      "at": 0.5
+    }
+  ],
+  "art": {
+    "zones": [],
+    "landmarks": [],
+    "scatter": {
+      "seed": 74123,
+      "minimumRoadDistance": 8
+    }
+  },
+  "legacy": {
+    "id": "glissade",
+    "name": "Pic de la Glissade",
+    "desc": "Monte les lacets jusqu’au col, traverse la montagne puis plane vers la vallée. L’arête des neiges coupe l’ascension et la poudreuse récompense les turbos.",
+    "cup": 3,
+    "level": 3,
+    "laps": 3,
+    "width": 26,
+    "glideH": 9,
+    "theme": {
+      "sky": [
+        "#0b1035",
+        "#3a4a8f"
+      ],
+      "fog": "#2e3a78",
+      "fogN": 120,
+      "fogF": 700,
+      "ground": "snow",
+      "road": "#40455a",
+      "curb": [
+        "#7c4dff",
+        "#eef4ff"
+      ],
+      "barrier": [
+        "#38b6ff",
+        "#eef4ff"
+      ],
+      "skirt": "#5d6684",
+      "hemi": [
+        "#a9bcff",
+        "#3a4270",
+        1.4
+      ],
+      "sun": "#bcd0ff",
+      "sunI": 1.7,
+      "decor": "snow",
+      "night": true,
+      "terrain": {
+        "h": 90,
+        "seed": 17,
+        "ridges": true
+      },
+      "music": {
+        "bpm": 146,
+        "root": 45,
+        "prog": [
+          [
+            0,
+            3,
+            7
+          ],
+          [
+            -4,
+            0,
+            3
+          ],
+          [
+            3,
+            7,
+            10
+          ],
+          [
+            -2,
+            2,
+            5
+          ]
+        ]
+      }
+    },
+    "boosts": [
+      [
+        0.202,
+        0
+      ],
+      [
+        0.438,
+        0.3
+      ],
+      [
+        0.72,
+        -0.3
+      ]
+    ],
+    "items": [
+      0.06,
+      0.3,
+      0.622,
+      0.824
+    ],
+    "tricks": [
+      0.0881
+    ],
+    "zones": [],
+    "obst": {
+      "kinds": [
+        "rollers",
+        "walkers",
+        "rollers"
+      ]
+    },
+    "obstZones": 3,
+    "pilot": "alpine"
+  },
+  "concepteur": {
+    "intention": "deux-sommets",
+    "graine": 108,
+    "decisions": [
+      "2 sommets séparés de ≥ 220 m",
+      "épaule rocheuse ajoutée au-dessus du tunnel",
+      "tunnel 0.1295-0.1455 (40 m)",
+      "POUDREUSE en arc intérieur 0.6475-0.8475",
+      "ENVOL 0.4317-0.5317 à l'intérieur du virage",
+      "avalanche non placée : aucune pente de +30 m au bord de la route hors bouches et tunnel"
+    ],
+    "base": "glissade",
+    "corrections": [
+      {
+        "quoi": "ENVOL : point de passage 5 lissé (cassure 6.1°/m fr 0.8553)",
+        "avant": 1,
+        "apres": 2,
+        "bloquantsApres": 0,
+        "gardee": false
+      }
+    ],
+    "controle": [
+      {
+        "graine": 108,
+        "corrections": [
+          {
+            "quoi": "ENVOL : point de passage 5 lissé (cassure 6.1°/m fr 0.8553)",
+            "avant": 1,
+            "apres": 2,
+            "bloquantsApres": 0,
+            "gardee": false
+          }
+        ],
+        "bloquants": 0,
+        "aCorriger": 1,
+        "mineurs": 10,
+        "ms": 1914,
+        "premiers": [
+          "C À CORRIGER cassure de direction de la route affichée 6.1°/m fr 0.8553"
+        ]
+      }
+    ]
+  }
+}

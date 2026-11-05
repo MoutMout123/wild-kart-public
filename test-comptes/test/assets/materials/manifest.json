@@ -1,0 +1,259 @@
+{
+  "license": "CC0-1.0",
+  "licenseUrl": "https://polyhaven.com/license",
+  "downloaded": "2026-10-28",
+  "assets": [
+    {
+      "id": "asphalt_02",
+      "role": "albedo",
+      "file": "asphalt_02-albedo.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/asphalt_02/asphalt_02_diff_1k.jpg",
+      "page": "https://polyhaven.com/a/asphalt_02",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 731707,
+      "sha256": "1aa5ce99f58a625c71d48cfc3e68b65ca85ccb00f39e045c0a928608a0ea25ed",
+      "variants": {
+        "pc": {
+          "file": "pc/asphalt_02-albedo.webp",
+          "width": 1024,
+          "bytes": 455162,
+          "sha256": "ed86c9167c024e5966cd4865d01bd001d328cc4b83d16569df54eb49bc412c79"
+        },
+        "mobile": {
+          "file": "mobile/asphalt_02-albedo.webp",
+          "width": 512,
+          "bytes": 101524,
+          "sha256": "48f210f6776f1b6df5e0692a4126d0ca0bd8ef7c442d389aefa9b0f9e0aaf424"
+        }
+      }
+    },
+    {
+      "id": "asphalt_02",
+      "role": "normal",
+      "file": "asphalt_02-normal.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/asphalt_02/asphalt_02_nor_gl_1k.jpg",
+      "page": "https://polyhaven.com/a/asphalt_02",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 1240122,
+      "sha256": "42a1c381b53204e83a982db2864479a30bc127bbdeebb1006f8ee51bff099df3",
+      "variants": {
+        "pc": {
+          "file": "pc/asphalt_02-normal.webp",
+          "width": 1024,
+          "bytes": 593200,
+          "sha256": "a2e6dfd73f7c097e62dd793f17715b7937858edbd68353ec42b0c12389a43ce6"
+        },
+        "mobile": {
+          "file": "mobile/asphalt_02-normal.webp",
+          "width": 512,
+          "bytes": 126692,
+          "sha256": "8f5aaaa5711ab0b75bcf4659d579ae91626069a03dfafc9846fedccd02bd6209"
+        }
+      }
+    },
+    {
+      "id": "asphalt_02",
+      "role": "roughness",
+      "file": "asphalt_02-roughness.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/asphalt_02/asphalt_02_rough_1k.jpg",
+      "page": "https://polyhaven.com/a/asphalt_02",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 544032,
+      "sha256": "70ba3edc65525eb4dc366cf010ca7ae0bd34e0251ff0225c2dad627a873d0712",
+      "variants": {
+        "pc": {
+          "file": "pc/asphalt_02-roughness.webp",
+          "width": 1024,
+          "bytes": 356594,
+          "sha256": "5756cea1d95f9750ebbc664e3d70dbea09abfe0276b09451d45c288c46199dba"
+        },
+        "mobile": {
+          "file": "mobile/asphalt_02-roughness.webp",
+          "width": 512,
+          "bytes": 92420,
+          "sha256": "21e49f36313d1dd3d42cd3c936771fd7ed4b22cdcde8660f0ac86fdf5da22b0e"
+        }
+      }
+    },
+    {
+      "id": "sandstone_cracks",
+      "role": "albedo",
+      "file": "sandstone_cracks-albedo.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/sandstone_cracks/sandstone_cracks_diff_1k.jpg",
+      "page": "https://polyhaven.com/a/sandstone_cracks",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 696657,
+      "sha256": "cf381bbcf60aac570ce895719025a2b7adae7c03369b3d545b4f52f94e57e0e9",
+      "variants": {
+        "pc": {
+          "file": "pc/sandstone_cracks-albedo.webp",
+          "width": 1024,
+          "bytes": 375678,
+          "sha256": "08207981ee7c0bbee54f59a53dd209e449b408b1281fabec3e4f7cfa1a63f33a"
+        },
+        "mobile": {
+          "file": "mobile/sandstone_cracks-albedo.webp",
+          "width": 512,
+          "bytes": 82308,
+          "sha256": "728367a5983e3709ef97a66ff8367d68e312ea497b233a9ab6e694e7ea429e00"
+        }
+      }
+    },
+    {
+      "id": "sandstone_cracks",
+      "role": "normal",
+      "file": "sandstone_cracks-normal.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/sandstone_cracks/sandstone_cracks_nor_gl_1k.jpg",
+      "page": "https://polyhaven.com/a/sandstone_cracks",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 1307622,
+      "sha256": "cb983540cae33979e79862fe27b4ec23a5d41c627230d3730e9d5ff6671859f9",
+      "variants": {
+        "pc": {
+          "file": "pc/sandstone_cracks-normal.webp",
+          "width": 1024,
+          "bytes": 618934,
+          "sha256": "462745adefbf2273a6090992d64e3a16c00caec435d872ce4887119fdccaced9"
+        },
+        "mobile": {
+          "file": "mobile/sandstone_cracks-normal.webp",
+          "width": 512,
+          "bytes": 146082,
+          "sha256": "ce00cd999f4c7c5983739d56e15812c167ade218fc5c930da62b362647b5c166"
+        }
+      }
+    },
+    {
+      "id": "sandstone_cracks",
+      "role": "roughness",
+      "file": "sandstone_cracks-roughness.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/sandstone_cracks/sandstone_cracks_rough_1k.jpg",
+      "page": "https://polyhaven.com/a/sandstone_cracks",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 352483,
+      "sha256": "4995b3ce148ceef48ea3bc0b83a8799fd0bf38e00c75677ff2de857a7d4cbdbb",
+      "variants": {
+        "pc": {
+          "file": "pc/sandstone_cracks-roughness.webp",
+          "width": 1024,
+          "bytes": 171940,
+          "sha256": "d25ab5efc7cda4f21aa812b6b3b647c4f118d2582e3407d7ca302051a3f2ef5e"
+        },
+        "mobile": {
+          "file": "mobile/sandstone_cracks-roughness.webp",
+          "width": 512,
+          "bytes": 40364,
+          "sha256": "1491120231cc6eec9b843288ab26653cffe6b65eb8678ea132a5530b75417486"
+        }
+      }
+    },
+    {
+      "id": "clean_asphalt",
+      "role": "albedo",
+      "file": "clean_asphalt-albedo.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/clean_asphalt/clean_asphalt_diff_1k.jpg",
+      "page": "https://polyhaven.com/a/clean_asphalt",
+      "authors": {
+        "Dimitrios Savva": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 697630,
+      "sha256": "ddf9224e9cfa3eb2998d9097e4cd34bd3630c85e0e6798e5a0a000415a684083",
+      "variants": {
+        "pc": {
+          "file": "pc/clean_asphalt-albedo.webp",
+          "width": 1024,
+          "bytes": 222260,
+          "sha256": "8f0033f87a2174fc550d4e545a73799d9a5055e58cecf6eedae3e00df92a625b"
+        },
+        "mobile": {
+          "file": "mobile/clean_asphalt-albedo.webp",
+          "width": 512,
+          "bytes": 21410,
+          "sha256": "e2faef8a28e66eef568c54f0722dd1576f721960f80fe3ae88b95de8a7b31e28"
+        }
+      }
+    },
+    {
+      "id": "clean_asphalt",
+      "role": "normal",
+      "file": "clean_asphalt-normal.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/clean_asphalt/clean_asphalt_nor_gl_1k.jpg",
+      "page": "https://polyhaven.com/a/clean_asphalt",
+      "authors": {
+        "Dimitrios Savva": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 776360,
+      "sha256": "99cdf6b6f0b8a319d206e1d561bf2a5d9933d8d33e1d685f8e25388101d21310",
+      "variants": {
+        "pc": {
+          "file": "pc/clean_asphalt-normal.webp",
+          "width": 1024,
+          "bytes": 360344,
+          "sha256": "ea0044cfdcb832faa48386c5af62478c0e23ad548b30d53e62cf9527edb1befa"
+        },
+        "mobile": {
+          "file": "mobile/clean_asphalt-normal.webp",
+          "width": 512,
+          "bytes": 29222,
+          "sha256": "7ce6239a0097849326cd8467e5d781eac7a50513eab0cb28b600b41cc8c30bc5"
+        }
+      }
+    },
+    {
+      "id": "clean_asphalt",
+      "role": "roughness",
+      "file": "clean_asphalt-roughness.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/clean_asphalt/clean_asphalt_rough_1k.jpg",
+      "page": "https://polyhaven.com/a/clean_asphalt",
+      "authors": {
+        "Dimitrios Savva": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 641634,
+      "sha256": "2280be133c104eb04370b625ebcc7f6709d2173b43ae2cd15a0074c26f492bf9",
+      "variants": {
+        "pc": {
+          "file": "pc/clean_asphalt-roughness.webp",
+          "width": 1024,
+          "bytes": 215156,
+          "sha256": "c4f3637a7b273335a0bd8b4c2a0d7a336f5653d534ef134d0607d119f6085405"
+        },
+        "mobile": {
+          "file": "mobile/clean_asphalt-roughness.webp",
+          "width": 512,
+          "bytes": 22848,
+          "sha256": "874fbc855677bf25d0cb387653eaab0be986b5609f534c5966c037a0f20c7359"
+        }
+      }
+    }
+  ]
+}

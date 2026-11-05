@@ -1,0 +1,539 @@
+{
+  "schemaVersion": 1,
+  "id": "barbecue",
+  "name": "Forteresse du Barbecue Infernal",
+  "biome": "ash",
+  "status": "relief refait",
+  "route": {
+    "closed": true,
+    "nodes": [
+      {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "width": 21,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          160,
+          9.5,
+          0
+        ],
+        "width": 21,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          240,
+          16.3,
+          30
+        ],
+        "width": 21,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          260,
+          19.1,
+          90
+        ],
+        "width": 21,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          200,
+          18.5,
+          130
+        ],
+        "width": 21,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          80,
+          15.7,
+          120
+        ],
+        "width": 21,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          20,
+          11.8,
+          160
+        ],
+        "width": 21,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          40,
+          8,
+          220
+        ],
+        "width": 21,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          160,
+          7,
+          240
+        ],
+        "width": 21,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          280,
+          8,
+          250
+        ],
+        "width": 21,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          340,
+          9,
+          300
+        ],
+        "width": 21,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          320,
+          10,
+          370
+        ],
+        "width": 21,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          200,
+          14.6,
+          380
+        ],
+        "width": 21,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          80,
+          19.8,
+          390
+        ],
+        "width": 21,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          0,
+          23.1,
+          440
+        ],
+        "width": 21,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -40,
+          22.9,
+          520
+        ],
+        "width": 21,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -140,
+          19.2,
+          540
+        ],
+        "width": 21,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -220,
+          13.4,
+          480
+        ],
+        "width": 21,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -240,
+          7.9,
+          380
+        ],
+        "width": 21,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -220,
+          4.2,
+          260
+        ],
+        "width": 21,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -200,
+          2.3,
+          150
+        ],
+        "width": 21,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -150,
+          1.5,
+          60
+        ],
+        "width": 21,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -80,
+          0.8,
+          10
+        ],
+        "width": 21,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      }
+    ]
+  },
+  "specials": {
+    "glide": [
+      [
+        0.6752,
+        0.7052
+      ]
+    ],
+    "tunnels": [],
+    "warp": []
+  },
+  "alternatives": [
+    {
+      "from": 0.0698,
+      "to": 0.1693,
+      "mid": [
+        [
+          210,
+          48,
+          18.9
+        ]
+      ],
+      "width": 14,
+      "side": 1,
+      "narrow": true,
+      "label": "PONT DE LAVE",
+      "ai": 0.5
+    },
+    {
+      "from": 0.3368,
+      "to": 0.4572,
+      "mid": [
+        [
+          246,
+          297,
+          26.7
+        ]
+      ],
+      "width": 13,
+      "side": 1,
+      "narrow": true,
+      "label": "RISQUÉ",
+      "ai": 0.35,
+      "open": true,
+      "role": "risque"
+    }
+  ],
+  "checkpoints": [
+    {
+      "id": "start",
+      "at": 0
+    },
+    {
+      "id": "halfway",
+      "at": 0.5
+    }
+  ],
+  "art": {
+    "zones": [],
+    "landmarks": [],
+    "scatter": {
+      "seed": 74123,
+      "minimumRoadDistance": 8
+    }
+  },
+  "legacy": {
+    "id": "barbecue",
+    "name": "Forteresse du Barbecue Infernal",
+    "desc": "Remonte les coulées refroidies jusqu’au rempart, saute au-dessus de la lave depuis la crête et redescends vers la forteresse.",
+    "cup": 4,
+    "level": 4,
+    "laps": 3,
+    "width": 21,
+    "glideH": 10,
+    "theme": {
+      "sky": [
+        "#1a0b14",
+        "#6b1f1a"
+      ],
+      "fog": "#3a1410",
+      "fogN": 150,
+      "fogF": 850,
+      "ground": "ash",
+      "road": "#3a3438",
+      "curb": [
+        "#ff6a1a",
+        "#2b2b3a"
+      ],
+      "barrier": [
+        "#ff6a1a",
+        "#2b2b3a"
+      ],
+      "skirt": "#2a2228",
+      "hemi": [
+        "#ff9a6a",
+        "#2a1a1a",
+        1.5
+      ],
+      "sun": "#ffb080",
+      "sunI": 2.1,
+      "decor": "volcano",
+      "night": true,
+      "lava": true,
+      "terrain": {
+        "h": 44,
+        "drop": 26,
+        "seed": 47,
+        "ridges": true
+      },
+      "music": {
+        "bpm": 156,
+        "root": 45,
+        "prog": [
+          [
+            0,
+            3,
+            7
+          ],
+          [
+            1,
+            5,
+            8
+          ],
+          [
+            -2,
+            2,
+            5
+          ],
+          [
+            0,
+            3,
+            7
+          ]
+        ]
+      }
+    },
+    "boosts": [
+      [
+        0.202,
+        0
+      ],
+      [
+        0.494,
+        0.3
+      ],
+      [
+        0.736,
+        -0.3
+      ]
+    ],
+    "items": [
+      0.1,
+      0.3,
+      0.55,
+      0.8
+    ],
+    "edges": [
+      [
+        0.2216,
+        0.2827,
+        0
+      ],
+      [
+        0.5105,
+        0.6047,
+        1
+      ]
+    ],
+    "zones": [
+      [
+        0.14,
+        0.36,
+        "desert"
+      ],
+      [
+        0.56,
+        0.8,
+        "lune"
+      ]
+    ],
+    "fortress": true,
+    "themeX": {
+      "lava": true
+    },
+    "obst": {
+      "jet": "lava",
+      "ball": "lava",
+      "kinds": [
+        "jets",
+        "crushers",
+        "balls",
+        "jets"
+      ]
+    },
+    "obstZones": 4,
+    "bridge": {
+      "branch": 0,
+      "from": 0.18,
+      "to": 0.84
+    }
+  },
+  "relief": {
+    "pass": "2026-10-30",
+    "maxGrade": 0.08,
+    "note": "altitudes refaites, tracé 2D et pipeline historique conservés"
+  }
+}

@@ -1,0 +1,618 @@
+{
+  "schemaVersion": 1,
+  "id": "cascade",
+  "name": "Cascades du Vertige",
+  "biome": "jungle",
+  "status": "coupe refaite",
+  "route": {
+    "closed": true,
+    "nodes": [
+      {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          200,
+          14.8,
+          0
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          380,
+          24.7,
+          40
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          500,
+          27.1,
+          140
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          540,
+          22.8,
+          280
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          480,
+          18,
+          400
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          360,
+          20,
+          440
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          240,
+          20,
+          420
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          120,
+          18,
+          460
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          60,
+          18.4,
+          580
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          100,
+          23.9,
+          700
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          220,
+          25.6,
+          760
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          360,
+          22.9,
+          780
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          480,
+          17.3,
+          840
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          520,
+          11.5,
+          960
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          440,
+          8.4,
+          1060
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          300,
+          9.5,
+          1090
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          160,
+          14.3,
+          1040
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          40,
+          20.2,
+          960
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -60,
+          23.7,
+          840
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -100,
+          22.8,
+          680
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -140,
+          17.8,
+          520
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -160,
+          11.2,
+          360
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -140,
+          5.6,
+          200
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -80,
+          2.1,
+          60
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      }
+    ]
+  },
+  "specials": {
+    "glide": [
+      [
+        0.2096,
+        0.2446
+      ]
+    ],
+    "tunnels": [],
+    "warp": [
+      {
+        "type": "wall",
+        "angle": 65,
+        "side": -1,
+        "from": 0.5167,
+        "to": 0.5884
+      },
+      {
+        "type": "loop",
+        "r": 22,
+        "from": 0.0673,
+        "to": 0.1297,
+        "allonge": "2026-11-03 : +25 échantillons de chaque côté (déviation entrée/sortie 32-36° → 0-6°)"
+      }
+    ]
+  },
+  "alternatives": [
+    {
+      "from": 0.1894,
+      "to": 0.2956,
+      "mid": [
+        [
+          372,
+          340,
+          35.9
+        ]
+      ],
+      "width": 16,
+      "side": 1,
+      "narrow": true,
+      "label": "ÉCLUSE DE LA CASCADE",
+      "tunnel": "aqua",
+      "ai": 0.4,
+      "water": true,
+      "role": "eau"
+    },
+    {
+      "from": 0.3684,
+      "to": 0.4795,
+      "mid": [
+        [
+          140,
+          648,
+          45.9
+        ],
+        [
+          210,
+          680,
+          47.9
+        ],
+        [
+          268,
+          720,
+          42.9
+        ]
+      ],
+      "width": 11,
+      "side": -1,
+      "narrow": true,
+      "label": "CORNICHE DES EMBRUNS",
+      "ai": 0.25,
+      "open": true,
+      "role": "risque",
+      "boost": true
+    },
+    {
+      "from": 0.265,
+      "to": 0.505,
+      "mid": [
+        [
+          378,
+          546.8,
+          28.1
+        ],
+        [
+          428.8,
+          745.7,
+          20.8
+        ]
+      ],
+      "width": 16,
+      "side": -1,
+      "label": "ENVOL",
+      "ai": 0.45,
+      "envol": true,
+      "role": "envol"
+    }
+  ],
+  "checkpoints": [
+    {
+      "id": "start",
+      "at": 0
+    },
+    {
+      "id": "halfway",
+      "at": 0.5
+    }
+  ],
+  "art": {
+    "zones": [],
+    "landmarks": [],
+    "scatter": {
+      "seed": 74123,
+      "minimumRoadDistance": 8
+    }
+  },
+  "legacy": {
+    "id": "cascade",
+    "name": "Cascades du Vertige",
+    "desc": "Grimpe le long des cascades à travers la jungle, boucle le grand looping au-dessus des chutes, plane vers le lagon et longe les falaises relevées.",
+    "cup": 6,
+    "level": 3,
+    "laps": 3,
+    "width": 24,
+    "glideH": 10,
+    "theme": {
+      "sky": [
+        "#2f8a6a",
+        "#d8f5d0"
+      ],
+      "fog": "#a8d4b2",
+      "fogN": 150,
+      "fogF": 860,
+      "ground": "jungle",
+      "road": "#5a5048",
+      "curb": [
+        "#ffc531",
+        "#2b2b3a"
+      ],
+      "barrier": [
+        "#3ee08f",
+        "#2b2b3a"
+      ],
+      "skirt": "#6a5038",
+      "hemi": [
+        "#e0ffd8",
+        "#2f6b3a",
+        1.7
+      ],
+      "sun": "#fff2d0",
+      "sunI": 2.7,
+      "decor": "jungle",
+      "night": false,
+      "terrain": {
+        "h": 85,
+        "drop": 26,
+        "seed": 23,
+        "blend": 42,
+        "ridges": true
+      },
+      "music": {
+        "bpm": 144,
+        "root": 53,
+        "prog": [
+          [
+            0,
+            4,
+            7
+          ],
+          [
+            2,
+            5,
+            9
+          ],
+          [
+            -3,
+            0,
+            4
+          ],
+          [
+            -5,
+            -1,
+            2
+          ]
+        ]
+      }
+    },
+    "boosts": [
+      [
+        0.402,
+        0
+      ],
+      [
+        0.694,
+        0.3
+      ],
+      [
+        0.744,
+        -0.3
+      ]
+    ],
+    "items": [
+      0.06,
+      0.332,
+      0.614,
+      0.8
+    ],
+    "tricks": [
+      0.6689
+    ],
+    "zones": [
+      [
+        0.14,
+        0.36,
+        "jungle"
+      ],
+      [
+        0.56,
+        0.8,
+        "ruines"
+      ]
+    ],
+    "musicStyle": "latin",
+    "obstZones": 3,
+    "themeX": {
+      "fog": "#a8d4b2",
+      "fogN": 150,
+      "fogF": 860,
+      "sun": "#fff2d0",
+      "terrain": {
+        "h": 85,
+        "drop": 26,
+        "seed": 23,
+        "blend": 42,
+        "ridges": true
+      }
+    },
+    "gates": [
+      {
+        "branch": 0,
+        "period": 26,
+        "phase": 0.3,
+        "mode": "branch"
+      }
+    ]
+  },
+  "cupUpgrade": {
+    "loop": [
+      0.081,
+      0.116
+    ]
+  },
+  "relief": {
+    "pass": "2026-10-30",
+    "maxGrade": 0.08,
+    "note": "altitudes refaites, tracé 2D et pipeline historique conservés"
+  }
+}

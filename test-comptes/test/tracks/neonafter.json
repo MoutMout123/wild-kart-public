@@ -1,0 +1,437 @@
+{
+  "schemaVersion": 1,
+  "id": "neonafter",
+  "name": "Ville Néon After",
+  "biome": "concrete",
+  "status": "non refait",
+  "route": {
+    "closed": true,
+    "nodes": [
+      {
+        "position": [
+          0,
+          1,
+          0
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          106,
+          2.7,
+          0
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          163,
+          5.1,
+          61
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          168,
+          7.8,
+          159
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          127,
+          10.6,
+          250
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          54,
+          13,
+          291
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -40,
+          14.8,
+          257
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -144,
+          15.8,
+          157
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -251,
+          15.9,
+          29
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -356,
+          15,
+          -78
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -452,
+          13.3,
+          -122
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -529,
+          10.9,
+          -91
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -575,
+          8.2,
+          -4
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -576,
+          5.4,
+          96
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -526,
+          3,
+          164
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -427,
+          1.2,
+          172
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -290,
+          0.2,
+          125
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -140,
+          0.1,
+          53
+        ],
+        "width": 24,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      }
+    ]
+  },
+  "specials": {
+    "glide": [],
+    "tunnels": [],
+    "warp": []
+  },
+  "alternatives": [
+    {
+      "from": 0.5,
+      "to": 0.6881,
+      "mid": [
+        [
+          -465,
+          -4,
+          20.2
+        ]
+      ],
+      "width": 13,
+      "side": -1,
+      "narrow": true,
+      "label": "RISQUÉ",
+      "ai": 0.35,
+      "open": true,
+      "role": "risque"
+    },
+    {
+      "from": 0.1891,
+      "to": 0.3484,
+      "mid": [
+        [
+          -2,
+          212,
+          13.2
+        ]
+      ],
+      "width": 14,
+      "side": 1,
+      "narrow": true,
+      "label": "RACCOURCI",
+      "tunnel": "fun",
+      "ai": 0.3,
+      "secret": true,
+      "role": "secret"
+    }
+  ],
+  "checkpoints": [
+    {
+      "id": "start",
+      "at": 0
+    },
+    {
+      "id": "halfway",
+      "at": 0.5
+    }
+  ],
+  "art": {
+    "zones": [],
+    "landmarks": [],
+    "scatter": {
+      "seed": 74123,
+      "minimumRoadDistance": 8
+    }
+  },
+  "legacy": {
+    "id": "neonafter",
+    "name": "Ville Néon After",
+    "desc": "La ville la nuit en huit : un pont au-dessus du carrefour, des taxis et des bus partout.",
+    "cup": 2,
+    "level": 2,
+    "laps": 3,
+    "width": 24,
+    "glideH": 9,
+    "theme": {
+      "sky": [
+        "#140a33",
+        "#4a1f6e"
+      ],
+      "fog": "#2a1450",
+      "fogN": 130,
+      "fogF": 720,
+      "ground": "concrete",
+      "road": "#2e2f3d",
+      "curb": [
+        "#ff2fa8",
+        "#2ee6ff"
+      ],
+      "barrier": [
+        "#2ee6ff",
+        "#1b1840"
+      ],
+      "skirt": "#3a3550",
+      "hemi": [
+        "#b48cff",
+        "#2a2050",
+        1.5
+      ],
+      "sun": "#c9b4ff",
+      "sunI": 1.6,
+      "decor": "city",
+      "night": true,
+      "music": {
+        "bpm": 150,
+        "root": 46,
+        "prog": [
+          [
+            0,
+            3,
+            7
+          ],
+          [
+            5,
+            8,
+            12
+          ],
+          [
+            3,
+            7,
+            10
+          ],
+          [
+            -2,
+            2,
+            5
+          ]
+        ]
+      }
+    },
+    "boosts": [
+      [
+        0.226,
+        0
+      ],
+      [
+        0.43,
+        0.3
+      ],
+      [
+        0.72,
+        -0.3
+      ]
+    ],
+    "items": [
+      0.06,
+      0.3,
+      0.55,
+      0.8
+    ],
+    "tricks": [
+      0.1401
+    ],
+    "zones": [
+      [
+        0.14,
+        0.36,
+        "foret"
+      ],
+      [
+        0.56,
+        0.8,
+        "plage"
+      ]
+    ],
+    "obst": {
+      "pillar": "cones",
+      "crush": "piston",
+      "car": "car",
+      "kinds": [
+        "traffic",
+        "crushers",
+        "traffic"
+      ]
+    },
+    "obstZones": 3
+  }
+}

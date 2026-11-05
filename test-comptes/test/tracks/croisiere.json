@@ -1,0 +1,632 @@
+{
+  "schemaVersion": 1,
+  "id": "croisiere",
+  "name": "Croisière Karaoké",
+  "biome": "tropic",
+  "status": "coupe refaite",
+  "route": {
+    "closed": true,
+    "nodes": [
+      {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          416,
+          18.1,
+          0
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          832,
+          29.7,
+          26
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          1170,
+          18.5,
+          130
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          1378,
+          5.1,
+          338
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          1404,
+          4,
+          624
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          1248,
+          6,
+          832
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          988,
+          18.2,
+          884
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          728,
+          28.3,
+          806
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          520,
+          29.6,
+          884
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          442,
+          23.6,
+          1092
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          546,
+          14,
+          1300
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          780,
+          12,
+          1404
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          1040,
+          6,
+          1456
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          1274,
+          8.7,
+          1586
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          1300,
+          19.8,
+          1820
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          1118,
+          28.4,
+          1976
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          806,
+          28.4,
+          2002
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          520,
+          19.6,
+          1924
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          234,
+          13.8,
+          1950
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -26,
+          13.3,
+          1846
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -182,
+          13.7,
+          1612
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -208,
+          15.4,
+          1300
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -312,
+          22.2,
+          1014
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -364,
+          21.2,
+          702
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -312,
+          8.2,
+          390
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -208,
+          0.1,
+          130
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -104,
+          0.1,
+          26
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      }
+    ]
+  },
+  "specials": {
+    "glide": [
+      [
+        0.7586,
+        0.7836
+      ]
+    ],
+    "tunnels": [],
+    "warp": [
+      {
+        "type": "loop",
+        "r": 22,
+        "from": 0.1,
+        "to": 0.1292,
+        "allonge": "2026-11-03 : +25 échantillons de chaque côté (déviation entrée/sortie 32-36° → 0-6°)"
+      }
+    ]
+  },
+  "alternatives": [
+    {
+      "from": 0.4862,
+      "to": 0.6235,
+      "mid": [
+        [
+          1099,
+          1658,
+          24
+        ]
+      ],
+      "width": 14,
+      "side": 1,
+      "narrow": true,
+      "label": "CABINES",
+      "tunnel": "fun",
+      "ai": 0.5
+    },
+    {
+      "from": 0.2959,
+      "to": 0.4192,
+      "mid": [
+        [
+          748,
+          949,
+          50.5
+        ]
+      ],
+      "width": 13,
+      "side": -1,
+      "narrow": true,
+      "label": "RISQUÉ",
+      "ai": 0.35,
+      "open": true,
+      "role": "risque"
+    },
+    {
+      "from": 0.8113,
+      "to": 0.967,
+      "mid": [
+        [
+          -208,
+          715,
+          21.2
+        ]
+      ],
+      "width": 14,
+      "side": 1,
+      "narrow": true,
+      "label": "RACCOURCI",
+      "tunnel": "aqua",
+      "ai": 0.3,
+      "secret": true,
+      "water": true,
+      "role": "secret"
+    }
+  ],
+  "checkpoints": [
+    {
+      "id": "start",
+      "at": 0
+    },
+    {
+      "id": "halfway",
+      "at": 0.5
+    }
+  ],
+  "art": {
+    "zones": [],
+    "landmarks": [],
+    "scatter": {
+      "seed": 74123,
+      "minimumRoadDistance": 8
+    }
+  },
+  "legacy": {
+    "id": "croisiere",
+    "name": "Croisière Karaoké",
+    "desc": "Monte sur les ponts du paquebot, boucle le looping de la proue, traverse la jungle de l’île et plane vers la marina.",
+    "cup": 5,
+    "level": 4,
+    "laps": 1,
+    "width": 26,
+    "glideH": 9,
+    "theme": {
+      "sky": [
+        "#2aa8ff",
+        "#c8f4ff"
+      ],
+      "fog": "#c4f0ff",
+      "fogN": 260,
+      "fogF": 1450,
+      "ground": "tropic",
+      "road": "#55566a",
+      "curb": [
+        "#2ee6c0",
+        "#fffdf7"
+      ],
+      "barrier": [
+        "#ff6f5a",
+        "#fffdf7"
+      ],
+      "skirt": "#c8a870",
+      "hemi": [
+        "#f0fbff",
+        "#c8b080",
+        1.8
+      ],
+      "sun": "#fff8e0",
+      "sunI": 3.1,
+      "decor": "tropic",
+      "night": false,
+      "terrain": {
+        "h": 26,
+        "seed": 95,
+        "drop": 18,
+        "min": -10
+      },
+      "music": {
+        "bpm": 128,
+        "root": 55,
+        "prog": [
+          [
+            0,
+            4,
+            7
+          ],
+          [
+            5,
+            9,
+            12
+          ],
+          [
+            -3,
+            0,
+            4
+          ],
+          [
+            7,
+            11,
+            14
+          ]
+        ]
+      }
+    },
+    "boosts": [
+      [
+        0.218,
+        0
+      ],
+      [
+        0.654,
+        0.3
+      ],
+      [
+        0.704,
+        -0.3
+      ]
+    ],
+    "items": [
+      0.06,
+      0.332,
+      0.55,
+      0.848
+    ],
+    "tricks": [
+      0.19
+    ],
+    "zones": [
+      [
+        0.14,
+        0.36,
+        "plage"
+      ],
+      [
+        0.56,
+        0.8,
+        "ville"
+      ]
+    ],
+    "sections": true,
+    "cruise": true,
+    "musicStyle": "latin",
+    "obst": {
+      "jet": "steam",
+      "kinds": [
+        "jets",
+        "walkers",
+        "bumpers",
+        "rollers"
+      ]
+    },
+    "obstZones": 5,
+    "rafts": {
+      "branch": 1,
+      "from": 0.22,
+      "to": 0.78
+    }
+  },
+  "cupUpgrade": {
+    "loop": [
+      0.1064,
+      0.1228
+    ]
+  },
+  "relief": {
+    "pass": "2026-10-30",
+    "maxGrade": 0.08,
+    "note": "altitudes refaites, tracé 2D et pipeline historique conservés"
+  }
+}

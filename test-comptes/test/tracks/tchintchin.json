@@ -1,0 +1,458 @@
+{
+  "schemaVersion": 1,
+  "id": "tchintchin",
+  "name": "Récif Tchin-Tchin",
+  "biome": "seabed",
+  "status": "relief refait",
+  "route": {
+    "closed": true,
+    "nodes": [
+      {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          160,
+          8,
+          0
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          260,
+          12.5,
+          0
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          300,
+          12.9,
+          15
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          340,
+          10.7,
+          32
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          380,
+          7.6,
+          40
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          520,
+          5.1,
+          40
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          640,
+          4.6,
+          100
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          680,
+          7.1,
+          220
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          620,
+          11.8,
+          330
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          480,
+          16.1,
+          370
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          320,
+          16.8,
+          360
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          200,
+          13.2,
+          420
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          60,
+          7.8,
+          440
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -80,
+          4.3,
+          380
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -140,
+          3.7,
+          260
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -130,
+          4.1,
+          120
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -70,
+          3,
+          30
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      }
+    ]
+  },
+  "specials": {
+    "glide": [
+      [
+        0.6216,
+        0.6616
+      ]
+    ],
+    "tunnels": [],
+    "warp": [
+      {
+        "type": "loop",
+        "r": 17,
+        "from": 0.0988,
+        "to": 0.206,
+        "shift": 42,
+        "allonge": "2026-11-03 : +25 échantillons de chaque côté (déviation entrée/sortie 32-36° → 0-6°)"
+      }
+    ]
+  },
+  "alternatives": [
+    {
+      "from": 0.3123,
+      "to": 0.5033,
+      "mid": [
+        [
+          584,
+          232,
+          12.3
+        ]
+      ],
+      "width": 14,
+      "side": 1,
+      "narrow": true,
+      "label": "GROTTE",
+      "tunnel": "fun",
+      "ai": 0.5
+    },
+    {
+      "from": 0.7093,
+      "to": 0.9125,
+      "mid": [
+        [
+          -35,
+          280,
+          15
+        ]
+      ],
+      "width": 13,
+      "side": 1,
+      "narrow": true,
+      "label": "RISQUÉ",
+      "ai": 0.35,
+      "open": true,
+      "role": "risque"
+    }
+  ],
+  "checkpoints": [
+    {
+      "id": "start",
+      "at": 0
+    },
+    {
+      "id": "halfway",
+      "at": 0.5
+    }
+  ],
+  "art": {
+    "zones": [],
+    "landmarks": [],
+    "scatter": {
+      "seed": 74123,
+      "minimumRoadDistance": 8
+    }
+  },
+  "legacy": {
+    "id": "tchintchin",
+    "name": "Récif Tchin-Tchin",
+    "desc": "Le récif plonge et remonte entre les coraux : glisse sur les dunes de sable sous-marines et plane au-dessus de la grande faille.",
+    "cup": 3,
+    "level": 3,
+    "laps": 3,
+    "width": 26,
+    "glideH": 8,
+    "theme": {
+      "sky": [
+        "#0b4f86",
+        "#1a6f94"
+      ],
+      "fog": "#1a6f94",
+      "fogN": 70,
+      "fogF": 560,
+      "ground": "seabed",
+      "road": "#4f5d6e",
+      "curb": [
+        "#ff6f91",
+        "#fffdf7"
+      ],
+      "barrier": [
+        "#3ee0c0",
+        "#0f3050"
+      ],
+      "skirt": "#5a6a6a",
+      "hemi": [
+        "#a8f0ff",
+        "#1a4a5a",
+        1.7
+      ],
+      "sun": "#c8f6ff",
+      "sunI": 2.3,
+      "decor": "reef",
+      "night": false,
+      "underwater": true,
+      "terrain": {
+        "h": 44,
+        "drop": 18,
+        "seed": 43,
+        "caustics": true
+      },
+      "music": {
+        "bpm": 118,
+        "root": 50,
+        "prog": [
+          [
+            0,
+            4,
+            7
+          ],
+          [
+            -3,
+            0,
+            4
+          ],
+          [
+            2,
+            5,
+            9
+          ],
+          [
+            -5,
+            -1,
+            2
+          ]
+        ]
+      }
+    },
+    "hop": true,
+    "hopLabel": "Courant marin !",
+    "boosts": [
+      [
+        0.21,
+        0
+      ],
+      [
+        0.43,
+        0.3
+      ],
+      [
+        0.744,
+        -0.3
+      ]
+    ],
+    "items": [
+      0.06,
+      0.348,
+      0.55,
+      0.8
+    ],
+    "zones": [
+      [
+        0.14,
+        0.36,
+        "plage"
+      ],
+      [
+        0.56,
+        0.8,
+        "volcan"
+      ]
+    ],
+    "obst": {
+      "jet": "steam",
+      "kinds": [
+        "jets",
+        "walkers",
+        "rollers"
+      ]
+    },
+    "obstZones": 3
+  },
+  "relief": {
+    "pass": "2026-10-30",
+    "maxGrade": 0.08,
+    "note": "altitudes refaites, tracé 2D et pipeline historique conservés"
+  }
+}

@@ -1,0 +1,624 @@
+{
+  "schemaVersion": 1,
+  "id": "trainfou",
+  "name": "Train Fou",
+  "biome": "rock",
+  "status": "coupe refaite",
+  "route": {
+    "closed": true,
+    "nodes": [
+      {
+        "position": [
+          0,
+          1.5,
+          0
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          203,
+          3.2,
+          0
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          348,
+          5.3,
+          67
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          426,
+          7.9,
+          192
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          437,
+          10.8,
+          351
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          389,
+          13.6,
+          512
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          291,
+          16.4,
+          636
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          155,
+          19,
+          692
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -5,
+          21.1,
+          663
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -182,
+          22.7,
+          547
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -366,
+          23.7,
+          362
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -553,
+          24,
+          141
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -741,
+          23.6,
+          -78
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -924,
+          22.5,
+          -255
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -1099,
+          20.8,
+          -360
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -1257,
+          18.7,
+          -377
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -1388,
+          16.1,
+          -309
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -1480,
+          13.2,
+          -178
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -1521,
+          10.4,
+          -16
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -1500,
+          7.6,
+          141
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -1413,
+          5,
+          259
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -1260,
+          2.9,
+          316
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -1049,
+          1.3,
+          308
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -796,
+          0.3,
+          244
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -521,
+          0,
+          149
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "position": [
+          -248,
+          0.4,
+          58
+        ],
+        "width": 26,
+        "bank": 0,
+        "up": [
+          0,
+          1,
+          0
+        ]
+      }
+    ]
+  },
+  "specials": {
+    "glide": [
+      [
+        0.6787,
+        0.7037
+      ]
+    ],
+    "tunnels": [
+      [
+        0.098,
+        0.1609
+      ]
+    ],
+    "warp": [
+      {
+        "type": "loop",
+        "r": 22,
+        "from": 0.8948,
+        "to": 0.9382,
+        "allonge": "2026-11-03 : +25 échantillons de chaque côté (déviation entrée/sortie 32-36° → 0-6°)"
+      }
+    ]
+  },
+  "alternatives": [
+    {
+      "from": 0.4998,
+      "to": 0.6287,
+      "mid": [
+        [
+          -1202,
+          -216,
+          17.9
+        ]
+      ],
+      "width": 14,
+      "side": -1,
+      "offroad": true,
+      "label": "HORS-PISTE"
+    },
+    {
+      "from": 0.191,
+      "to": 0.3412,
+      "mid": [
+        [
+          -47,
+          489,
+          30
+        ]
+      ],
+      "width": 13,
+      "side": 1,
+      "narrow": true,
+      "label": "RISQUÉ",
+      "ai": 0.35,
+      "open": true,
+      "role": "risque"
+    },
+    {
+      "from": 0.418,
+      "to": 0.482,
+      "mid": [
+        [
+          -667.7,
+          -68.8,
+          31.7
+        ],
+        [
+          -780.1,
+          -188.7,
+          24.7
+        ]
+      ],
+      "width": 16,
+      "side": 1,
+      "label": "ENVOL",
+      "ai": 0.45,
+      "envol": true,
+      "role": "envol"
+    }
+  ],
+  "checkpoints": [
+    {
+      "id": "start",
+      "at": 0
+    },
+    {
+      "id": "halfway",
+      "at": 0.5
+    }
+  ],
+  "art": {
+    "zones": [],
+    "landmarks": [],
+    "scatter": {
+      "seed": 74123,
+      "minimumRoadDistance": 8
+    }
+  },
+  "legacy": {
+    "id": "trainfou",
+    "name": "Train Fou",
+    "desc": "XXL : un huit géant dans la montagne, le long d'une voie ferrée où le train ne s'arrête jamais. Tunnel, pont, envol et hors-piste.",
+    "cup": 5,
+    "level": 4,
+    "laps": 2,
+    "width": 26,
+    "glideH": 10,
+    "theme": {
+      "sky": [
+        "#3a8ae0",
+        "#dceeff"
+      ],
+      "fog": "#d4e6f6",
+      "fogN": 220,
+      "fogF": 1250,
+      "ground": "rock",
+      "road": "#4e5060",
+      "curb": [
+        "#e2342a",
+        "#fffdf7"
+      ],
+      "barrier": [
+        "#e2342a",
+        "#fffdf7"
+      ],
+      "skirt": "#6a6a70",
+      "hemi": [
+        "#e8f4ff",
+        "#5a6a50",
+        1.7
+      ],
+      "sun": "#fff4dc",
+      "sunI": 2.9,
+      "decor": "alpine",
+      "night": false,
+      "terrain": {
+        "h": 110,
+        "ridges": true,
+        "seed": 41,
+        "blend": 80,
+        "drop": 30,
+        "colors": [
+          [
+            -30,
+            "#4f8a3e"
+          ],
+          [
+            18,
+            "#6aa050"
+          ],
+          [
+            40,
+            "#7f8a66"
+          ],
+          [
+            58,
+            "#8e8e94"
+          ],
+          [
+            80,
+            "#a6a6ae"
+          ],
+          [
+            96,
+            "#f4f8ff"
+          ]
+        ]
+      },
+      "music": {
+        "bpm": 140,
+        "root": 50,
+        "prog": [
+          [
+            0,
+            4,
+            7
+          ],
+          [
+            5,
+            9,
+            12
+          ],
+          [
+            7,
+            11,
+            14
+          ],
+          [
+            -3,
+            0,
+            4
+          ]
+        ]
+      }
+    },
+    "boosts": [
+      [
+        0.226,
+        0
+      ],
+      [
+        0.734,
+        0.3
+      ],
+      [
+        0.856,
+        -0.3
+      ]
+    ],
+    "items": [
+      0.06,
+      0.3,
+      0.55,
+      0.8
+    ],
+    "tricks": [
+      0.4514
+    ],
+    "zones": [
+      [
+        0.14,
+        0.36,
+        "neige"
+      ],
+      [
+        0.56,
+        0.8,
+        "foret"
+      ]
+    ],
+    "railway": true,
+    "musicStyle": "rock",
+    "obst": {
+      "car": "car",
+      "kinds": [
+        "traffic",
+        "rollers",
+        "pillars"
+      ]
+    },
+    "obstZones": 4
+  },
+  "cupUpgrade": {
+    "loop": [
+      0.4011,
+      0.4255
+    ]
+  }
+}

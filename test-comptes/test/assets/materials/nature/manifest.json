@@ -1,0 +1,960 @@
+{
+  "license": "CC0-1.0",
+  "licenseUrl": "https://polyhaven.com/license",
+  "assets": [
+    {
+      "id": "aerial_grass_rock",
+      "role": "albedo",
+      "file": "src/aerial_grass_rock-albedo.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/aerial_grass_rock/aerial_grass_rock_diff_1k.jpg",
+      "page": "https://polyhaven.com/a/aerial_grass_rock",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 666655,
+      "sha256": "57b8041bfe0d0f01430e4dbaad45e7ddddf0a9fc97317f90dbc51f7b0d9e1b5d",
+      "variants": {
+        "pc": {
+          "file": "pc/aerial_grass_rock-albedo.webp",
+          "width": 1024,
+          "bytes": 262520,
+          "sha256": "aa066aef2d23dca2eb6fcb2c6202d2a7c358813475b5577f467b1f03db172c6a"
+        },
+        "mobile": {
+          "file": "mobile/aerial_grass_rock-albedo.webp",
+          "width": 512,
+          "bytes": 67686,
+          "sha256": "3f3eca1746d2f8b2dfc608897c4f0c3d4a6193157cdfeac2fd110f5a47cf0dba"
+        }
+      }
+    },
+    {
+      "id": "aerial_grass_rock",
+      "role": "normal",
+      "file": "src/aerial_grass_rock-normal.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/aerial_grass_rock/aerial_grass_rock_nor_gl_1k.jpg",
+      "page": "https://polyhaven.com/a/aerial_grass_rock",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 904956,
+      "sha256": "1aa3e23bff453f152e089b9f83aa36b4901651e019f7e2ca01d5331a9bbbda78",
+      "variants": {
+        "pc": {
+          "file": "pc/aerial_grass_rock-normal.webp",
+          "width": 1024,
+          "bytes": 415718,
+          "sha256": "b2721c3d8b41ec0e8c6bbb53e74e706b710981b8bba8e824f7e96103f1d5096e"
+        },
+        "mobile": {
+          "file": "mobile/aerial_grass_rock-normal.webp",
+          "width": 512,
+          "bytes": 108530,
+          "sha256": "5ec63bde26c5482a30db43b6f46e708c1d9f3b4642ecb90ed82725f51c5aa26c"
+        }
+      }
+    },
+    {
+      "id": "aerial_rocks_02",
+      "role": "albedo",
+      "file": "src/aerial_rocks_02-albedo.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/aerial_rocks_02/aerial_rocks_02_diff_1k.jpg",
+      "page": "https://polyhaven.com/a/aerial_rocks_02",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 785923,
+      "sha256": "708373b2af7fd07ac8de1500556006aaf904c41a99985a849cacc78874f38eac",
+      "variants": {
+        "pc": {
+          "file": "pc/aerial_rocks_02-albedo.webp",
+          "width": 1024,
+          "bytes": 353608,
+          "sha256": "0834d81ad53e512a4ff8283ff1668d95e7dc0cfa66478bb32d16e8af670423ab"
+        },
+        "mobile": {
+          "file": "mobile/aerial_rocks_02-albedo.webp",
+          "width": 512,
+          "bytes": 89296,
+          "sha256": "26f61a7c3b38d275658028deee8e9d728b85197e1c68d58cdb52996120bc995e"
+        }
+      }
+    },
+    {
+      "id": "aerial_rocks_02",
+      "role": "normal",
+      "file": "src/aerial_rocks_02-normal.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/aerial_rocks_02/aerial_rocks_02_nor_gl_1k.jpg",
+      "page": "https://polyhaven.com/a/aerial_rocks_02",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 1177932,
+      "sha256": "6df5263ba6c30e9343ee324d87078b926024d710b0b349025083600369df8d25",
+      "variants": {
+        "pc": {
+          "file": "pc/aerial_rocks_02-normal.webp",
+          "width": 1024,
+          "bytes": 506492,
+          "sha256": "3f6d73fd02297caf48b5d2744be93331e4489ba45959767f0a9b1f505772dd8c"
+        },
+        "mobile": {
+          "file": "mobile/aerial_rocks_02-normal.webp",
+          "width": 512,
+          "bytes": 126460,
+          "sha256": "c4087f8067b540608f000225afdabaea76a4279e916b8afa405f961fef5ed90c"
+        }
+      }
+    },
+    {
+      "id": "bark_brown_02",
+      "role": "albedo",
+      "file": "src/bark_brown_02-albedo.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/bark_brown_02/bark_brown_02_diff_1k.jpg",
+      "page": "https://polyhaven.com/a/bark_brown_02",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 659592,
+      "sha256": "920fa0bed0c9d78c1d530e99795113afd532d7db746de440f4a85d7c83ed0f1a",
+      "variants": {
+        "pc": {
+          "file": "pc/bark_brown_02-albedo.webp",
+          "width": 1024,
+          "bytes": 313876,
+          "sha256": "d4e96707bfd45430d7a1852119fc5bf1b4989154c219f2f4af3a25326ea61540"
+        },
+        "mobile": {
+          "file": "mobile/bark_brown_02-albedo.webp",
+          "width": 512,
+          "bytes": 94432,
+          "sha256": "6eb6462a75cc5a21215d5e1cea4372563a8b41ad9aded10c5cd1088afe6e6127"
+        }
+      }
+    },
+    {
+      "id": "bark_brown_02",
+      "role": "normal",
+      "file": "src/bark_brown_02-normal.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/bark_brown_02/bark_brown_02_nor_gl_1k.jpg",
+      "page": "https://polyhaven.com/a/bark_brown_02",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 1015623,
+      "sha256": "0d5e691e8ad8bcd093a3587887fda2a6b4a948b5708a4f256f7919584c6eb857",
+      "variants": {
+        "pc": {
+          "file": "pc/bark_brown_02-normal.webp",
+          "width": 1024,
+          "bytes": 464050,
+          "sha256": "a8ab411d1be185a7f99b709ea91d6cbbd57087693e6d6b592cdd75b10064e53d"
+        },
+        "mobile": {
+          "file": "mobile/bark_brown_02-normal.webp",
+          "width": 512,
+          "bytes": 137640,
+          "sha256": "fdcfb27deb70ae27dd66601a89acb96faceb141c763f2dbf20a860ac578ca88c"
+        }
+      }
+    },
+    {
+      "id": "burned_ground_01",
+      "role": "albedo",
+      "file": "src/burned_ground_01-albedo.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/burned_ground_01/burned_ground_01_diff_1k.jpg",
+      "page": "https://polyhaven.com/a/burned_ground_01",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 1033112,
+      "sha256": "be83310cad64d23539e628f14525af651a03646f5a1cc6029bd19a9446ea72f9",
+      "variants": {
+        "pc": {
+          "file": "pc/burned_ground_01-albedo.webp",
+          "width": 1024,
+          "bytes": 532220,
+          "sha256": "80b07ce7780e79c43297bc3935ac83a6cfdb95aca55d62c5b37914a421de69cc"
+        },
+        "mobile": {
+          "file": "mobile/burned_ground_01-albedo.webp",
+          "width": 512,
+          "bytes": 123688,
+          "sha256": "6e9efa1263a5c7230e2396439de9c1aeab26a98e1b27a2961e615e166f58e0a3"
+        }
+      }
+    },
+    {
+      "id": "burned_ground_01",
+      "role": "normal",
+      "file": "src/burned_ground_01-normal.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/burned_ground_01/burned_ground_01_nor_gl_1k.jpg",
+      "page": "https://polyhaven.com/a/burned_ground_01",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 366727,
+      "sha256": "86125af02b64b05b0079dd6fa08ffae11878a3f9f50326a265e94c7a64cba865",
+      "variants": {
+        "pc": {
+          "file": "pc/burned_ground_01-normal.webp",
+          "width": 1024,
+          "bytes": 476066,
+          "sha256": "0b2d542395b5e26f5a5df581e4e6eb14a267e673c0e9e0dd7f18d0a3c5261d51"
+        },
+        "mobile": {
+          "file": "mobile/burned_ground_01-normal.webp",
+          "width": 512,
+          "bytes": 118522,
+          "sha256": "1d37964439c6f0704b4e9c3a313815661e6b1d82ae02e6e4482a0c868725e6d4"
+        }
+      }
+    },
+    {
+      "id": "coast_sand_01",
+      "role": "albedo",
+      "file": "src/coast_sand_01-albedo.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/coast_sand_01/coast_sand_01_diff_1k.jpg",
+      "page": "https://polyhaven.com/a/coast_sand_01",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 960614,
+      "sha256": "58af2e40100f7f405703a86d593af64379f822c4786850def23ecfc921450d54",
+      "variants": {
+        "pc": {
+          "file": "pc/coast_sand_01-albedo.webp",
+          "width": 1024,
+          "bytes": 316338,
+          "sha256": "2a1ab7f1c84dfca6040ce868f552c7fc8434c09061a2a6b998f3ed4f9305beb7"
+        },
+        "mobile": {
+          "file": "mobile/coast_sand_01-albedo.webp",
+          "width": 512,
+          "bytes": 72904,
+          "sha256": "4b361836edd316a2a13519689cb75b76a7a2b8db0663fa8c5afb9418bd93aad9"
+        }
+      }
+    },
+    {
+      "id": "coast_sand_01",
+      "role": "normal",
+      "file": "src/coast_sand_01-normal.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/coast_sand_01/coast_sand_01_nor_gl_1k.jpg",
+      "page": "https://polyhaven.com/a/coast_sand_01",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 1146826,
+      "sha256": "fe4d045aec99e71e80f682fcf0ad958d2dff1fe614b73178b304d1bac047b54a",
+      "variants": {
+        "pc": {
+          "file": "pc/coast_sand_01-normal.webp",
+          "width": 1024,
+          "bytes": 476180,
+          "sha256": "4c83370d1424d0998bfc333112880564c78b3e92febed716230e251999937ee4"
+        },
+        "mobile": {
+          "file": "mobile/coast_sand_01-normal.webp",
+          "width": 512,
+          "bytes": 123040,
+          "sha256": "f752e31cd3e019e02c98abb1389e87eb41d34ecf7f2a508522c1f3003f258a78"
+        }
+      }
+    },
+    {
+      "id": "dry_ground_01",
+      "role": "albedo",
+      "file": "src/dry_ground_01-albedo.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/dry_ground_01/dry_ground_01_diff_1k.jpg",
+      "page": "https://polyhaven.com/a/dry_ground_01",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 604799,
+      "sha256": "75222fc97a82b635a09cf8f2891dd58bc42e49599b9fda920b2c50193fe85e9f",
+      "variants": {
+        "pc": {
+          "file": "pc/dry_ground_01-albedo.webp",
+          "width": 1024,
+          "bytes": 259072,
+          "sha256": "e98a0ef81aba58e96a7a1064d70052ee4ced695b271ce620ca7043748adfce81"
+        },
+        "mobile": {
+          "file": "mobile/dry_ground_01-albedo.webp",
+          "width": 512,
+          "bytes": 75948,
+          "sha256": "5748d4d57e0badca84c625d598f220b127f54162e46d8905c023668f8727f16e"
+        }
+      }
+    },
+    {
+      "id": "dry_ground_01",
+      "role": "normal",
+      "file": "src/dry_ground_01-normal.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/dry_ground_01/dry_ground_01_nor_gl_1k.jpg",
+      "page": "https://polyhaven.com/a/dry_ground_01",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 243523,
+      "sha256": "8faf30f0656721f861dba573006c3f90e38fcda8dad481d2369145b114c6b45e",
+      "variants": {
+        "pc": {
+          "file": "pc/dry_ground_01-normal.webp",
+          "width": 1024,
+          "bytes": 296684,
+          "sha256": "b892a43790dcaa88d932662f089589c81548da22386077352c0db56710076864"
+        },
+        "mobile": {
+          "file": "mobile/dry_ground_01-normal.webp",
+          "width": 512,
+          "bytes": 72564,
+          "sha256": "535d9b8dbd0c375c8cc9e0ee392c133c90038180b94ecc61e64ecfb32120214a"
+        }
+      }
+    },
+    {
+      "id": "forest_leaves_02",
+      "role": "albedo",
+      "file": "src/forest_leaves_02-albedo.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/forest_leaves_02/forest_leaves_02_diffuse_1k.jpg",
+      "page": "https://polyhaven.com/a/forest_leaves_02",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 437891,
+      "sha256": "2bac85cdc76927fa7dc311037bbbc4dfa2633ea56eb0a24c9cabe163a68c9aa5",
+      "variants": {
+        "pc": {
+          "file": "pc/forest_leaves_02-albedo.webp",
+          "width": 1024,
+          "bytes": 436192,
+          "sha256": "102450b7075ef83679ea7d7657ea18bbfc92899ef5dc01ed781c50617783a8b2"
+        },
+        "mobile": {
+          "file": "mobile/forest_leaves_02-albedo.webp",
+          "width": 512,
+          "bytes": 116450,
+          "sha256": "9187273fabbc05c08832fe8ae3317fc14df75d6f47cec523eaf6d80ec110a8c9"
+        }
+      }
+    },
+    {
+      "id": "forest_leaves_02",
+      "role": "normal",
+      "file": "src/forest_leaves_02-normal.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/forest_leaves_02/forest_leaves_02_nor_gl_1k.jpg",
+      "page": "https://polyhaven.com/a/forest_leaves_02",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 577163,
+      "sha256": "cf6a40ab24f44d3e891a92a1c252416ed1192af54ac92a5704bdfbda0805e290",
+      "variants": {
+        "pc": {
+          "file": "pc/forest_leaves_02-normal.webp",
+          "width": 1024,
+          "bytes": 676986,
+          "sha256": "95715e8306c5e61776c2f41bacbb3658c639a5f5cea10c3776646786e7418230"
+        },
+        "mobile": {
+          "file": "mobile/forest_leaves_02-normal.webp",
+          "width": 512,
+          "bytes": 163736,
+          "sha256": "d5346580a1483069cb2329139e065e444d95c0b0c621a808edb9d4bae142b17d"
+        }
+      }
+    },
+    {
+      "id": "forrest_ground_01",
+      "role": "albedo",
+      "file": "src/forrest_ground_01-albedo.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/forrest_ground_01/forrest_ground_01_diff_1k.jpg",
+      "page": "https://polyhaven.com/a/forrest_ground_01",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 833711,
+      "sha256": "3dd6875cb3908e022a3c45ebbffa5e84c670ff2691fbbb6dc9ea4bff88523800",
+      "variants": {
+        "pc": {
+          "file": "pc/forrest_ground_01-albedo.webp",
+          "width": 1024,
+          "bytes": 374798,
+          "sha256": "df1c10c3afd746f21bef183385cbde6543866fa8108791ab9c47c267572cb5f9"
+        },
+        "mobile": {
+          "file": "mobile/forrest_ground_01-albedo.webp",
+          "width": 512,
+          "bytes": 101818,
+          "sha256": "f3b10fafcdfeb71bdeefc93a4a758fb1f90b1591fd792d22ec70d5c17d5c8ca6"
+        }
+      }
+    },
+    {
+      "id": "forrest_ground_01",
+      "role": "normal",
+      "file": "src/forrest_ground_01-normal.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/forrest_ground_01/forrest_ground_01_nor_gl_1k.jpg",
+      "page": "https://polyhaven.com/a/forrest_ground_01",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 1428763,
+      "sha256": "32528a7cdee962cc0b248ee4023a74d0df175737ea90e1eb425122351e0bdab4",
+      "variants": {
+        "pc": {
+          "file": "pc/forrest_ground_01-normal.webp",
+          "width": 1024,
+          "bytes": 639298,
+          "sha256": "b802c36ad7eaff70e685a3c246792c54bc4b1632981b51b8edd2733aef543f19"
+        },
+        "mobile": {
+          "file": "mobile/forrest_ground_01-normal.webp",
+          "width": 512,
+          "bytes": 151362,
+          "sha256": "72fea814bcd1b81cb1a4db0fb462c234fc42b726d03b057a7b39f1df67b76454"
+        }
+      }
+    },
+    {
+      "id": "leafy_grass",
+      "role": "albedo",
+      "file": "src/leafy_grass-albedo.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/leafy_grass/leafy_grass_diff_1k.jpg",
+      "page": "https://polyhaven.com/a/leafy_grass",
+      "authors": {
+        "Charlotte Baglioni": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 1195394,
+      "sha256": "cfa40bc9d9417d1852db8753a8d5917f110c40101179f63543c382e39bc05e4a",
+      "variants": {
+        "pc": {
+          "file": "pc/leafy_grass-albedo.webp",
+          "width": 1024,
+          "bytes": 404544,
+          "sha256": "f7ea59b0bf60e67d739459dce0a698a152f396dd8ecf31f9ced8e4cdd15888b1"
+        },
+        "mobile": {
+          "file": "mobile/leafy_grass-albedo.webp",
+          "width": 512,
+          "bytes": 102428,
+          "sha256": "5f8cca413a1c8989b135c9d95b9a67f79022f80aed9692413d33ea499db47160"
+        }
+      }
+    },
+    {
+      "id": "leafy_grass",
+      "role": "normal",
+      "file": "src/leafy_grass-normal.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/leafy_grass/leafy_grass_nor_gl_1k.jpg",
+      "page": "https://polyhaven.com/a/leafy_grass",
+      "authors": {
+        "Charlotte Baglioni": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 1466049,
+      "sha256": "832328216adc0a7e1f70a31d5ee48c9ab7f2152d83816122736cf42ac4b2ebd6",
+      "variants": {
+        "pc": {
+          "file": "pc/leafy_grass-normal.webp",
+          "width": 1024,
+          "bytes": 647180,
+          "sha256": "6c44c8a5f1eb4c24dbfb24c8722a3837eaa1bd9d6d6e44ffb7d14fa36bb3b2df"
+        },
+        "mobile": {
+          "file": "mobile/leafy_grass-normal.webp",
+          "width": 512,
+          "bytes": 148224,
+          "sha256": "8136a884f592c4b9b1f923535bd02d2e6a267b1765bd2ad14abb7aa45a6b75b3"
+        }
+      }
+    },
+    {
+      "id": "mossy_rock",
+      "role": "albedo",
+      "file": "src/mossy_rock-albedo.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/mossy_rock/mossy_rock_diff_1k.jpg",
+      "page": "https://polyhaven.com/a/mossy_rock",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 1124438,
+      "sha256": "4dbf37f1b0465c9c8914213163923be159716f5b97fb6946437b6c5e143ef540",
+      "variants": {
+        "pc": {
+          "file": "pc/mossy_rock-albedo.webp",
+          "width": 1024,
+          "bytes": 382474,
+          "sha256": "9d1139ae6d4017ec99404cf785a79c530adb6fdfb0253e23ab209cafd2cf67f1"
+        },
+        "mobile": {
+          "file": "mobile/mossy_rock-albedo.webp",
+          "width": 512,
+          "bytes": 95772,
+          "sha256": "429c1e643b0fe7348d37c6b78d5af71b527baede97b13de685380cec3181e24d"
+        }
+      }
+    },
+    {
+      "id": "mossy_rock",
+      "role": "normal",
+      "file": "src/mossy_rock-normal.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/mossy_rock/mossy_rock_nor_gl_1k.jpg",
+      "page": "https://polyhaven.com/a/mossy_rock",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 995727,
+      "sha256": "232cdd6a9fdfd01bb8bb1f8f604c53dbca79fa0d3d7995edf85c9945757aa8df",
+      "variants": {
+        "pc": {
+          "file": "pc/mossy_rock-normal.webp",
+          "width": 1024,
+          "bytes": 394388,
+          "sha256": "2b76e5bcfe7e078b439afacabb262909d8fcffcaee6870e485fa01d384c1783d"
+        },
+        "mobile": {
+          "file": "mobile/mossy_rock-normal.webp",
+          "width": 512,
+          "bytes": 101070,
+          "sha256": "2d85a2210385a3670aa22b0c55a3febeeb07a5d11b0f57b8ae64aa546929d2d9"
+        }
+      }
+    },
+    {
+      "id": "pine_bark",
+      "role": "albedo",
+      "file": "src/pine_bark-albedo.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/pine_bark/pine_bark_diff_1k.jpg",
+      "page": "https://polyhaven.com/a/pine_bark",
+      "authors": {
+        "Dimitrios Savva": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 837641,
+      "sha256": "89ddfbff0388d30caff902ba600cdf75eb1e651ca71ece6594b5a9b27abb47ab",
+      "variants": {
+        "pc": {
+          "file": "pc/pine_bark-albedo.webp",
+          "width": 1024,
+          "bytes": 194470,
+          "sha256": "f85c6ea738cdb21f379e8ac7bd7ad90ea552aa74b314f712a842f41e1ab93b13"
+        },
+        "mobile": {
+          "file": "mobile/pine_bark-albedo.webp",
+          "width": 512,
+          "bytes": 54772,
+          "sha256": "2cbb5f7e9e71eb6981eb1eb5605036a1897dfe6ece437ca028224b012220dbe8"
+        }
+      }
+    },
+    {
+      "id": "pine_bark",
+      "role": "normal",
+      "file": "src/pine_bark-normal.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/pine_bark/pine_bark_nor_gl_1k.jpg",
+      "page": "https://polyhaven.com/a/pine_bark",
+      "authors": {
+        "Dimitrios Savva": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 1178440,
+      "sha256": "666e5f175a010f12577687dd8029125bff99110e6a97958afb295b34266437db",
+      "variants": {
+        "pc": {
+          "file": "pc/pine_bark-normal.webp",
+          "width": 1024,
+          "bytes": 492174,
+          "sha256": "a7ed942b4e5760c86e93d37e3cf14c5ae0bbe4f750848fc8fa38091af61730a5"
+        },
+        "mobile": {
+          "file": "mobile/pine_bark-normal.webp",
+          "width": 512,
+          "bytes": 124524,
+          "sha256": "665c87bae361b2c216a8c9e3e574793052ef20b31e835a788bf68f6965294e4b"
+        }
+      }
+    },
+    {
+      "id": "red_dirt_mud_01",
+      "role": "albedo",
+      "file": "src/red_dirt_mud_01-albedo.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/red_dirt_mud_01/red_dirt_mud_01_diff_1k.jpg",
+      "page": "https://polyhaven.com/a/red_dirt_mud_01",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 935891,
+      "sha256": "c3ac7c922bb5a8e390294b8097e61b882a15113b751c12395c526813d173882e",
+      "variants": {
+        "pc": {
+          "file": "pc/red_dirt_mud_01-albedo.webp",
+          "width": 1024,
+          "bytes": 441960,
+          "sha256": "35ea0351c6d3337b60a90cd5e0ebd813e0b5a8429071a3c9c1b130c3b0acba12"
+        },
+        "mobile": {
+          "file": "mobile/red_dirt_mud_01-albedo.webp",
+          "width": 512,
+          "bytes": 114546,
+          "sha256": "2daa520f0ebf6ca60b338d2f7bd5fad6db1b2963ca9498aa70d5acb1d934582e"
+        }
+      }
+    },
+    {
+      "id": "red_dirt_mud_01",
+      "role": "normal",
+      "file": "src/red_dirt_mud_01-normal.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/red_dirt_mud_01/red_dirt_mud_01_nor_gl_1k.jpg",
+      "page": "https://polyhaven.com/a/red_dirt_mud_01",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 1136486,
+      "sha256": "c9dde2809a950e18c4155b8e33dcaf18369a6fefeb86ae7354775323bef0b05a",
+      "variants": {
+        "pc": {
+          "file": "pc/red_dirt_mud_01-normal.webp",
+          "width": 1024,
+          "bytes": 492570,
+          "sha256": "d11826af6afa3f6f7aeda1fa6e903386fbfc1d4552542a72eff4774848d3b4a2"
+        },
+        "mobile": {
+          "file": "mobile/red_dirt_mud_01-normal.webp",
+          "width": 512,
+          "bytes": 143790,
+          "sha256": "d96f6aa0d923c93d641ebc27ee69f92dbe02fd3646df57bd0b1960a405bed31f"
+        }
+      }
+    },
+    {
+      "id": "rock_06",
+      "role": "albedo",
+      "file": "src/rock_06-albedo.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rock_06/rock_06_diff_1k.jpg",
+      "page": "https://polyhaven.com/a/rock_06",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 913680,
+      "sha256": "0f9f0fc0438f99cdd9e33cfadc9ba01c527f74c1085fdac425e06e6a808a7736",
+      "variants": {
+        "pc": {
+          "file": "pc/rock_06-albedo.webp",
+          "width": 1024,
+          "bytes": 414352,
+          "sha256": "58e8646e60efff698a360ba8a52fd80f614a9ca2dacbf75579cfa85b4a9ef2d1"
+        },
+        "mobile": {
+          "file": "mobile/rock_06-albedo.webp",
+          "width": 512,
+          "bytes": 109248,
+          "sha256": "ee2a4ca837035e50aa86f219d4a64661628e10aa052394ebef8143c4f41fd39f"
+        }
+      }
+    },
+    {
+      "id": "rock_06",
+      "role": "normal",
+      "file": "src/rock_06-normal.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rock_06/rock_06_nor_gl_1k.jpg",
+      "page": "https://polyhaven.com/a/rock_06",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 703275,
+      "sha256": "e48374ac46351f6e3c45385074cc95bb936612ce9820bf78827b0d846de24869",
+      "variants": {
+        "pc": {
+          "file": "pc/rock_06-normal.webp",
+          "width": 1024,
+          "bytes": 326344,
+          "sha256": "775c1090f54275654e6b034a1c80694908dcdac3e0075fbd08dbb023ffec0e91"
+        },
+        "mobile": {
+          "file": "mobile/rock_06-normal.webp",
+          "width": 512,
+          "bytes": 73696,
+          "sha256": "9daa1b69b9247d366c908fdeb8bf5f0022b706686120d49db5e0dc968116aa83"
+        }
+      }
+    },
+    {
+      "id": "rock_face",
+      "role": "albedo",
+      "file": "src/rock_face-albedo.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rock_face/rock_face_diff_1k.jpg",
+      "page": "https://polyhaven.com/a/rock_face",
+      "authors": {
+        "Greg Zaal": "Photography",
+        "Dario Barresi": "Processing"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 732721,
+      "sha256": "cce4b50517161264bdef196f5e247e328ca3739083cd6044ad3cc54d88cb82e2",
+      "variants": {
+        "pc": {
+          "file": "pc/rock_face-albedo.webp",
+          "width": 1024,
+          "bytes": 132520,
+          "sha256": "c723ba55453852a478b6ee2b4288f1218d4289725cb3e81fd9716527a938ca4e"
+        },
+        "mobile": {
+          "file": "mobile/rock_face-albedo.webp",
+          "width": 512,
+          "bytes": 31448,
+          "sha256": "37d756363f936d30d67160a21d487671dc35614957cb16573db91f73d266372b"
+        }
+      }
+    },
+    {
+      "id": "rock_face",
+      "role": "normal",
+      "file": "src/rock_face-normal.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rock_face/rock_face_nor_gl_1k.jpg",
+      "page": "https://polyhaven.com/a/rock_face",
+      "authors": {
+        "Greg Zaal": "Photography",
+        "Dario Barresi": "Processing"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 1139857,
+      "sha256": "e2682e1286c8b6aca7e01ba7b8fe1726cb6606042b9ee70d097aa67470d410ef",
+      "variants": {
+        "pc": {
+          "file": "pc/rock_face-normal.webp",
+          "width": 1024,
+          "bytes": 456340,
+          "sha256": "a841b782ae8f6c55ec695a2d5aeaad45e19d7628cb7e79c984cbf9478f88028b"
+        },
+        "mobile": {
+          "file": "mobile/rock_face-normal.webp",
+          "width": 512,
+          "bytes": 122608,
+          "sha256": "9f01de4bf43335ee1c255fe7885a800945c9e02d4fa4477f0adcd04a764fceb7"
+        }
+      }
+    },
+    {
+      "id": "rocky_terrain_02",
+      "role": "albedo",
+      "file": "src/rocky_terrain_02-albedo.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rocky_terrain_02/rocky_terrain_02_diff_1k.jpg",
+      "page": "https://polyhaven.com/a/rocky_terrain_02",
+      "authors": {
+        "Amal Kumar": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 843188,
+      "sha256": "d570c10b1d5302f4fde9e0e94f4cbab0d5e112fc3fe2b3b91c38a98bd3ddaf4b",
+      "variants": {
+        "pc": {
+          "file": "pc/rocky_terrain_02-albedo.webp",
+          "width": 1024,
+          "bytes": 193664,
+          "sha256": "986b2d695e0416908b5ae0017b7a5263f8f7a12d96c8896216f7f19a98a00d62"
+        },
+        "mobile": {
+          "file": "mobile/rocky_terrain_02-albedo.webp",
+          "width": 512,
+          "bytes": 50250,
+          "sha256": "3bb308dd46ac467b275d14a987a53d9e24771c5598c8d32f7164d8a377b6d4dd"
+        }
+      }
+    },
+    {
+      "id": "rocky_terrain_02",
+      "role": "normal",
+      "file": "src/rocky_terrain_02-normal.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rocky_terrain_02/rocky_terrain_02_nor_gl_1k.jpg",
+      "page": "https://polyhaven.com/a/rocky_terrain_02",
+      "authors": {
+        "Amal Kumar": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 993692,
+      "sha256": "f4f9d9671c660f4e509e96d5da3091887dfd557e1353e313fa2d1dc789499ffd",
+      "variants": {
+        "pc": {
+          "file": "pc/rocky_terrain_02-normal.webp",
+          "width": 1024,
+          "bytes": 398494,
+          "sha256": "9553af904be680bcb5ab55caf9873a2ca23f55c314130b6db3f5404f48d5245c"
+        },
+        "mobile": {
+          "file": "mobile/rocky_terrain_02-normal.webp",
+          "width": 512,
+          "bytes": 101132,
+          "sha256": "968be29804fbb92ace6c6f20a8521992abfe56489a9f822a60bc9b38d3ba753d"
+        }
+      }
+    },
+    {
+      "id": "snow_02",
+      "role": "albedo",
+      "file": "src/snow_02-albedo.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/snow_02/snow_02_diff_1k.jpg",
+      "page": "https://polyhaven.com/a/snow_02",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 325497,
+      "sha256": "523a4e69c90b96d787dd69b897f29a2b3761a017024405c60aa630d1e8e9009a",
+      "variants": {
+        "pc": {
+          "file": "pc/snow_02-albedo.webp",
+          "width": 1024,
+          "bytes": 108800,
+          "sha256": "8bd9041127c3042505d8ef27b4a1c8dc64d08382b6e4eb1da1e8f96450376a17"
+        },
+        "mobile": {
+          "file": "mobile/snow_02-albedo.webp",
+          "width": 512,
+          "bytes": 21084,
+          "sha256": "d5c64edfc910f4eee58a499b1bacec9ed04cf9988c72b3bb2b5deebbd15835c4"
+        }
+      }
+    },
+    {
+      "id": "snow_02",
+      "role": "normal",
+      "file": "src/snow_02-normal.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/snow_02/snow_02_nor_gl_1k.jpg",
+      "page": "https://polyhaven.com/a/snow_02",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 1081858,
+      "sha256": "9495ec680616b8340e2cbecbd151bff84c690cfad4209e90cc98d2d0ba81f810",
+      "variants": {
+        "pc": {
+          "file": "pc/snow_02-normal.webp",
+          "width": 1024,
+          "bytes": 473914,
+          "sha256": "9bd7b93af4f13d549f0affc0c0d56eb22cc2f02853e355fb0d70fba9fe337a0f"
+        },
+        "mobile": {
+          "file": "mobile/snow_02-normal.webp",
+          "width": 512,
+          "bytes": 114152,
+          "sha256": "19604a88a3df316aab4aacae01ecf9a55e7bb63c82f7114b9f8b80b5f55942b8"
+        }
+      }
+    },
+    {
+      "id": "sparse_grass",
+      "role": "albedo",
+      "file": "src/sparse_grass-albedo.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/sparse_grass/sparse_grass_diff_1k.jpg",
+      "page": "https://polyhaven.com/a/sparse_grass",
+      "authors": {
+        "Amal Kumar": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 955945,
+      "sha256": "ae94f2b34597b9108eefd88217f55eccaec6d6b382e858a478ee92df90e66617",
+      "variants": {
+        "pc": {
+          "file": "pc/sparse_grass-albedo.webp",
+          "width": 1024,
+          "bytes": 262806,
+          "sha256": "3aa7cbbeaf09997075182b3eaa1ea469405385c11060735da1b8cfc22d407f92"
+        },
+        "mobile": {
+          "file": "mobile/sparse_grass-albedo.webp",
+          "width": 512,
+          "bytes": 61654,
+          "sha256": "8dc0c2697b2bd7f50f471cd7dbc7aca13b41fb9a05b450f6de6fba682fd0984b"
+        }
+      }
+    },
+    {
+      "id": "sparse_grass",
+      "role": "normal",
+      "file": "src/sparse_grass-normal.jpg",
+      "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/sparse_grass/sparse_grass_nor_gl_1k.jpg",
+      "page": "https://polyhaven.com/a/sparse_grass",
+      "authors": {
+        "Amal Kumar": "All"
+      },
+      "license": "CC0-1.0",
+      "width": 1024,
+      "bytes": 1440314,
+      "sha256": "1c840a24807346ddaaf94a5057aee4078fcec3a4cd84bfe45da7d3b480ef460b",
+      "variants": {
+        "pc": {
+          "file": "pc/sparse_grass-normal.webp",
+          "width": 1024,
+          "bytes": 637384,
+          "sha256": "40728042df8ceb8eac984309c6752d5fbc98d2442ef0e1da073fd37df310e34b"
+        },
+        "mobile": {
+          "file": "mobile/sparse_grass-normal.webp",
+          "width": 512,
+          "bytes": 148578,
+          "sha256": "09e9d76357d7e1c33493f0e577faa4ae7c1d7400be8c2b646f6a25ba8f136aa6"
+        }
+      }
+    }
+  ]
+}
