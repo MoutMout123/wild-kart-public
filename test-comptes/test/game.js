@@ -63,7 +63,9 @@ const GLIDERS = {
   dragon: { name: 'Dragon', air: .08, shape: 'chauvesouris', col: { a: '#c1121f', e: '#ff5a00' } }, arcenciel: { name: 'Arc-en-ciel', air: .08, shape: 'parapente', col: { a: '#ff4fd8', b: '#38b6ff' } },
 };
 const SKINS = ['#f3d2b3', '#e0b08a', '#c68b5e', '#8d5a3b', '#5c3a25'];
-function myCfg() { return { name: SAVE.name || 'Toi', color: SAVE.color, helmet: SAVE.helmet, body: SAVE.body, wheels: SAVE.wheels, pilot: SAVE.pilot, acc: SAVE.acc, finish: SAVE.finish, deco: SAVE.deco, trail: SAVE.trail, skin: SAVE.skin, glider: SAVE.glider, title: SAVE.title || '' }; }
+// #34.G2 : pendant l'ESSAI d'un brouillon de l'atelier (atelier.js), la course utilise ce brouillon sans l'équiper.
+function myCfg() { const c = myCfgEquipe(); return typeof window !== 'undefined' && window.WK_ESSAI && window.WK_ESSAI.cfg ? Object.assign(c, window.WK_ESSAI.cfg) : c; }
+function myCfgEquipe() { return { name: SAVE.name || 'Toi', color: SAVE.color, helmet: SAVE.helmet, body: SAVE.body, wheels: SAVE.wheels, pilot: SAVE.pilot, acc: SAVE.acc, finish: SAVE.finish, deco: SAVE.deco, trail: SAVE.trail, skin: SAVE.skin, glider: SAVE.glider, title: SAVE.title || '' }; }
 function cleanCfg(c) {
   c = c || {}; const ok = (v, o, d) => (Object.prototype.hasOwnProperty.call(o, v) ? v : d); const col = (v, d) => (/^#[0-9a-f]{6}$/i.test(v || '') ? v : d);
   return { name: String(c.name || 'Joueur').slice(0, 10), color: col(c.color, '#ff4f3a'), helmet: col(c.helmet, '#ffc531'), body: ok(c.body, BODIES, 'equilibre'), wheels: ok(c.wheels, WHEELS, 'standard'),
@@ -3654,13 +3656,13 @@ function ongletMettreEnAttente() {
   d.hidden = false;
 }
 try { if (typeof BroadcastChannel !== 'undefined') { ONGLET.bc = new BroadcastChannel('wild-kart-onglet'); ONGLET.bc.onmessage = (e) => { const m = e.data || {}; if (m.t === 'actif' && m.id !== ONGLET.id) ongletMettreEnAttente(); }; setTimeout(ongletActiver, 0); } } catch (e) { /* navigateur sans canal */ }
-async function frPoll() { if (FR.busy || typeof acctCall !== 'function' || ONGLET.inactif) return; FR.busy = true; const hot = frHot() && FR.open && (FR.lpFail || 0) < 3 && !FR.quick, t0 = Date.now(); let again = false; FR.quick = false;
+async function frPoll() { if (FR.busy || typeof acctCall !== 'function' || ONGLET.inactif) return; if (FR.compteRequis && !SAVE.acct && Date.now() - FR.compteRequis < 300e3) return; /* invité (option B) : pas de relance inutile pendant 5 min */ FR.busy = true; const hot = frHot() && FR.open && (FR.lpFail || 0) < 3 && !FR.quick, t0 = Date.now(); let again = false; FR.quick = false;
   const ac = FR.ac = hot && typeof AbortController !== 'undefined' ? new AbortController() : null;
   try { const r = await acctCall('fpoll', { me: Object.assign(frMe(), { st: frStatusV(), pu: SAVE.acct ? SAVE.acct.u : '' }), since: FR.since || 0, ack: FR.since || 0, ids: frIds(), groups: grList().map((g) => g.code), wait: hot ? 10 : 0 }, ac && ac.signal);
     if (ac && ac.signal.aborted) { again = true; FR.quick = true; return; }
     if (r.ok && r.msgs && r.msgs.length) FR.quick = true;   // messages reçus : on revient vite (groupes et amis à jour)
     if (hot) { FR.lpFail = r.ok ? (r.msgs && r.msgs.length) || Date.now() - t0 > 2500 ? 0 : (FR.lpFail || 0) + 1 : (FR.lpFail || 0) + 1; } else FR.lpFail = 0; again = r.ok;   // serveur sans attente : on revient au rythme normal
-    if (!r.ok) { FR.open = false; frRender(); return; } FR.open = true;
+    if (!r.ok) { FR.open = false; if (r.code === 'compte-requis') FR.compteRequis = Date.now(); frRender(); return; } FR.open = true; FR.compteRequis = 0; /* #34.Q6 : invité refusé par le serveur (option B) */
     for (const [id, t] of Object.entries(r.online || {})) FR.status.set(id, !!t && r.now - t < 90e3);
     for (const [code, g] of Object.entries(r.groups || {})) { if (g) grMerge(g, true); else { const lg = grFind(code); if (lg && lg.owner === frMyId()) acctCall('gsave', { group: lg, me: frMe() }); } }   // ancien groupe (d'avant le serveur) : son créateur le remet en ligne
     for (const m of r.msgs || []) { FR.since = Math.max(FR.since || 0, m.at); try { frOnData(null, m); } catch (e) { /* rien */ } }
@@ -3737,7 +3739,7 @@ const FRU = { tab: 'amis', open: null };
 function frRender() { const root = $('#fr-root'); if (!root || UI.screen !== 'friends') return; const me = frMyId(), L = frList(), Gs = grList(), inParty = !!(Net.peer && Net.code), esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
   const st = (id) => FR.status.has(id) ? (FR.status.get(id) ? '<b class="on">en ligne</b>' : '<b class="off">hors ligne</b>') : '<b class="off">…</b>';
   let h = '<header class="sh-head"><button class="back" data-go="frback" aria-label="Retour">←</button><h2>Amis et groupes</h2></header>';
-  h += '<div class="group"><h3>Ton nom</h3><div class="set-row"><span><b class="fr-me">' + esc(SAVE.name || SAVE.acct && SAVE.acct.u || 'Joueur') + '</b><small>Donne-le à tes amis pour qu\'ils t\'ajoutent. Tu peux le changer dans Mon compte. ' + (FR.open ? 'Connecté.' : 'Connexion au serveur…') + '</small></span><button class="btn sm" id="fr-copy"><span>Copier</span></button></div>'
+  h += '<div class="group"><h3>Ton nom</h3><div class="set-row"><span><b class="fr-me">' + esc(SAVE.name || SAVE.acct && SAVE.acct.u || 'Joueur') + '</b><small>Donne-le à tes amis pour qu\'ils t\'ajoutent. Tu peux le changer dans Mon compte. ' + (FR.open ? 'Connecté.' : FR.compteRequis && !SAVE.acct ? 'Les amis et les groupes demandent un compte : connecte-toi dans Mon compte.' : 'Connexion au serveur…') + '</small></span><button class="btn sm" id="fr-copy"><span>Copier</span></button></div>'
      + '<div class="set-row"><small>' + (SAVE.acct ? 'Compte : ' + esc(SAVE.acct.u) : 'Pas de compte : crée-le pour tout retrouver sur un autre téléphone.') + '</small><button class="btn sm ghost" id="fr-acct"><span>' + (SAVE.acct ? 'Mon compte' : 'Créer un compte') + '</span></button></div></div>';
   h += '<div class="seg fr-tabs"><button data-t="amis" aria-pressed="' + (FRU.tab === 'amis') + '">Amis (' + L.length + ')</button><button data-t="groupes" aria-pressed="' + (FRU.tab === 'groupes') + '">Groupes (' + Gs.length + ')</button></div>';
   if (FRU.tab === 'amis') {
@@ -3979,7 +3981,7 @@ const WK_API = window.TK_API || 'https://wild-kart-serveur.uncreeper5431.workers
 // en cours sur CET appareil, et les graphismes (qui dépendent de la puissance de chaque téléphone)
 const ACC_SKIP = new Set(['acct', 'chefKey', 'uid', 'lastCode', 'lastCodeAt', 'quality', 'fps', 'accSeen', 'updSeen', 'braquage', 'v']);
 const ACU = { tab: 'creer', busy: false, msg: '', rec: '', timer: 0, lastUp: 0, open: false, autre: null };
-const ACC_AUTH = new Set(['fpoll', 'fsend', 'sigreg', 'sigpoll', 'sigsend', 'sigdel']);   // #34.Q3 : toute action réseau présente la session
+const ACC_AUTH = new Set(['fpoll', 'fsend', 'sigreg', 'sigpoll', 'sigsend', 'sigdel', 'find', 'ginv', 'gjoin', 'gleave', 'gren', 'gsave']);   // #34.Q3/Q6 : toute action réseau ou d'amis présente la session
 /* #34.Q — Un seul appareil connecté par compte. Le serveur a ouvert la session ailleurs (ou changé le mot de passe) : cet appareil
    se déconnecte, quitte le jeu en ligne et le salon, et garde toutes ses données locales (elles se refusionnent à la reconnexion).
    Une réponse tardive portant un ancien jeton (déjà remplacé ici par une nouvelle connexion) est ignorée. */
@@ -4442,7 +4444,7 @@ async function launchPrepared(ti, cc, who) {
   const PT = G.prepT = { ti, t0: performance.now() }, mk = (k) => { PT[k] = Math.round(performance.now() - PT.t0); };
   RACE_LOADER.show(TRACKS[ti] && TRACKS[ti].name); G.prep = true; if (ATTRACT_P) { try { await ATTRACT_P; } catch (e) { /* rien */ } } const cv = renderer.domElement; await yieldFrame(); cv.style.visibility = 'hidden'; mk('ecran'); // canvas 3D caché pendant la préparation : l'écran de chargement s'affiche sans recomposer la 3D
   try {
-    RACE_OPTS.laps = SAVE.laps || 0; RACE_OPTS.obst = SAVE.obst !== false; RACE_OPTS.seed = (Math.random() * 4294967295) >>> 0; RACE_OPTS.music = SAVE.musicPick || 'auto';
+    RACE_OPTS.laps = (window.WK_ESSAI && window.WK_ESSAI.laps) || SAVE.laps || 0; RACE_OPTS.obst = SAVE.obst !== false; RACE_OPTS.seed = (Math.random() * 4294967295) >>> 0; RACE_OPTS.music = SAVE.musicPick || 'auto';   /* essai de l'atelier : un tour */
     if (G.W) { disposeWorld(G.W); G.W = null; } G.race = null; // le menu derrière n'est plus rendu : mémoire libérée avant de construire
     PIXEL_JOBS = []; let W;
     try { W = await runSlicedLoad(buildWorldSteps(ti), (p) => RACE_LOADER.set(p * .75)); } finally { while (PIXEL_JOBS.length) texReady({ userData: { wkFill: PIXEL_JOBS.shift() } }); PIXEL_JOBS = null; }
@@ -9581,7 +9583,7 @@ function netUsable() {
 }
 function netReset() {
   if (SAVE.lastCode) { SAVE.lastCode = ''; store(); }
-  Net.leaving = true; clearTimeout(Net.rejoinT); for (const t of Net.drops.values()) clearTimeout(t);
+  Net.leaving = true; Net.sessMode = ''; clearTimeout(Net.rejoinT); for (const t of Net.drops.values()) clearTimeout(t);
   try { for (const c of Net.conns.values()) c.close(); } catch (e) { /* déjà fermé */ }
   try { if (Net.hc) Net.hc.close(); } catch (e) { /* déjà fermé */ }
   try { if (Net.peer) Net.peer.destroy(); } catch (e) { /* déjà détruit */ }
@@ -9610,7 +9612,11 @@ function netCreate() {
 }
 function hostRelay(d, except) { for (const [id, c] of Net.conns) if (id !== except && c.open) { try { c.send(d); } catch (e) { /* connexion fermée */ } } }
 function hostBroadcast(d) { hostRelay(d, null); }
-function lobbyPlayers() { return Net.players.map((p) => ({ id: p.id, name: p.name, cfg: p.cfg, host: !!p.host, away: !!p.away, fid: p.fid || (p.host ? frMyId() : '') })); }
+// #34.Q6 : en mode vérifié (option A ou B), l'identifiant d'ami d'un joueur non vérifié n'est pas diffusé (un invité ne peut pas se faire passer
+// pour un ami) ; « inv » signale un invité, « ok » un compte dont la session a été vérifiée par le serveur.
+function lobbyPlayers() { const verif = Net.sessMode && Net.sessMode !== 'non';
+  return Net.players.map((p) => ({ id: p.id, name: p.name, cfg: p.cfg, host: !!p.host, away: !!p.away, inv: !!p.inv, ok: !!(p.verifie || (p.host && SAVE.acct)),
+    fid: p.host ? frMyId() : verif && !p.verifie ? '' : p.fid || '' })); }
 function hostBroadcastLobby() { musPrewarmOnline(); hostBroadcast({ t: 'lobby', players: lobbyPlayers(), settings: Net.settings, code: Net.code, inRace: Net.inRace, cl: SAVE.chefList || '' }); renderOnline(); }
 /* #34.Q3 — Ticket d'hôte. Un joueur connecté à un compte présente un ticket court (90 s) délivré par le serveur et le renouvelle
    toutes les 30 s ; l'hôte demande au serveur s'il est toujours lié à la session active de ce compte. Session remplacée ou ticket
@@ -9618,12 +9624,21 @@ function hostBroadcastLobby() { musPrewarmOnline(); hostBroadcast({ t: 'lobby', 
    mode strict. Erreur réseau : aucune exclusion (on revérifie au tour suivant). */
 async function hostVerifTicket(conn, p, tk) {
   if (!p || !Net.host) return;
-  const r = await acctCall('tverif', { ticket: tk || '' }); if (!r || !r.ok) return;
-  if (r.valide && (!p.pu || r.pseudo === String(p.pu).toLowerCase())) { p.tkOk = Date.now(); return; }
-  if (!tk && !r.strict) return;
+  const t0 = Date.now(), r = await acctCall('tverif', { ticket: tk || '' }); (Net.tvLog = (Net.tvLog || []).slice(-30)).push({ t: t0, ms: Date.now() - t0, qui: p.name, ok: !!(r && r.ok), valide: !!(r && r.valide) }); /* journal court des vérifications (bancs, diagnostic) */
+  if (!r || !r.ok) return;   // erreur réseau : aucune exclusion, on revérifie au tour suivant
+  const mode = r.mode || (r.strict ? 'tous' : 'non'); Net.sessMode = mode;
+  if (r.valide && (!p.pu || r.pseudo === String(p.pu).toLowerCase())) { p.tkOk = Date.now(); if (p.verifie !== r.pseudo || p.inv) { p.verifie = r.pseudo; p.inv = false; hostBroadcastLobby(); } return; }
+  if (!tk) {
+    if (mode === 'non') return;                                                                   // compatibilité : rien n'est exigé
+    if (mode === 'comptes' && !p.pu) { if (!p.inv) { p.inv = true; p.verifie = ''; hostBroadcastLobby(); } return; }   // option B : invité admis, marqué comme tel
+  }
+  // Ticket d'un autre compte, session remplacée, ou compte annoncé sans ticket (option B) / sans ticket du tout (option A) : exclu.
   try { conn.send({ t: 'sessionfin' }); } catch (e) { /* déjà fermé */ } setTimeout(() => { try { conn.close(); } catch (e) { /* rien */ } }, 300);
   toast(p.name + ' a quitté : session du compte terminée.', 3500);
 }
+// Un joueur qui annonce un compte envoie son ticket avec « hello » ou juste après ; on l'attend jusqu'à ~44 s (8 + 6 × 6) avant de juger :
+// 20 s ne suffisaient pas (ticket arrivé trop tard dans un essai réel du 6 nov. → exclusion à tort). Pendant l'attente il reste non vérifié.
+function hostAttendreTicket(conn, p, n) { if (p.tk || n >= 6 || !p.pu) return hostVerifTicket(conn, p, p.tk); setTimeout(() => hostAttendreTicket(conn, p, n + 1), 6000); }
 setInterval(() => { if (!Net.host) return; for (const p of Net.players) { if (!p.pu || p.away) continue; const c = Net.conns.get(p.pid); if (c) hostVerifTicket(c, p, p.tk); } }, 30000);
 function hostOnData(conn, d) {
   if (!d || typeof d !== 'object') return;
@@ -9631,14 +9646,17 @@ function hostOnData(conn, d) {
   if (d.t === 'hello') {
     if (d.cl && chefListApply(d.cl, true)) { hostBroadcastLobby(); hostKickBanned(); }
     if ((d.fid && CHEF.b.has(String(d.fid))) || (Array.isArray(d.fo) && d.fo.some((x) => CHEF.b.has(String(x)))) || (d.pu && CHEF.b.has('@' + String(d.pu)))) { try { conn.send({ t: 'banned' }); } catch (e) { /* rien */ } setTimeout(() => conn.close(), 400); return; }
-    const id = String(d.uid || conn.peer).slice(0, 40); Net.uidOf.set(conn.peer, id); Net.seen.set(id, performance.now());
+    let id = String(d.uid || conn.peer).slice(0, 40); Net.uidOf.set(conn.peer, id); Net.seen.set(id, performance.now());
     let p = Net.players.find((x) => x.id === id);
-    if (p) { const was = p.away; p.away = 0; p.pid = conn.peer; p.name = String(d.name || p.name).slice(0, 10); p.cfg = cleanCfg(d.cfg); if (d.fid) p.fid = String(d.fid).slice(0, 20); clearTimeout(Net.drops.get(id)); Net.drops.delete(id); if (was) toast(p.name + ' est de retour !'); }
+    // #34.Q6 : la place d'un compte VÉRIFIÉ ne peut être reprise que par le même compte (qui repassera le ticket) ; sinon place distincte.
+    if (p && p.verifie && String(d.pu || '').toLowerCase() !== p.verifie && !p.host) { const id2 = (id + '~' + String(conn.peer).slice(-4)).slice(0, 40); id = id2; Net.uidOf.set(conn.peer, id); Net.seen.set(id, performance.now()); p = Net.players.find((x) => x.id === id) || null; }
+    if (p) { const was = p.away; p.away = 0; p.pid = conn.peer; p.name = String(d.name || p.name).slice(0, 10); p.cfg = cleanCfg(d.cfg); if (d.fid) p.fid = String(d.fid).slice(0, 20);
+      { const pu = d.pu ? String(d.pu).slice(0, 16) : ''; if (pu !== (p.pu || '')) { p.pu = pu; p.tk = ''; p.tkOk = 0; p.verifie = ''; p.inv = false; } }   /* #34.Q6 : au retour, l'identité annoncée est réévaluée (ex. compte révoqué pendant l'absence → invité) */ clearTimeout(Net.drops.get(id)); Net.drops.delete(id); if (was) toast(p.name + ' est de retour !'); }
     else {
       if (present().length >= 8) { try { conn.send({ t: 'busy' }); } catch (e) { /* rien */ } setTimeout(() => conn.close(), 400); Net.uidOf.delete(conn.peer); return; }
       p = { id, pid: conn.peer, name: String(d.name || 'Joueur').slice(0, 10), cfg: cleanCfg(d.cfg), fid: d.fid ? String(d.fid).slice(0, 20) : '', pu: d.pu ? String(d.pu).slice(0, 16) : '' }; Net.players.push(p); AudioSys.sfx('got');
     }
-    if (d.tk) { p.tk = String(d.tk).slice(0, 64); hostVerifTicket(conn, p, p.tk); } else setTimeout(() => hostVerifTicket(conn, p, p.tk), 8000);   // #34.Q3 : le ticket suit hello de près
+    if (d.tk) { p.tk = String(d.tk).slice(0, 64); hostVerifTicket(conn, p, p.tk); } else setTimeout(() => hostAttendreTicket(conn, p, 0), 8000);   // #34.Q3 : le ticket suit hello de près
     hostBroadcastLobby();
     // on le remet là où en est la partie
     try {
@@ -9672,6 +9690,7 @@ function hostDrop(uid) {
 function netJoin(code) {
   if (!netUsable()) return; code = (code || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4); if (code.length !== 4) { netStatus('Le code fait 4 lettres.'); return; }
   AudioSys.init(); prepControls(); netReset(); Net.host = false; Net.code = code; netStatus('Connexion à la partie ' + code + '…');
+  if (SAVE.acct) netTicketEnvoi(null);   /* #34.Q6 : ticket demandé dès maintenant, pour partir avec « hello » (réseau lent) */
   netNewPeer();
 }
 function netNewPeer() {
@@ -9881,7 +9900,7 @@ function renderOnline() {
   $('#on-start').hidden = inLobby; $('#on-lobby').hidden = !inLobby; if (!inLobby) return;
   $('#on-codeval').textContent = Net.code;
   const list = $('#on-players'); list.innerHTML = '';
-  for (const p of Net.players) { const b = document.createElement('span'); b.className = 'pchip'; b.style.setProperty('--c', (p.cfg && p.cfg.color) || '#ff4f3a'); b.innerHTML = '<i></i><span></span>'; b.querySelector('span').textContent = p.name + (p.host ? ' (hôte)' : '') + (p.id === Net.id ? ' · toi' : '') + (p.away ? ' · absent' : ''); if (p.away) b.style.opacity = '.55'; list.appendChild(b); }
+  for (const p of Net.players) { const b = document.createElement('span'); b.className = 'pchip'; b.style.setProperty('--c', (p.cfg && p.cfg.color) || '#ff4f3a'); b.innerHTML = '<i></i><span></span>'; b.querySelector('span').textContent = p.name + (p.host ? ' (hôte)' : '') + (p.inv ? ' · invité' : '') + (p.id === Net.id ? ' · toi' : '') + (p.away ? ' · absent' : ''); if (p.away) b.style.opacity = '.55'; list.appendChild(b); }
   const S = Net.settings; $('#on-host-opts').hidden = !Net.host; $('#on-go').hidden = !Net.host;
   if (Net.host) {
     const upd = (k, v) => { S[k] = v; hostBroadcastLobby(); };
@@ -10315,7 +10334,8 @@ function openStudio() {
   toast('Ouverture du Studio…', 1500);
   load(studioSrc('studio-core.js')).then(() => load(studioSrc('studio3d.js')).catch(() => null)).then(() => load(studioSrc('studio.js'))).then(() => window.WKStudio.open()).catch(() => toast('Le Studio n\'a pas pu se charger (connexion ?).'));
 }
-function toMenu() { resetPerf(); if (Net.peer) netReset(); UI.quiz = null; UI.party = null; UI.mode = 'quick'; G.race = null; G.paused = false; showHud(false); AudioSys.engine(0, false); AudioSys.stopMusic(); UI.gp = null; show('title'); const back = UI.afterMenu; UI.afterMenu = null; if (back) back(); }
+function toMenu() { { const E = window.WK_ESSAI; if (E) { window.WK_ESSAI = null; const P = G.race && G.race.player; E.tour = P && isFinite(P.bestLap) && P.bestLap > 0 ? P.bestLap : null; E.fini = !!(P && P.finished); E.cfgCourse = P && P.cfg ? { body: P.cfg.body, wheels: P.cfg.wheels, glider: P.cfg.glider } : null; window.WK_ESSAI_FIN = E; } }   // #34.G2 : fin d'essai de l'atelier
+  resetPerf(); if (Net.peer) netReset(); UI.quiz = null; UI.party = null; UI.mode = 'quick'; G.race = null; G.paused = false; showHud(false); AudioSys.engine(0, false); AudioSys.stopMusic(); UI.gp = null; show('title'); const back = UI.afterMenu; UI.afterMenu = null; if (back) back(); }
 
 function drawTrackThumb(c, def) {
   const S = buildSamples(def), x = c.getContext('2d'), w = c.width, h = c.height;
@@ -10374,6 +10394,7 @@ document.addEventListener('click', (e) => {
 
 /* garage */
 const GS = { scene: null, kart: null, rot: 0, vit: 0, glisse: null, touche: 0 };
+const GARAGE_K = { spin: 0, boost: 0, finished: false, place: 0, drift: 0, air: false };   // kart à l'arrêt pour poser le pilote au garage
 function buildGarageScene() {
   const s = new T.Scene(); s.background = new T.Color('#2a2560');
   s.add(new T.HemisphereLight('#ffffff', '#2a2560', 1.6)); const d = new T.DirectionalLight('#fff3e0', 2.6); d.position.set(5, 8, 6); s.add(d);
@@ -10550,7 +10571,7 @@ $('#p-settings').onclick = () => { AudioSys.sfx('click'); UI.settingsBack = 'pau
 function refreshGarageKart() {
   if (!GS.scene) buildGarageScene();
   if (GS.kart) { GS.scene.remove(GS.kart.g); GS.kart.g.traverse((o) => { if (o.geometry && !o.geometry.userData.keep) o.geometry.dispose(); }); }
-  GS.kart = kartMesh(myCfg()); GS.kart.shadow = null; GS.scene.add(GS.kart.g); GS.fake = { air: GS.showGlider ? 'glide' : false, glOpen: 0, vy: 0, x: 0, h: 0, vh: 0 };
+  GS.kart = kartMesh(window.WK_APERCU ? Object.assign(myCfgEquipe(), window.WK_APERCU) : myCfg()); GS.kart.shadow = null; if (GS.kart.rig && !window.WK_GARAGE_SANS_POSE) heroAnimate(GS.kart.rig, GARAGE_K, 0, 1, performance.now() / 1000);   /* posé dès la création (pas d'attente de l'image suivante) */ /* WK_APERCU : brouillon de l'atelier (#34.G2) */ GS.scene.add(GS.kart.g); GS.fake = { air: GS.showGlider ? 'glide' : false, glOpen: 0, vy: 0, x: 0, h: 0, vh: 0 };
   $('#g-name').textContent = SAVE.name || 'Toi';
   const st = statsFor(SAVE.body, SAVE.wheels, SAVE.glider); const box = $('#g-stats'); box.innerHTML = '';
   [['Vitesse', st.speed], ['Accélération', st.accel], ['Maniabilité', st.handling], ['Poids', st.weight], ['Tout-terrain', st.off], ['Planeur', st.air]].forEach(([n, v]) => {
@@ -10578,6 +10599,9 @@ function renderGarage(dt) {
     if (!GS.glisse && repos > 3) GS.rot += dt * .6 * Math.min(1, (repos - 3) / 1.5); }   // reprise douce de la rotation automatique
   GS.kart.g.rotation.y = GS.rot;
   if (GS.fake) animateGlider(GS.fake, GS.kart, dt, performance.now() / 1000);
+  // Pose du pilote au garage (et dans l'atelier) : heroAnimate n'était appelé qu'en course, si bien qu'au garage les bras restaient
+  // non posés (segments à l'origine, mains à 1,22 m du volant, cachées dans le corps) — constaté le 6 nov., antérieur à la fusion #36.P1.
+  if (GS.kart.rig && !window.WK_GARAGE_SANS_POSE) heroAnimate(GS.kart.rig, GARAGE_K, 0, Math.min(dt, .1), performance.now() / 1000);   /* WK_GARAGE_SANS_POSE : témoin des bancs (ancien comportement) */
   const portrait = camera.aspect < 1;
   camera.fov = 40; camera.updateProjectionMatrix();
   const up = GS.showGlider ? 1 : 0;
@@ -10586,7 +10610,9 @@ function renderGarage(dt) {
   // tombe au centre de cette zone ; le décalage est retiré après le rendu (la caméra de course reste intacte).
   let dec = 0, zone = null;
   if (portrait) { const st = GS.stageEl || (GS.stageEl = document.querySelector('#s-garage .g-stage')), H = renderer.domElement.clientHeight;
-    if (st && H > 0) { const r = st.getBoundingClientRect(); if (r.height > 40 && r.bottom < H * .8) zone = { r, H, W: renderer.domElement.clientWidth }; } }
+    if (st && H > 0) { const r0 = st.getBoundingClientRect(); let bas = r0.bottom;
+      for (const el of [document.querySelector('#s-garage .g-panel'), document.getElementById('atl')]) if (el && !el.hidden) { const q = el.getBoundingClientRect(); if (q.height > 0 && q.top > r0.top + 40) bas = Math.min(bas, q.top); }   /* panneau affiché (choix rapide ou atelier #34.G2) */
+      const r = { top: r0.top, bottom: bas, height: bas - r0.top }; if (r.height > 40 && r.bottom < H * .8) zone = { r, H, W: renderer.domElement.clientWidth }; } }
   if (portrait) { const pp = zone ? clamp(.55 * zone.H / zone.r.height, 1, 2.4) : 1; camera.position.set(0, (3.4 + up) * pp, (11 + up * 2) * pp); camera.lookAt(0, (zone ? 1.2 : 1.7) + up * .6, 0); }
   else { camera.position.set(2.8, 3.2 + up * 1.2, 9 + up * 2.4); camera.lookAt(3.1, 1.0 + up * .7, 0); }
   if (zone) { dec = Math.round(zone.H / 2 - (zone.r.top + zone.r.height * .5)); camera.setViewOffset(zone.W, zone.H, 0, dec, zone.W, zone.H); }
@@ -10733,7 +10759,7 @@ if (window.TK_TEST) (function testPanel() {
 })();
 
 // accès pour les tests automatisés
-window.__TK = { heroAnimate, frAddFriend, frSend, buildWorldSteps, acctUpload, acctCall, ONGLET, GS, hostOnData, hostVerifTicket, clientOnData, netTicketEnvoi, disposeWorld, QAUTO, adaptPerf, PERF, setInstZone: (v) => { INST_ZONE = v; }, setDecorLeger: (v) => { DECOR_LEGER = !!v; delete DECOR.bush; }, startAttract, simStep, netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, updateItems, throwFwd, FRONT_TRAPS, onNetEvent, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, videoReady, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner, progOpen, weekDefs, updateObstacles, bridgeAvoid, brAt, raftsAvoid, playerEmote, kartEmote, aiControl, collideKarts, openStudio, toMenu, zoneEnv, studioSurfAt, obstacleHits };
+window.__TK = { PILOTS, ACCS, FINISHES, DECOS, TRAILS, COLORS, SKINS, lockInfo, refreshGarageKart, launchPrepared, toast, ownedColors: typeof ownedColors === 'function' ? ownedColors : null, lobbyPlayers, heroAnimate, frAddFriend, frSend, buildWorldSteps, acctUpload, acctCall, ONGLET, GS, hostOnData, hostVerifTicket, clientOnData, netTicketEnvoi, disposeWorld, QAUTO, adaptPerf, PERF, setInstZone: (v) => { INST_ZONE = v; }, setDecorLeger: (v) => { DECOR_LEGER = !!v; delete DECOR.bush; }, startAttract, simStep, netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, updateItems, throwFwd, FRONT_TRAPS, onNetEvent, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, videoReady, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner, progOpen, weekDefs, updateObstacles, bridgeAvoid, brAt, raftsAvoid, playerEmote, kartEmote, aiControl, collideKarts, openStudio, toMenu, zoneEnv, studioSurfAt, obstacleHits };
 Object.assign(window.__TK, { Graphics, adaptPerf, enhancedGraphics, gravPulse, gravExposed, gravSurf, gravAvail, aiUse13x, GCUT_T, ICONS, ITEM_FR, heroAnimate, QUIZ });
 })();
 
