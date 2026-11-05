@@ -1,4 +1,4 @@
-WILD KART — VERSION TEST test-comptes-7043288
+WILD KART — VERSION TEST test-comptes-5977b52
 Adresse : https://moutmout123.github.io/wild-kart-public/test-comptes/test/
-Export de refonte-26-audit-production (70432881243fae1c526bdb1492bdede485513722).
+Export de refonte-26-audit-production (5977b52c0f392221ed8376630103343f872cacad).
 Séparée du jeu officiel : service worker et cache propres (portée test/), stockage local préfixé « wktest: », mise à jour limitée à test/.

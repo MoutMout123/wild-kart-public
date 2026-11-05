@@ -2764,6 +2764,47 @@ function galetBody(add, cap, V, cfg, WD) {
 // Pilote Héros : maillages séparés (tête, torse, bras, volant) pour l'animation ; segments de bras = capsules unitaires orientées à chaque image.
 // Pilotes animés (rig) : tous les pilotes du jeu depuis la refonte du 3 novembre.
 const RIG_PILOTS = new Set(['casque', 'casquette', 'capuche', 'robot', 'heros']);
+/* #36.P1 — Fusion des maillages STATIQUES du pilote, frère par frère et par matériau, pour réduire les appels de rendu (le pilote
+   pesait 43 maillages sur ~64 par kart, autant d'appels d'ombre). Ne sont fusionnés que des maillages feuilles du même parent, de même
+   matériau, même appartenance à « detail » (masqués de loin), mêmes réglages d'ombre/ordre et mêmes attributs (position, normale,
+   uv éventuel), sans groupes ni morphs. Exclus : tout objet référencé par le rig (bouche, dents, sourcils, bras, volant… animés un
+   par un) et tout maillage portant des userData (animations, étiquettes de pièces). La position de chaque maillage est appliquée à
+   sa géométrie : rendu identique, transformations du parent conservées. */
+// Fusion qui CONSERVE les index (mergeGeos désindexe : +2,6 % de mémoire mesurés avec 8 karts). null si une géométrie n'est pas indexée.
+function fusionIndexee(geos) {
+  if (!geos.every((g) => g.index && g.attributes.normal)) return null;
+  const uv = geos.every((g) => g.attributes.uv); let nv = 0, ni = 0; for (const g of geos) { nv += g.attributes.position.count; ni += g.index.count; }
+  const P = new Float32Array(nv * 3), N = new Float32Array(nv * 3), U = uv ? new Float32Array(nv * 2) : null, I = nv > 65535 ? new Uint32Array(ni) : new Uint16Array(ni);
+  let ov = 0, oi = 0;
+  for (const g of geos) { const c = g.attributes.position.count; P.set(g.attributes.position.array, ov * 3); N.set(g.attributes.normal.array, ov * 3); if (U) U.set(g.attributes.uv.array, ov * 2);
+    const ix = g.index.array; for (let k = 0; k < ix.length; k++) I[oi + k] = ix[k] + ov; ov += c; oi += ix.length; }
+  const m = new T.BufferGeometry(); m.setAttribute('position', new T.BufferAttribute(P, 3)); m.setAttribute('normal', new T.BufferAttribute(N, 3)); if (U) m.setAttribute('uv', new T.BufferAttribute(U, 2)); m.setIndex(new T.BufferAttribute(I, 1)); return m;
+}
+function fusionPilote(rig) {
+  const proteges = new Set(), vu = new Set();
+  const marquer = (v, prof) => { if (!v || typeof v !== 'object' || vu.has(v) || prof > 2) return; vu.add(v); if (v.isObject3D) { proteges.add(v); return; }
+    if (Array.isArray(v)) { for (const x of v) marquer(x, prof + 1); return; } if (v.constructor === Object) for (const k in v) marquer(v[k], prof + 1); };
+  for (const k in rig) if (k !== 'root' && k !== 'detail') marquer(rig[k], 0);
+  const det = new Set(rig.detail), parents = new Set(); rig.root.traverse((o) => { if (o.isMesh && o.parent) parents.add(o.parent); });
+  const attrs = (g) => Object.keys(g.attributes).sort().join(',');
+  for (const par of parents) {
+    const lots = new Map();
+    for (const m of par.children) {
+      if (!m.isMesh || m.isSkinnedMesh || m.isInstancedMesh || m.children.length || proteges.has(m) || Object.keys(m.userData).length || Array.isArray(m.material)) continue;
+      const g = m.geometry; if (!g || g.groups.length > 1 || Object.keys(g.morphAttributes).length || !/^(normal,)?position(,uv)?$/.test(attrs(g))) continue;
+      const cle = [m.material.uuid, det.has(m), m.castShadow, m.receiveShadow, m.renderOrder, m.visible, m.frustumCulled, attrs(g)].join('|');
+      if (!lots.has(cle)) lots.set(cle, []); lots.get(cle).push(m);
+    }
+    for (const lot of lots.values()) {
+      if (lot.length < 2) continue;
+      const geos = lot.map((m) => { m.updateMatrix(); const q = m.geometry.clone(); q.applyMatrix4(m.matrix); return q; });
+      const f = new T.Mesh(fusionIndexee(geos) || mergeGeos(geos), lot[0].material); f.castShadow = lot[0].castShadow; f.receiveShadow = lot[0].receiveShadow; f.renderOrder = lot[0].renderOrder; f.name = 'fusion-pilote';
+      par.add(f); for (const m of lot) par.remove(m);   // géométries d'origine non libérées : elles peuvent être partagées (caches)
+      if (det.has(lot[0])) { rig.detail = rig.detail.filter((x) => !lot.includes(x)); rig.detail.push(f); }
+    }
+  }
+  return rig;
+}
 function heroRig(cfg, mats) {
   // Pièces fixes fusionnées par matériau (tête, volant) : ~20 maillages au lieu de 54 (budget d'appels de rendu mobile).
   const root = new T.Group(), unit = new T.CapsuleGeometry(.5, 1, 4, 10), V3 = (x, y, z) => new T.Vector3(x, y, z);
@@ -2859,6 +2900,7 @@ function heroRig(cfg, mats) {
     else if (style === 'casquette') detail.push(mesh([-1, 1].flatMap((sd) => [0, 1, 2].map((k) => G(new T.SphereGeometry(.011, 6, 4), sd * (.15 + k * .025), -.08 - (k % 2) * .02, .27 - k * .012))), stdMat('#b8734a', .7, 0), head));   // taches de rousseur
     else if (style === 'capuche') detail.push(mesh([G(new T.SphereGeometry(.04, 12, 8), 0, -.05, .3, -.35)], mats.skin, head));                         // petit nez retroussé
   }
+  if (!(typeof window !== 'undefined' && window.WK_SANS_FUSION)) fusionPilote(rig);   // #36.P1 : moins d'appels de rendu (rendu identique, mesuré)
   return rig;
 }
 // Place une capsule unitaire entre deux points (rayon r).
@@ -3937,7 +3979,7 @@ const WK_API = window.TK_API || 'https://wild-kart-serveur.uncreeper5431.workers
 // en cours sur CET appareil, et les graphismes (qui dépendent de la puissance de chaque téléphone)
 const ACC_SKIP = new Set(['acct', 'chefKey', 'uid', 'lastCode', 'lastCodeAt', 'quality', 'fps', 'accSeen', 'updSeen', 'braquage', 'v']);
 const ACU = { tab: 'creer', busy: false, msg: '', rec: '', timer: 0, lastUp: 0, open: false, autre: null };
-const ACC_AUTH = new Set(['fpoll', 'fsend', 'sigreg']);
+const ACC_AUTH = new Set(['fpoll', 'fsend', 'sigreg', 'sigpoll', 'sigsend', 'sigdel']);   // #34.Q3 : toute action réseau présente la session
 /* #34.Q — Un seul appareil connecté par compte. Le serveur a ouvert la session ailleurs (ou changé le mot de passe) : cet appareil
    se déconnecte, quitte le jeu en ligne et le salon, et garde toutes ses données locales (elles se refusionnent à la reconnexion).
    Une réponse tardive portant un ancien jeton (déjà remplacé ici par une nouvelle connexion) est ignorée. */
@@ -3953,7 +3995,7 @@ async function acctCall(a, body, ext) {
   const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null, tm = setTimeout(() => ctl && ctl.abort(), 15000); if (ext && ctl) ext.addEventListener('abort', () => ctl.abort());
   // #34.Q : la présence et le jeu en ligne présentent la session du compte, pour qu'un appareil déconnecté ne puisse plus jouer.
   const auth = ACC_AUTH.has(a) && SAVE.acct ? { auth: { pseudo: SAVE.acct.u, tok: SAVE.acct.tok } } : null, tokEnvoye = (body && body.tok) || (auth && auth.auth.tok);
-  try { const r = await fetch(WK_API, { method: 'POST', headers: { 'content-type': 'text/plain;charset=UTF-8' }, body: JSON.stringify(Object.assign({ a }, body, auth)), signal: ctl ? ctl.signal : undefined, keepalive: a === 'save' });
+  try { const r = await fetch(WK_API, { method: 'POST', headers: { 'content-type': 'text/plain;charset=UTF-8' }, body: JSON.stringify(Object.assign({ a }, body, auth, ACC_AUTH.has(a) ? { cv: 2 } : null)), signal: ctl ? ctl.signal : undefined, keepalive: a === 'save' });
     // Le délai de 15 s couvre l'attente de la réponse, pas la lecture de son corps : sur un appareil saturé, l'annulation tardive
     // coupait la lecture et remplaçait le message du serveur par « indisponible » (banc comptes.cjs intermittent, 5 nov.).
     clearTimeout(tm);
@@ -9544,7 +9586,7 @@ function netReset() {
   try { if (Net.hc) Net.hc.close(); } catch (e) { /* déjà fermé */ }
   try { if (Net.peer) Net.peer.destroy(); } catch (e) { /* déjà détruit */ }
   Object.assign(Net, { peer: null, host: false, code: '', id: '', pid: '', hc: null, players: [], inRace: false, sendT: 0, leaving: false, rejoining: false, lastStart: null });
-  Net.conns = new Map(); Net.states = new Map(); Net.uidOf = new Map(); Net.seen = new Map(); Net.drops = new Map();
+  Net.conns = new Map(); Net.states = new Map(); Net.uidOf = new Map(); Net.seen = new Map(); Net.drops = new Map(); clearInterval(Net.tkT); Net.tk = '';
 }
 function netFail(e) { const off = $('#on-offline'); if (off) off.hidden = false; const t = e && e.type; netStatus(t === 'hote-injoignable' ? 'Impossible de joindre l\'hôte. Vérifiez que vous avez tous les deux la même version (Réglages, tout en bas), puis réessayez.' : t === 'peer-unavailable' ? 'Aucune partie avec ce code. Vérifie le code, et que vous avez tous les deux la même version (Réglages, tout en bas).' : t === 'network' || t === 'server-error' || t === 'socket-error' ? 'Pas de connexion au serveur. Vérifie internet et réessaie.' : 'Connexion impossible (' + (t || 'erreur') + ').'); netReset(); renderOnline(); }
 const PEER_OPTS = () => Object.assign({ debug: 0 }, window.TK_PEER_OPTS || {});
@@ -9570,8 +9612,22 @@ function hostRelay(d, except) { for (const [id, c] of Net.conns) if (id !== exce
 function hostBroadcast(d) { hostRelay(d, null); }
 function lobbyPlayers() { return Net.players.map((p) => ({ id: p.id, name: p.name, cfg: p.cfg, host: !!p.host, away: !!p.away, fid: p.fid || (p.host ? frMyId() : '') })); }
 function hostBroadcastLobby() { musPrewarmOnline(); hostBroadcast({ t: 'lobby', players: lobbyPlayers(), settings: Net.settings, code: Net.code, inRace: Net.inRace, cl: SAVE.chefList || '' }); renderOnline(); }
+/* #34.Q3 — Ticket d'hôte. Un joueur connecté à un compte présente un ticket court (90 s) délivré par le serveur et le renouvelle
+   toutes les 30 s ; l'hôte demande au serveur s'il est toujours lié à la session active de ce compte. Session remplacée ou ticket
+   d'un autre compte → le joueur est exclu (« sessionfin »). Ancien client sans ticket : accepté tant que le serveur n'est pas en
+   mode strict. Erreur réseau : aucune exclusion (on revérifie au tour suivant). */
+async function hostVerifTicket(conn, p, tk) {
+  if (!p || !Net.host) return;
+  const r = await acctCall('tverif', { ticket: tk || '' }); if (!r || !r.ok) return;
+  if (r.valide && (!p.pu || r.pseudo === String(p.pu).toLowerCase())) { p.tkOk = Date.now(); return; }
+  if (!tk && !r.strict) return;
+  try { conn.send({ t: 'sessionfin' }); } catch (e) { /* déjà fermé */ } setTimeout(() => { try { conn.close(); } catch (e) { /* rien */ } }, 300);
+  toast(p.name + ' a quitté : session du compte terminée.', 3500);
+}
+setInterval(() => { if (!Net.host) return; for (const p of Net.players) { if (!p.pu || p.away) continue; const c = Net.conns.get(p.pid); if (c) hostVerifTicket(c, p, p.tk); } }, 30000);
 function hostOnData(conn, d) {
   if (!d || typeof d !== 'object') return;
+  if (d.t === 'tk') { const p = Net.players.find((x) => x.pid === conn.peer); if (p) { p.tk = String(d.tk || '').slice(0, 64); hostVerifTicket(conn, p, p.tk); } return; }
   if (d.t === 'hello') {
     if (d.cl && chefListApply(d.cl, true)) { hostBroadcastLobby(); hostKickBanned(); }
     if ((d.fid && CHEF.b.has(String(d.fid))) || (Array.isArray(d.fo) && d.fo.some((x) => CHEF.b.has(String(x)))) || (d.pu && CHEF.b.has('@' + String(d.pu)))) { try { conn.send({ t: 'banned' }); } catch (e) { /* rien */ } setTimeout(() => conn.close(), 400); return; }
@@ -9582,6 +9638,7 @@ function hostOnData(conn, d) {
       if (present().length >= 8) { try { conn.send({ t: 'busy' }); } catch (e) { /* rien */ } setTimeout(() => conn.close(), 400); Net.uidOf.delete(conn.peer); return; }
       p = { id, pid: conn.peer, name: String(d.name || 'Joueur').slice(0, 10), cfg: cleanCfg(d.cfg), fid: d.fid ? String(d.fid).slice(0, 20) : '', pu: d.pu ? String(d.pu).slice(0, 16) : '' }; Net.players.push(p); AudioSys.sfx('got');
     }
+    if (d.tk) { p.tk = String(d.tk).slice(0, 64); hostVerifTicket(conn, p, p.tk); } else setTimeout(() => hostVerifTicket(conn, p, p.tk), 8000);   // #34.Q3 : le ticket suit hello de près
     hostBroadcastLobby();
     // on le remet là où en est la partie
     try {
@@ -9623,12 +9680,15 @@ function netNewPeer() {
   peer.on('error', (e) => { if (Net.peer !== peer) return; if (Net.rejoining || Net.lastHost) return; netFail(e); });
   peer.on('disconnected', () => { setTimeout(() => { try { if (Net.peer === peer && !peer.destroyed && peer.disconnected) peer.reconnect(); } catch (e) { /* rien */ } }, 500); });
 }
+// #34.Q3 : demande un ticket d'hôte au serveur (lié à la session active) et l'envoie à l'hôte.
+async function netTicketEnvoi(c) { if (!SAVE.acct) return; const r = await acctCall('ticket', { pseudo: SAVE.acct.u, tok: SAVE.acct.tok }); if (r && r.ok && r.ticket) { Net.tk = r.ticket; try { if (c && c.open) c.send({ t: 'tk', tk: r.ticket }); } catch (e) { /* rien */ } } }
 function clientConnect() {
   const peer = Net.peer; if (!peer || peer.destroyed) return;
   const c = peer.connect(NET_PREFIX + Net.code, { reliable: true, serialization: 'json' }); const old = Net.hc; Net.hc = c; if (old && old !== c) { try { old.close(); } catch (e) { /* rien */ } }
   const to = setTimeout(() => { if (!c.open && Net.hc === c && !Net.rejoining && !Net.lastHost) netFail({ type: 'hote-injoignable' }); }, 28000);
   c.on('open', () => {
-    if (Net.hc !== c) return; clearTimeout(to); Net.lastHost = performance.now(); c.send({ t: 'hello', name: SAVE.name || 'Joueur', cfg: myCfg(), uid: UID, fid: frMyId(), fo: SAVE.fidOld || [], pu: SAVE.acct ? String(SAVE.acct.u).toLowerCase() : '', cl: SAVE.chefList || '' });
+    if (Net.hc !== c) return; clearTimeout(to); Net.lastHost = performance.now(); c.send({ t: 'hello', name: SAVE.name || 'Joueur', cfg: myCfg(), uid: UID, fid: frMyId(), fo: SAVE.fidOld || [], pu: SAVE.acct ? String(SAVE.acct.u).toLowerCase() : '', cl: SAVE.chefList || '', tk: Net.tk || '' });
+    netTicketEnvoi(c); clearInterval(Net.tkT); Net.tkT = setInterval(() => { if (Net.hc === c && c.open) netTicketEnvoi(c); else clearInterval(Net.tkT); }, 30000);   // #34.Q3
     if (Net.rejoining) { Net.rejoining = false; clearTimeout(Net.rejoinT); toast('De retour dans la partie !', 2200); } else netStatus('Connecté !');
     SAVE.lastCode = Net.code; SAVE.lastCodeAt = Date.now(); store();
   });
@@ -9657,6 +9717,7 @@ function clientOnData(d) {
     case 'ping': if (d.r && d.r[Net.id] != null) Net.ping = d.r[Net.id]; if (Net.hc && Net.hc.open) { try { Net.hc.send({ t: 'pong', c: d.c }); } catch (e) { /* rien */ } } break;
     case 'busy': toast('La partie est pleine (8 joueurs).', 4500); netReset(); renderOnline(); break;
     case 'banned': toast('Le chef t\'a bloqué : impossible de rejoindre cette partie.', 5000); netReset(); renderOnline(); break;
+    case 'sessionfin': toast('Ton compte est utilisé ailleurs : tu as quitté la partie.', 5000); netReset(); renderOnline(); break;   // #34.Q3
     case 'lobby': if (d.cl) chefListApply(d.cl, true); Net.players = d.players || []; Net.settings = Object.assign(Net.settings, d.settings || {}); musPrewarmOnline(); if (!Net.inRace) { if (UI.screen !== 'calib' && !(UI.screen === 'mini' && MINI.cur) && UI.screen !== 'settings' && UI.screen !== 'chef') show('online'); renderOnline(); } chefRender(); break;
     case 'start': netStartRace(d); break;
     case 'watch': if (!(G.race && G.race.online && G.race.raceId === d.start.raceId)) netWatch(d); break;
@@ -10520,9 +10581,17 @@ function renderGarage(dt) {
   const portrait = camera.aspect < 1;
   camera.fov = 40; camera.updateProjectionMatrix();
   const up = GS.showGlider ? 1 : 0;
-  if (portrait) { camera.position.set(0, 3.4 + up, 11 + up * 2); camera.lookAt(0, 1.7 + up * .6, 0); }
+  // #34.G1 — En portrait, le panneau couvre le bas de l'écran : le kart (centré sur l'axe de visée) était rendu DERRIÈRE lui.
+  // On recule la caméra selon la hauteur de la zone de scène visible (.g-stage) et on décale l'image pour que le point visé
+  // tombe au centre de cette zone ; le décalage est retiré après le rendu (la caméra de course reste intacte).
+  let dec = 0, zone = null;
+  if (portrait) { const st = GS.stageEl || (GS.stageEl = document.querySelector('#s-garage .g-stage')), H = renderer.domElement.clientHeight;
+    if (st && H > 0) { const r = st.getBoundingClientRect(); if (r.height > 40 && r.bottom < H * .8) zone = { r, H, W: renderer.domElement.clientWidth }; } }
+  if (portrait) { const pp = zone ? clamp(.55 * zone.H / zone.r.height, 1, 2.4) : 1; camera.position.set(0, (3.4 + up) * pp, (11 + up * 2) * pp); camera.lookAt(0, (zone ? 1.2 : 1.7) + up * .6, 0); }
   else { camera.position.set(2.8, 3.2 + up * 1.2, 9 + up * 2.4); camera.lookAt(3.1, 1.0 + up * .7, 0); }
+  if (zone) { dec = Math.round(zone.H / 2 - (zone.r.top + zone.r.height * .5)); camera.setViewOffset(zone.W, zone.H, 0, dec, zone.W, zone.H); }
   renderer.render(GS.scene, camera);
+  if (zone) camera.clearViewOffset();
 }
 /* ---- aide au démarrage (premières courses) ---- */
 function showHints() {
@@ -10664,7 +10733,7 @@ if (window.TK_TEST) (function testPanel() {
 })();
 
 // accès pour les tests automatisés
-window.__TK = { buildWorldSteps, acctUpload, acctCall, ONGLET, GS, disposeWorld, QAUTO, adaptPerf, PERF, setInstZone: (v) => { INST_ZONE = v; }, setDecorLeger: (v) => { DECOR_LEGER = !!v; delete DECOR.bush; }, startAttract, simStep, netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, updateItems, throwFwd, FRONT_TRAPS, onNetEvent, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, videoReady, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner, progOpen, weekDefs, updateObstacles, bridgeAvoid, brAt, raftsAvoid, playerEmote, kartEmote, aiControl, collideKarts, openStudio, toMenu, zoneEnv, studioSurfAt, obstacleHits };
+window.__TK = { heroAnimate, frAddFriend, frSend, buildWorldSteps, acctUpload, acctCall, ONGLET, GS, hostOnData, hostVerifTicket, clientOnData, netTicketEnvoi, disposeWorld, QAUTO, adaptPerf, PERF, setInstZone: (v) => { INST_ZONE = v; }, setDecorLeger: (v) => { DECOR_LEGER = !!v; delete DECOR.bush; }, startAttract, simStep, netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, updateItems, throwFwd, FRONT_TRAPS, onNetEvent, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, videoReady, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner, progOpen, weekDefs, updateObstacles, bridgeAvoid, brAt, raftsAvoid, playerEmote, kartEmote, aiControl, collideKarts, openStudio, toMenu, zoneEnv, studioSurfAt, obstacleHits };
 Object.assign(window.__TK, { Graphics, adaptPerf, enhancedGraphics, gravPulse, gravExposed, gravSurf, gravAvail, aiUse13x, GCUT_T, ICONS, ITEM_FR, heroAnimate, QUIZ });
 })();
 
