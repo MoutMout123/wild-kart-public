@@ -950,12 +950,16 @@ function buildSamples(def) {
   // Plafond « saut » (demande du propriétaire, 3 novembre) : la route à l'envers finit sur une lèvre ; à la place du retournement,
   // un vide (pas de chaussée) que le kart franchit en l'air pendant que son repère revient à l'endroit, puis il se pose sur la route
   // à l'endroit. Même portion que le retournement de sortie (twist, ≥ 50 m). S.glideKind = 2 : saut (pas de planeur).
-  for (const z of def.warp || []) if (z.type === 'plafond' && z.saut) { const i0 = Math.floor(z.from * N), i1 = Math.floor(z.to * N), n = Math.max(2, i1 - i0), tw = Math.min(.4, Math.max(z.twist || .18, 50 / (n * seg))), g0 = i1 - Math.round(tw * n * .9);
+  for (const z of def.warp || []) if (z.type === 'plafond' && z.saut) { const i0 = Math.floor(z.from * N), i1 = Math.floor(z.to * N), n = Math.max(2, i1 - i0), tw = twistPlafond(z, n, seg), g0 = i1 - Math.round(tw * n * .9);
     S.glideKind = S.glideKind || new Uint8Array(N); for (let i = g0; i <= i1 - 2; i++) { S.glide[i % N] = 1; S.glideT[i % N] = (i - g0) / Math.max(1, i1 - 2 - g0); S.glideKind[i % N] = 2; } }
   S.closed = true; S.id = -1;
   return S;
 }
 
+/* Portion de retournement d'un plafond (fraction de la zone) : ≥ 50 m par défaut. #32.B5 (7 nov.) : z.vide (m, plafond « saut ») fixe la
+   longueur du vide franchi (variante « réception proche ») ; même valeur pour la physique (S.glide) et l'affichage (buildWarp). Sans
+   z.vide, calcul inchangé : aucune des 26 cartes n'utilise ce paramètre. */
+function twistPlafond(z, n, seg) { if (z.saut && z.vide) return Math.min(.4, Math.max(12 / (n * seg), z.vide / (.9 * n * seg))); return Math.min(.4, Math.max(z.twist || .18, 50 / (n * seg))); }
 /* ---- géométrie utilitaire ---- */
 function bandGeo(S, cols, opts = {}) {
   // bande le long du circuit : chaque colonne = {o: décalage latéral (nombre, ou fonction de l'échantillon), y: hauteur, abs: hauteur absolue, u}
@@ -2935,14 +2939,14 @@ function heroRig(cfg, mats) {
   const spin = new T.Group(); wheel.add(spin); mesh([new T.TorusGeometry(.2, .035, 10, 28)], mats.dark, spin);
   mesh([0, 2.1, 4.2].map((a) => G(new T.CylinderGeometry(.018, .018, .2, 6), Math.sin(a) * .1, Math.cos(a) * .1, 0, 0, 0, -a)).concat([G(new T.CylinderGeometry(.05, .05, .05, 12), 0, 0, 0, Math.PI / 2)]), mats.metal, spin);
   const sleeve = stdMat(cfg.color, .55, .05), seg = () => { const m = new T.Mesh(unit, sleeve); m.castShadow = true; root.add(m); return m; };
-  const arms = [-1, 1].map((s) => ({ s, up: seg(), lo: seg(), hand: (() => { if (!expressif) { const h = new T.Mesh(new T.SphereGeometry(.085, 12, 10), mats.glove); h.castShadow = true; root.add(h); return h; }
+  const arms = [-1, 1].map((s) => ({ s, up: seg(), lo: seg(), coude: (() => { const m = new T.Mesh(new T.SphereGeometry(.09, 12, 10), sleeve); m.castShadow = true; root.add(m); return m; })(), hand: (() => { if (!expressif) { const h = new T.Mesh(new T.SphereGeometry(.085, 12, 10), mats.glove); h.castShadow = true; root.add(h); return h; }
     // #36 : gant moufle (paume, pouce refermé sur la jante, manchette) au lieu d'une boule ; orienté sur la jante dans heroAnimate
     const h = new T.Group(); h.userData.moufle = true; const part = (g) => { const m = new T.Mesh(g, mats.glove); m.castShadow = true; h.add(m); return m; };
     const paume = new T.SphereGeometry(.1, 16, 12); paume.scale(1.05, .85, 1.15); part(paume);
     const pouce = new T.CapsuleGeometry(.034, .05, 4, 10); pouce.rotateZ(s * .9); pouce.translate(-s * .07, .055, .03); part(pouce);
     const manchette = new T.TorusGeometry(.075, .028, 8, 20); manchette.translate(0, 0, -.1); part(manchette);
     root.add(h); return h; })() }));
-  for (const A of arms) detail.push(A.hand, A.up, A.lo); detail.push(mouth);   // loin : bras et mains masqués aussi (budget d'appels Samsung)
+  for (const A of arms) detail.push(A.hand, A.up, A.lo, A.coude); detail.push(mouth);   // loin : bras et mains masqués aussi (budget d'appels Samsung)
   const rig = { visage2: VISAGE2, face: FACE, detail, far: false, root, torso, head, eyes: [eyesG], brows: [browG], browM, teeth, mouth, open, wheel, spin, arms, ang: 0, blink: 2 + Math.random() * 3, cheer: 0, _a: V3(), _b: V3(), _c: V3(), _q: new T.Quaternion(), _y: V3(0, 1, 0) };
   if (window.WKPilotesPrototype) window.WKPilotesPrototype.habiller(T, cfg, mats, rig);
   // #36 identité des cinq pilotes au-delà de la coiffe : proportions, posture et visage (nez, taches de rousseur, menton).
@@ -2958,7 +2962,14 @@ function heroRig(cfg, mats) {
   if (!(typeof window !== 'undefined' && window.WK_SANS_FUSION)) fusionPilote(rig);   // #36.P1 : moins d'appels de rendu (rendu identique, mesuré)
   return rig;
 }
+/* Coude d'un bras à deux segments de longueurs a et b (cinématique inverse) ; la main est ramenée à portée (a + b) si besoin ; « pole »
+   oriente le pli du coude. Modifie hand si hors de portée ; renvoie le coude (vecteur réutilisé de « pole »). */
+function coudeIK(sh, hand, a, b, pole) { const d = hand.clone().sub(sh); let L = d.length(); const max = (a + b) * .999, min = Math.abs(a - b) + .01;
+  if (L > max) { d.multiplyScalar(max / L); hand.copy(sh).add(d); L = max; } else if (L < min) { d.multiplyScalar(min / (L || 1)); hand.copy(sh).add(d); L = min; }
+  const u = d.normalize(), x = (a * a - b * b + L * L) / (2 * L), h = Math.sqrt(Math.max(0, a * a - x * x)), pn = pole.sub(u.clone().multiplyScalar(pole.dot(u))).normalize();
+  return pn.multiplyScalar(h).add(u.multiplyScalar(x)).add(sh); }
 // Place une capsule unitaire entre deux points (rayon r).
+const VISAGE2_BRAS = true;   /* #36.E3 : avant-bras légèrement affiné (0,085 → 0,08) */
 function heroSeg(m, a, b, r, R) { const d = R._c.subVectors(b, a), L = d.length(); m.position.copy(a).add(b).multiplyScalar(.5); m.quaternion.setFromUnitVectors(R._y, d.divideScalar(L || 1)); m.scale.set(r * 2, Math.max(.01, L) / 2, r * 2); }
 // Animation : volant et mains, regard et inclinaison dans le virage, dérive, boost, choc, saut, victoire, clignement.
 function heroAnimate(R, k, st, dt, now) {
@@ -2990,9 +3001,13 @@ function heroAnimate(R, k, st, dt, now) {
   for (const A of R.arms) {
     const sh = R._a.set(A.s * .34, 1.32, -.36 + (R.pench || 0) * .3).applyAxisAngle(R._y.set(0, 0, 1), R.torso.rotation.z); R._y.set(0, 1, 0);
     const ang = A.s * 1.05 + R.ang; let hand = new T.Vector3(Math.sin(ang) * .2, Math.cos(ang) * .2, 0).applyMatrix4(R.wheel.matrix);
-    if (A.s > 0 && R.cheer > .05) hand.lerp(new T.Vector3(.45, 2.25 + Math.sin(now * 9) * .08, -.2), R.cheer);
-    const elbow = R._b.copy(sh).lerp(hand, .5).add(new T.Vector3(A.s * .2, -.12, 0));
-    heroSeg(A.up, sh, elbow, .095, R); heroSeg(A.lo, elbow, hand, .085, R); A.hand.position.copy(hand);
+    /* #36.E3 (7 nov.) : bras à longueurs FIXES (bras 0,44, avant-bras 0,43 — atteignent la jante sur toute la plage de braquage, mesurée
+       0,73–0,85) et coude par cinématique inverse à deux segments. Avant : coude au milieu épaule–main, bras étiré de +35 à +58 % au poing
+       levé de la victoire (« long tube »). Victoire : poing au-dessus de l'épaule, à portée, coude vers l'extérieur. */
+    if (typeof window !== 'undefined' && window.WK_BRAS_AVANT) { /* témoin : ancien calcul (coude au milieu, bras étiré) */ if (A.s > 0 && R.cheer > .05) hand.lerp(new T.Vector3(.45, 2.25 + Math.sin(now * 9) * .08, -.2), R.cheer); const el = R._b.copy(sh).lerp(hand, .5).add(new T.Vector3(A.s * .2, -.12, 0)); heroSeg(A.up, sh, el, .095, R); heroSeg(A.lo, el, hand, .085, R); A.hand.position.copy(hand); if (A.coude) A.coude.position.copy(el); if (A.hand.userData.moufle) { A.hand.quaternion.copy(R.wheel.quaternion); A.hand.rotateZ(-ang); } continue; }
+    if (A.s > 0 && R.cheer > .05) hand.lerp(R._c.set(sh.x + .24, sh.y + .7 + Math.sin(now * 9) * .04, sh.z + .04), R.cheer);   /* poing écarté de la tête (de profil, il passait devant le visage) */
+    const elbow = coudeIK(sh, hand, .44, .43, R._b.set(A.s, -.55 - .9 * (A.s > 0 ? R.cheer : 0), -.35));
+    heroSeg(A.up, sh, elbow, .095, R); heroSeg(A.lo, elbow, hand, VISAGE2_BRAS ? .08 : .085, R); A.hand.position.copy(hand); if (A.coude) A.coude.position.copy(elbow);   /* articulation du coude : pas de pli brusque entre les deux segments */
     if (A.hand.userData.moufle) { A.hand.quaternion.copy(R.wheel.quaternion); A.hand.rotateZ(-ang); if (A.s > 0 && R.cheer > .05) A.hand.quaternion.slerp(R._q.identity(), R.cheer); }   // paume refermée sur la jante
   }
 }
@@ -6776,7 +6791,7 @@ function buildWarp(S, def, hw) {
       // Retournement d'au moins 50 m (cassures ≤ 5°/m au départ du levage et du roulis) : sur une zone courte (Gravité Zéro, 160 m),
       // 18 % ne laissaient que 29 m pour un demi-tour → cassure de 10,7°/m signalée par le contrôleur du concepteur.
       // z.angle (degrés, défaut 180) : route à l'envers « de biais » (ex. 135° : chaussée en surplomb inclinée). Défaut inchangé.
-      const sd = z.side || 1, R0 = hw * .6 + 3, tw = Math.min(.4, Math.max(z.twist || .18, 50 / (n * (S.seg || 2)))), AR = clamp(z.angle != null ? z.angle : 180, 90, 180) * DEG;
+      const sd = z.side || 1, R0 = hw * .6 + 3, tw = twistPlafond(z, n, S.seg || 2), AR = clamp(z.angle != null ? z.angle : 180, 90, 180) * DEG;
       for (let q = 0; q <= n; q++) { const i = (i0 + q) % N, u = q / n, a = AR * sd * (smoothstep(0, tw, u) - smoothstep(1 - tw, 1, u));
         roll[i] = a; wo[i * 3 + 1] += levage(a, u, R0, hw) + (z.rise || 0) * Math.sin(Math.PI * u); S.wz[i] = 1; S.ag[i] = 1; }
       // Saut : lèvre de tremplin affichée sur les 10 derniers mètres du plafond (vers le « haut » du kart, donc vers le bas du monde).

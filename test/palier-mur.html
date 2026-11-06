@@ -23,11 +23,11 @@ button{font:inherit;font-size:12px;font-weight:700;border:2px solid #fff;backgro
   'use strict';
   const T = window.THREE, S = window.WKSurface3D;
   /* Profils jouables : palier mur frontal (B1) et virages sur paroi (B2). */
-  const PROFILS = { mur: () => S.profilMurFrontal(), gauche: () => S.profilParoi('gauche'), droite: () => S.profilParoi('droite'), s: () => S.profilParoi('s'), epingle: () => S.profilParoi('epingle'), spirale: () => S.profilParoi('spirale') };
-  const NOMS = { mur: 'Mur frontal', gauche: 'Paroi gauche', droite: 'Paroi droite', s: 'S sur paroi', epingle: 'Épingle', spirale: 'Spirale' };
+  const PROFILS = { mur: () => S.profilMurFrontal(), gauche: () => S.profilParoi('gauche'), droite: () => S.profilParoi('droite'), s: () => S.profilParoi('s'), epingle: () => S.profilParoi('epingle'), spirale: () => S.profilParoi('spirale'), 'looping-petit-sur': () => S.profilLooping('petit', 'sur'), 'looping-moyen': () => S.profilLooping('moyen', 'moyen'), 'looping-grand-risque': () => S.profilLooping('grand', 'risque') };   /* #32.B5 */
+  const NOMS = { mur: 'Mur frontal', gauche: 'Paroi gauche', droite: 'Paroi droite', s: 'S sur paroi', epingle: 'Épingle', spirale: 'Spirale', 'looping-petit-sur': 'Looping petit (sûr)', 'looping-moyen': 'Looping moyen', 'looping-grand-risque': 'Looping grand (risqué)' };
   /* #32.B3 : scènes à PLUSIEURS surfaces (réseau) — croisement par pont, saut d'un étage à l'autre, bifurcation et réunion */
-  const RESEAUX = ['croisement', 'etage', 'bifurcation', 'parcours']; for (const r of RESEAUX) PROFILS[r] = null;
-  Object.assign(NOMS, { croisement: 'Pont (croisement)', etage: 'Étages', bifurcation: 'Bifurcation', parcours: 'Parcours composé' });
+  const RESEAUX = ['croisement', 'etage', 'bifurcation', 'parcours', 'envol']; for (const r of RESEAUX) PROFILS[r] = null;
+  Object.assign(NOMS, { croisement: 'Pont (croisement)', etage: 'Étages', bifurcation: 'Bifurcation', parcours: 'Parcours composé', envol: 'Envol (2 réceptions)' });
   const scene = (nom) => RESEAUX.includes(nom) ? S.sceneReseau(nom) : { surfaces: { piste: S.depuisProfil(PROFILS[nom]()) }, liens: {}, vide: {}, depart: 'piste' };
   const reseauDe = (sc) => S.reseau(sc.surfaces, sc.liens, sc.vide, { depart: sc.depart, points: sc.points || [] });   /* #32.B4 : points de passage, progression, IA par graphe */
   let profil = 'mur', SC = scene('mur'), RS = reseauDe(SC), surf = SC.surfaces[SC.depart], choix = 1;   /* choix : branche visée par le pilote auto (+1 gauche, −1 droite), alternée à chaque départ */
@@ -52,6 +52,11 @@ button{font:inherit;font-size:12px;font-weight:700;border:2px solid #fff;backgro
     for (let s2 = 10; s2 < surf.longueur; s2 += 20) { const f = surf.repere(s2); if (f.p[1] < 2.5 || f.n[1] < .9) continue; const hP = f.p[1] - .3;
       const pil = new T.Mesh(new T.BoxGeometry(1.2, hP, 1.2), new T.MeshStandardMaterial({ color: '#b9b3a6', roughness: .9 })); pil.position.set(f.p[0], hP / 2, f.p[2]); piste.add(pil); }
     }
+    /* #32.B6 : anneaux par trajectoire (scène ENVOL) — vol simulé en braquage plein vers chaque réception, 3 anneaux à 25/50/75 % */
+    if (profil === 'envol') for (const sg of [-1, 1]) { const R2 = S.reseau(SC.surfaces, SC.liens, SC.vide, { depart: SC.depart }), kk = R2.creer(SC.depart, Object.assign({ v: 20, vMax: 54 }, SC.reglages)), tr = []; let t = 0;
+      while (t < 20 && (kk.attache ? tr.length === 0 : true)) { R2.pas(kk, 1 / 120, { gaz: 1, braquage: kk.attache ? 0 : sg }); t += 1 / 120; if (!kk.attache) tr.push([kk.vol.p.slice(), kk.vol.v.slice()]); else if (tr.length) break; }
+      for (const f of [.25, .5, .75]) { const [pp, vv] = tr[Math.floor(f * tr.length)], an = new T.Mesh(new T.TorusGeometry(2.5, .18, 10, 32), new T.MeshStandardMaterial({ color: sg < 0 ? '#3ee08f' : '#ffc531', emissive: sg < 0 ? '#145c3a' : '#5c4a10', roughness: .4 }));
+        an.position.set(pp[0], pp[1], pp[2]); an.lookAt(pp[0] + vv[0], pp[1] + vv[1], pp[2] + vv[2]); piste.add(an); } }
   }
   construirePiste();
   { const sol2 = new T.Mesh(new T.PlaneGeometry(900, 900), new T.MeshStandardMaterial({ color: '#5f9a4a', roughness: 1 })); sol2.rotation.x = -Math.PI / 2; sol2.position.y = -.05; sc.add(sol2); }
@@ -67,7 +72,7 @@ button{font:inherit;font-size:12px;font-weight:700;border:2px solid #fff;backgro
   const trajG = new T.BufferGeometry(), trajP = new Float32Array(3 * 2000); trajG.setAttribute('position', new T.BufferAttribute(trajP, 3)); trajG.setDrawRange(0, 0); traces.add(new T.Line(trajG, new T.LineBasicMaterial({ color: 0xffffff }))); let nTraj = 0;
   // État et commandes
   const CC = { '50cc': 44, '100cc': 54, '150cc': 64 }; let cc = '150cc', camMode = 'pilote', auto = false, k = null, horizon = .5; /* horizon : part de la verticale du monde gardée par la caméra pilote */ const E = { g: false, d: false, gaz: true, frein: false };
-  function depart() { k = RS.creer(SC.depart, { v: SC.fourche ? 20 : 0, vMax: CC[cc] }); choix = -choix; nTraj = 0; trajG.setDrawRange(0, 0); }
+  function depart() { k = RS.creer(SC.depart, Object.assign({ v: SC.fourche ? 20 : 0, vMax: CC[cc] }, SC.reglages || {})); choix = -choix; nTraj = 0; trajG.setDrawRange(0, 0); }
   depart();
   const bascule = (id, fn) => { document.getElementById(id).onclick = fn; };
   bascule('b-cam', () => { camMode = camMode === 'pilote' ? 'oblique' : 'pilote'; document.getElementById('b-cam').textContent = 'Caméra : ' + camMode; });
@@ -90,7 +95,8 @@ button{font:inherit;font-size:12px;font-weight:700;border:2px solid #fff;backgro
   function boucle(now) {
     acc += Math.min(.1, (now - last) / 1000); last = now;
     while (acc >= DT) { const F = SC.fourche, cible = F ? (k.surf === SC.surfaces[F.surface] && k.s > F.depuis ? F.decal * choix : 0) : RS.cibleIA(k, choix > 0 ? 'court' : 'long');   /* le pilote auto vise sa branche avant la fourche */
-      const brq = auto ? Math.max(-1, Math.min(1, (k.d - cible) * .25 + Math.sin(k.cap) * 2)) : (E.d ? 1 : 0) - (E.g ? 1 : 0);
+      /* en vol (ENVOL, contrôle aérien) : le pilote auto vise la réception gauche ou droite selon « choix » */
+      const brq = auto ? (!k.attache && SC.reglages ? (choix > 0 ? -1 : 1) : Math.max(-1, Math.min(1, (k.d - cible) * .25 + Math.sin(k.cap) * 2))) : (E.d ? 1 : 0) - (E.g ? 1 : 0);
       RS.pas(k, DT, { gaz: auto || E.gaz ? 1 : 0, frein: E.frein ? 1 : 0, braquage: brq }); acc -= DT;
       if (k.attache && RS.terminus(k.surf) && k.s >= k.surf.longueur - 1.5) { k.s = k.surf.longueur - 1.5; k.v = 0; } }
     // Pose du kart : repère de surface (attaché) ou orientation de vol (détaché)
@@ -116,7 +122,7 @@ button{font:inherit;font-size:12px;font-weight:700;border:2px solid #fff;backgro
     else { cam.position.set(p.x + 30, p.y + 38, p.z + 30); cam.up.set(0, 1, 0); cam.lookAt(p); } /* virages : vue plongeante qui suit le kart */
     R.render(sc, cam); etat.images++;
     const raide = k.raide != null ? k.raide : 0;
-    document.getElementById('hud').innerHTML = '<b>' + Math.round(Math.abs(k.v) * 3.6) + ' km/h</b> · ' + cc + '<br>chaussée : ' + raide.toFixed(0) + '° ' + (k.surf.aimante(k.s) ? '(aimantée)' : '') + (RESEAUX.includes(profil) ? ' · surface ' + RS.id(k.surf) : '') + (SC.fourche ? ' · vise ' + (choix > 0 ? 'gauche' : 'droite') : '') + (SC.points ? '<br>points de passage ' + (k.point || 0) + '/' + SC.points.length + ' · IA : branche ' + (choix > 0 ? 'courte' : 'longue') + ' · progression ' + RS.progression(k).toFixed(0) + ' m' : '') + '<br>' + (k.attache ? 'roues au contact' : 'EN VOL') +
+    document.getElementById('hud').innerHTML = '<b>' + Math.round(Math.abs(k.v) * 3.6) + ' km/h</b> · ' + cc + '<br>chaussée : ' + raide.toFixed(0) + '° ' + (k.surf.aimante(k.s) ? '(aimantée)' : '') + (RESEAUX.includes(profil) ? ' · surface ' + RS.id(k.surf) : '') + (SC.fourche || SC.reglages ? ' · vise ' + (choix > 0 ? 'gauche' : 'droite') : '') + (SC.points ? '<br>points de passage ' + (k.point || 0) + '/' + SC.points.length + ' · IA : branche ' + (choix > 0 ? 'courte' : 'longue') + ' · progression ' + RS.progression(k).toFixed(0) + ' m' : '') + '<br>' + (k.attache ? 'roues au contact' : 'EN VOL') +
       ' · détachements ' + k.detachements + (k.remises ? ' · remises ' + k.remises : '') + '<br>s = ' + k.s.toFixed(0) + ' / ' + k.surf.longueur.toFixed(0) + ' m · écart ' + k.d.toFixed(1) + ' m';
     requestAnimationFrame(boucle);
   }

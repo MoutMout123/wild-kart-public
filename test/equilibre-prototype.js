@@ -74,7 +74,7 @@
        épaisseur −40 %) avec léger relevé, fermés par une pointe arrondie ; UV en mètres (u le long de l'arc, v autour de la section) pour
        une peinture et des reflets nets. joncAile : jonc continu balayé sur le même tracé, effilé avec l'aile (plus de tores posés). */
     const evol = (th, arc, o) => { const t = Math.abs(th) / (arc / 2), u = Math.min(1, Math.max(0, (t - (1 - o.effile)) / o.effile)), s = u * u * (3 - 2 * u); return { w: 1 - .45 * s, e: 1 - .4 * s, r: o.releve * s * s }; };
-    const optsAile = (o) => Object.assign({ effile: .18, releve: .03, bombe: .012, expo: 3, nArc: 36, nProf: 24 }, o || {});
+    const optsAile = (o) => Object.assign({ effile: .18, releve: .03, bombe: .012, expo: 3, nArc: 28, nProf: 16 }, o || {});   /* résolution réduite après mesure en course (6 nov. : ailes = premier poste, +7 000 triangles par kart) */
     function aileDessinee(rIn, ep, wf, arc, cx, cy, cz, o) {
       o = optsAile(o); const hw = wf / 2, ht = ep / 2, m = o.nProf, pos = [], uv = [], ids = [], rings = [];
       const prof = []; for (let j = 0; j < m; j++) { const a = j / m * tau, c = Math.cos(a), s = Math.sin(a), px = Math.sign(c) * Math.pow(Math.abs(c), 2 / o.expo), py = Math.sign(s) * Math.pow(Math.abs(s), 2 / o.expo); prof.push([px, py]); }
@@ -84,7 +84,7 @@
         rings.push(base); };
       /* pointe arrondie : bout refermé en DEMI-ELLIPSE en plan (section × cos φ, avancée = 0,8 × demi-largeur restante × sin φ) — une
          aile large (Baignoire, ~80 cm) se referme sur ~18 cm et non sur 2 cm, sans tranche plate */
-      const embout = [20, 40, 58, 72, 84].map((d) => [Math.cos(d * Math.PI / 180), Math.sin(d * Math.PI / 180)]);
+      const embout = [25, 50, 70, 84].map((d) => [Math.cos(d * Math.PI / 180), Math.sin(d * Math.PI / 180)]);
       const fin = (sgn) => { const E = evol(arc / 2, arc, o), rc = rIn + ht * E.e + E.r, hwF = hw * E.w; return embout.map(([sc, sn]) => [sgn * (arc / 2 + .8 * hwF * sn / rc), sc]); };
       const liste = fin(-1).reverse().concat(Array.from({ length: o.nArc + 1 }, (_, i) => [-arc / 2 + arc * i / o.nArc, 1])).concat(fin(1));
       for (const [th, sc] of liste) anneauA(th, sc);
@@ -97,9 +97,9 @@
     function joncAile(rIn, ep, wf, arc, cx, cy, cz, bord, rj, o) {
       o = optsAile(o); const pts = [], n = o.nArc;
       for (let i = 0; i <= n; i++) { const th = -arc / 2 + arc * i / n, E = evol(th, arc, o), rc = rIn + ep / 2 * E.e + E.r; pts.push(V(cx + bord * (wf / 2 * E.w - rj * .55), cy + rc * Math.cos(th), cz + rc * Math.sin(th))); }
-      const g = new T.TubeGeometry(new T.CatmullRomCurve3(pts), n * 2, rj, 8, false), p = g.attributes.position, L = pts.length;
+      const g = new T.TubeGeometry(new T.CatmullRomCurve3(pts), n, rj, 6, false), p = g.attributes.position, L = pts.length;
       /* effilement du jonc aux bouts : rayon ramené vers l'axe proportionnellement à la largeur de l'aile */
-      for (let i = 0; i < p.count; i++) { const ring = Math.floor(i / 9), t = ring / (n * 2), th = -arc / 2 + arc * t, E = evol(th, arc, o), k = (.45 + .55 * (E.w - .55) / .45) * Math.sqrt(Math.min(1, Math.max(0, (.5 - Math.abs(t - .5)) / .03))), c = new T.Vector3();   /* bouts du jonc refermés en pointe (tube non ouvert) */ new T.CatmullRomCurve3(pts).getPointAt(Math.min(1, t), c); const q = V(p.getX(i), p.getY(i), p.getZ(i)).sub(c).multiplyScalar(k).add(c); p.setXYZ(i, q.x, q.y, q.z); void L; }
+      for (let i = 0; i < p.count; i++) { const ring = Math.floor(i / 7), t = ring / n, th = -arc / 2 + arc * t, E = evol(th, arc, o), k = (.45 + .55 * (E.w - .55) / .45) * Math.sqrt(Math.min(1, Math.max(0, (.5 - Math.abs(t - .5)) / .03))), c = new T.Vector3();   /* bouts du jonc refermés en pointe (tube non ouvert) */ new T.CatmullRomCurve3(pts).getPointAt(Math.min(1, t), c); const q = V(p.getX(i), p.getY(i), p.getZ(i)).sub(c).multiplyScalar(k).add(c); p.setXYZ(i, q.x, q.y, q.z); void L; }
       g.computeVertexNormals(); return g;
     }
     const AILE_AVANT = typeof window !== 'undefined' && !!window.WK_AILE_AVANT;   /* témoin : ancien garde-boue (planches avant/après) */
