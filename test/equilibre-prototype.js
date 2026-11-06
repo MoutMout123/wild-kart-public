@@ -18,16 +18,18 @@
       const g = new T.ExtrudeGeometry(s, { depth: Math.max(.001, d - 2 * r), bevelEnabled: true, bevelSize: r, bevelThickness: r, bevelSegments: 3, curveSegments: 4, steps: 1 });
       g.translate(0, 0, -d / 2 + r); add(k, place(g, x, y, z, rx, ry, rz));
     }
-    function tube(k, pts, r, radial = 8) {
-      const c = new T.CatmullRomCurve3(pts.map(p => V(...p)));
-      add(k, new T.TubeGeometry(c, Math.max(4, pts.length * 4), r, radial, false));
+    // ferme = true : boucle continue (courbe fermée), sans jointure ni bouts ouverts (rebord du cockpit creusé).
+    function tube(k, pts, r, radial = 8, ferme = false) {
+      const c = new T.CatmullRomCurve3(pts.map(p => V(...p)), ferme);
+      add(k, new T.TubeGeometry(c, Math.max(4, pts.length * 4), r, radial, ferme));
     }
     function cyl(k, r, h, x, y, z, rx = 0, ry = 0, rz = 0, r2 = r) {
       add(k, place(new T.CylinderGeometry(r, r2, h, 18, 1), x, y, z, rx, ry, rz));
     }
     // Panneau fermé à section variable ; aucun panneau ne traverse le volume du cockpit.
-    function panneau(k, sections, x = 0) {
-      const pos = [], uv = [], ids = [], n = 30, m = 24;
+    // Options (#36, cockpit creusé du Galet) : { n, m } résolution ; deformer(pos) modifie les sommets avant le calcul des normales.
+    function panneau(k, sections, x = 0, opts = null) {
+      const pos = [], uv = [], ids = [], n = (opts && opts.n) || 30, m = (opts && opts.m) || 24;
       for (let i = 0; i <= n; i++) {
         const z = sections[0][0] + (sections[sections.length - 1][0] - sections[0][0]) * i / n;
         // Interpolation monotone locale : évite les dépassements de largeur près des extrémités.
@@ -45,26 +47,39 @@
         pos.push(x, (s[2] + s[3]) / 2, s[0]); uv.push(.5, ring ? 1 : 0);
         for (let j = 0; j < m; j++) { const a = ring * (m + 1) + j; if (ring) ids.push(c, a, a + 1); else ids.push(c, a + 1, a); }
       }
-      const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new T.Float32BufferAttribute(uv, 2)); g.setIndex(ids); g.computeVertexNormals(); add(k, g);
+      if (opts && opts.deformer) opts.deformer(pos);
+      const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new T.Float32BufferAttribute(uv, 2)); g.setIndex(ids); g.computeVertexNormals(); add(k === 'paint' && !(opts && opts.brut) ? 'coque' : k, g);   // panneau peint (opts.brut : peinture unie, sans livrée) : livrée (dégradé, joints, bande, numéro) dans ses UV
     }
     function livree(sections, cfg) {
-      if (cfg.deco === 'aucune') return null;
+      // Fiche V7 (#36) : bandes et damier sont désormais peints dans la livrée des panneaux, plus de plan collé par-dessus.
+      if (cfg.deco === 'aucune' || cfg.livreePeinte !== false) return null;
       let geo;
       const draw = outillage(T, (_k, g) => { geo = g; });
       draw.panneau('deco', sections.map(s => [s[0], s[1] * (cfg.deco === 'damier' ? .38 : .16), s[2] + .01, s[2] + .006]));
       return geo;
     }
-    return { V, place, boite, tube, cyl, panneau, livree };
+    // Aile pleine légère (retour coût du 5 nov.) : section rectangulaire à coins arrondis (largeur wf, épaisseur ep, rayon intérieur
+    // rIn) balayée sur un arc centré sur le dessus de la roue, bouts fermés ; géométrie indexée (~450 sommets au lieu de 5 460).
+    function ailePleine(rIn, ep, wf, arc, cx, cy, cz, nArc = 24) {
+      const prof = [], hw = wf / 2, ht = ep / 2, rr = Math.min(.018, ht * .9), q = 3;
+      for (const [sx, sy] of [[1, 1], [-1, 1], [-1, -1], [1, -1]]) for (let i = 0; i <= q; i++) { const a = (sx > 0 && sy > 0 ? 0 : sx < 0 && sy > 0 ? 1 : sx < 0 ? 2 : 3) * Math.PI / 2 + i / q * Math.PI / 2; prof.push([sx * (hw - rr) + Math.cos(a) * rr, sy * (ht - rr) + Math.sin(a) * rr]); }
+      const m = prof.length, pos = [], ids = [], rc = rIn + ht;
+      for (let i = 0; i <= nArc; i++) { const th = -arc / 2 + arc * i / nArc; for (const [lx, lr] of prof) pos.push(cx + lx, cy + (rc + lr) * Math.cos(th), cz + (rc + lr) * Math.sin(th)); }
+      for (let i = 0; i < nArc; i++) for (let j = 0; j < m; j++) { const a = i * m + j, b = i * m + (j + 1) % m, c2 = a + m, d = b + m; ids.push(a, c2, b, b, c2, d); }
+      for (const [ring, sgn] of [[0, 1], [nArc, -1]]) { const c0 = pos.length / 3, th = -arc / 2 + arc * ring / nArc; pos.push(cx, cy + rc * Math.cos(th), cz + rc * Math.sin(th)); for (let j = 0; j < m; j++) { const a = ring * m + j, b = ring * m + (j + 1) % m; if (sgn > 0) ids.push(c0, b, a); else ids.push(c0, a, b); } }
+      const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setIndex(ids); g.computeVertexNormals(); return g;
+    }
+    return { V, place, boite, tube, cyl, panneau, livree, ailePleine };
   }
   function construire(T, add, WD, cfg) {
-    const { boite, tube, cyl, panneau, livree } = outillage(T, add);
+    const { boite, tube, cyl, panneau, livree, ailePleine } = outillage(T, add);
     const rw = .92 + WD.w / 2 - .12;
     // Châssis visible, appuis de pare-chocs et liaisons aux roues existantes.
     for (const s of [-1, 1]) {
       tube('plast', [[s * .65, .36, -1.48], [s * .7, .32, -.6], [s * .65, .32, .6], [s * .48, .4, 1.55]], .065);
       for (const z of [1.05, -1]) {
-        tube('metal', [[s * .34, .38, z - .16], [s * (rw - .2), WD.r, z]], .035);
-        tube('metal', [[s * .34, .48, z + .16], [s * (rw - .2), WD.r, z]], .025);
+        tube('metal', [[s * .34, .38, z - .16], [s * (rw - Math.min(.2, WD.w * .36)), WD.r, z]], .035);
+        tube('metal', [[s * .34, .48, z + .16], [s * (rw - Math.min(.2, WD.w * .36)), WD.r, z]], .025);
       }
       tube('metal', [[s * .5, .34, 1.48], [s * .52, .43, 1.88]], .055);
     }
@@ -73,7 +88,7 @@
     panneau('paint', hood);
     // Bande ivoire sur le sommet (géométrie mince indépendante, sans changer le pneu).
     const deco = livree(hood, cfg);
-    boite('plast', 1.52, .22, .22, .075, 0, .39, 1.92);
+    { const c = new T.CapsuleGeometry(.11, 1.3, 8, 24); c.rotateZ(Math.PI / 2); c.translate(0, .39, 1.92); add('plast', c); }   // pare-chocs lisse (gélule)
     for (const s of [-1, 1]) {
       boite('chrome', .13, .18, .06, .025, s * .48, .48, 1.82, -.2);
       cyl('metal', .032, .02, s * .48, .5, 1.86, Math.PI / 2);
@@ -96,12 +111,16 @@
       tube('dark', [[s * .29, .7, -.15], [s * .31, .85, -.55], [s * .28, 1.3, -.79]], .045);
       tube('metal', [[s * .24, .34, -.55], [s * .24, .62, -.56]], .035);
     }
-    tube('metal', [[0, .38, .65], [0, .76, .46], [0, 1.17, .25]], .026);
+    tube('metal', [[0, .38, .78], [0, .99, .56], [0, 1.17, .27]], .026);   // colonne dans l'axe du volant (inclinaison .55 rad)
     // Garde-boue arrière uniquement : arc ouvert et compatible avec chaque dimension de roue.
     for (const s of [-1, 1]) {
       const a = Math.PI * .7, rad = WD.r + .115;
-      const g = new T.CylinderGeometry(rad, rad, WD.w + .1, 24, 1, true, Math.PI / 2 - a / 2, a);
-      g.rotateZ(Math.PI / 2); g.translate(s * rw, WD.r, -1); add('paint', g);
+      // Retour du 5 nov. : garde-boue pleins (secteur de 4 cm extrudé, bouts fermés) au lieu de tôles ouvertes ; boudins conservés.
+      const plein = (z) => { const e = ailePleine(rad, .04, WD.w + .1, a, s * rw, WD.r, z); e.userData.piece = 'aile'; return e; };
+      add('paint', plein(-1));
+      // #36 : ailes avant et boudins de tranche (silhouette plus pleine, inspirée des karts de dessin animé, dessin original).
+      add('paint', plein(1.05));
+      for (const z of [-1, 1.05]) for (const e of [-1, 1]) { const t = new T.TorusGeometry(rad + .02, .045, 8, 24, a); t.rotateZ(Math.PI / 2 - a / 2); t.rotateY(Math.PI / 2); t.translate(s * rw + e * (WD.w + .1) / 2, WD.r, z); t.userData.piece = 'aile'; add('paint', t); }
     }
     // Moteur compact nervuré et échappement unique : visibles depuis la caméra de course.
     boite('metal', .64, .38, .48, .055, 0, .91, -1.23);
@@ -116,7 +135,10 @@
       boite('feu', .22, .07, .05, .02, s * .4, .67, -1.73);
     }
     boite('ivory', 1.3, .21, .18, .06, 0, .48, -1.73);
-    return { flames: [{ x: .5, y: .9, z: -1.96, s: .8 }], deco, echappementIntegre: true };
+    // #34 G0 — mêmes points d'assemblage nommés que les autres carrosseries.
+    const ancrages = { version: 1, roues: { avant: 1.05, arriere: -1, voie: rw, rayon: WD.r, largeur: WD.w }, siege: { x: 0, y: .68, z: -.39 }, dossier: { y: 1.02, z: -.74 }, volant: { x: 0, y: 1.2, z: .23, inclinaison: .55 },
+      colonne: [[0, .38, .78], [0, .99, .56], [0, 1.17, .27]], ailes: [{ avant: true, arriere: true, arc: .7, rayon: WD.r + .115 }], phares: [{ z: 2.04, y: .4, x: .43, r: .06 }], parechocs: [{ z: 1.92, y: .39, largeur: 1.52, cote: 'avant' }], aileron: null, moteur: { z: -1.23, y: .91, double: false }, echappements: [{ x: .5, y: .9, z: -1.96 }] };
+    return { flames: [{ x: .5, y: .9, z: -1.96, s: .8 }], deco, echappementIntegre: true, ancrages };
   }
   root.WKEquilibrePrototype = { construire, outillage, version: 'equilibre-temoin-01' };
 })(typeof window !== 'undefined' ? window : globalThis);

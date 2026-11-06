@@ -63,7 +63,9 @@ const GLIDERS = {
   dragon: { name: 'Dragon', air: .08, shape: 'chauvesouris', col: { a: '#c1121f', e: '#ff5a00' } }, arcenciel: { name: 'Arc-en-ciel', air: .08, shape: 'parapente', col: { a: '#ff4fd8', b: '#38b6ff' } },
 };
 const SKINS = ['#f3d2b3', '#e0b08a', '#c68b5e', '#8d5a3b', '#5c3a25'];
-function myCfg() { return { name: SAVE.name || 'Toi', color: SAVE.color, helmet: SAVE.helmet, body: SAVE.body, wheels: SAVE.wheels, pilot: SAVE.pilot, acc: SAVE.acc, finish: SAVE.finish, deco: SAVE.deco, trail: SAVE.trail, skin: SAVE.skin, glider: SAVE.glider, title: SAVE.title || '' }; }
+// #34.G2 : pendant l'ESSAI d'un brouillon de l'atelier (atelier.js), la course utilise ce brouillon sans l'équiper.
+function myCfg() { const c = myCfgEquipe(); return typeof window !== 'undefined' && window.WK_ESSAI && window.WK_ESSAI.cfg ? Object.assign(c, window.WK_ESSAI.cfg) : c; }
+function myCfgEquipe() { return { name: SAVE.name || 'Toi', color: SAVE.color, helmet: SAVE.helmet, body: SAVE.body, wheels: SAVE.wheels, pilot: SAVE.pilot, acc: SAVE.acc, finish: SAVE.finish, deco: SAVE.deco, trail: SAVE.trail, skin: SAVE.skin, glider: SAVE.glider, title: SAVE.title || '' }; }
 function cleanCfg(c) {
   c = c || {}; const ok = (v, o, d) => (Object.prototype.hasOwnProperty.call(o, v) ? v : d); const col = (v, d) => (/^#[0-9a-f]{6}$/i.test(v || '') ? v : d);
   return { name: String(c.name || 'Joueur').slice(0, 10), color: col(c.color, '#ff4f3a'), helmet: col(c.helmet, '#ffc531'), body: ok(c.body, BODIES, 'equilibre'), wheels: ok(c.wheels, WHEELS, 'standard'),
@@ -2229,8 +2231,12 @@ function tireGeo(R, w, knobby, style) {
   }
   return g;
 }
+// Retour du 5 nov. : la jante s'arrêtait à 0,97 × r0, 5 cm en retrait du talon du pneu (r0, ±(w/2 − 0,02)) dont l'alésage n'est pas
+// modélisé ; on voyait la caisse à travers cet anneau vide (contour irrégulier). Une collerette rejoint maintenant le talon, juste à
+// l'intérieur du flanc. Branches, voile et moyeu inchangés.
+function rimLevre(r0, w, s) { return [[r0 * .97, s * w * .34], [r0 * 1.0, s * w * .4], [r0 * 1.035, s * (w / 2 - .022)]]; }
 function rimGeo(R, w) {
-  const r0 = R * .6, pts = [[.001, w * .34], [r0 * .28, w * .36], [r0 * .62, w * .22], [r0 * .97, w * .34], [r0 * .97, -w * .34], [r0 * .62, -w * .22], [r0 * .28, -w * .36], [.001, -w * .34]].map((p) => new T.Vector2(p[0], p[1]));
+  const r0 = R * .6, pts = [[.001, w * .34], [r0 * .28, w * .36], [r0 * .62, w * .22], ...rimLevre(r0, w, 1).reverse(), ...rimLevre(r0, w, -1), [r0 * .62, -w * .22], [r0 * .28, -w * .36], [.001, -w * .34]].map((p) => new T.Vector2(p[0], p[1]));
   const g = new T.LatheGeometry(pts, 28); g.rotateZ(Math.PI / 2);
   // cinq branches arrondies sur chaque face (refonte du 3 novembre)
   const list = [g]; for (const sx of [-1, 1]) for (let k = 0; k < 5; k++) { const a = k / 5 * TAU, sp = new T.CapsuleGeometry(r0 * .1, r0 * .55, 2, 6); sp.scale(1.6, 1, 1); sp.translate(0, r0 * .5, 0); sp.applyMatrix4(trs(sx * w * .3, 0, 0, a, 0, 0)); list.push(sp); }
@@ -2266,8 +2272,8 @@ function loftGeo(secs, M = 44, K = 40) {
 const LIVERY = new Map();
 function liveryMat(body, cfg, F, spec) {
   const hi = qual().shadows, key = [body, cfg.color, cfg.helmet, cfg.deco, F.r, F.m, hi].join('|'); if (LIVERY.has(key)) return LIVERY.get(key);
-  const Wd = hi ? 1024 : 512, Hd = hi ? 512 : 256, cv = document.createElement('canvas'); cv.width = Wd; cv.height = Hd; const x = cv.getContext('2d'), sp = spec || {};
-  const U = (u) => u * Wd, Vv = (v) => (1 - v) * Hd, base = cfg.color, acc = cfg.helmet, dk = darken(base, .62), lt = (() => { const c = rgb(base).map((v) => Math.min(255, Math.round(v + (255 - v) * .35))); return `rgb(${c.join(',')})`; })();
+  const Wd = hi ? 1024 : 512, Hd = hi ? 1024 : 512, cv = document.createElement('canvas'); cv.width = Wd; cv.height = Hd; const x = cv.getContext('2d'), sp = spec || {};
+  const U = (u) => u * Wd, Vv = (v) => (1 - v) * Hd, base = cfg.color, acc = cfg.helmet, dk = darken(base, .62), lt = (() => { const c = rgb(base).map((v) => Math.min(255, Math.round(v + (255 - v) * .2))); return `rgb(${c.join(',')})`; })();
   x.fillStyle = base; x.fillRect(0, 0, Wd, Hd);
   // reflet doux du dessus et bas de caisse deux tons
   let gr = x.createLinearGradient(U(.3), 0, U(.5), 0); gr.addColorStop(0, base); gr.addColorStop(1, lt); x.fillStyle = gr; x.globalAlpha = .35; x.fillRect(U(.3), 0, U(.2), Hd); gr = x.createLinearGradient(U(.5), 0, U(.7), 0); gr.addColorStop(0, lt); gr.addColorStop(1, base); x.fillStyle = gr; x.fillRect(U(.5), 0, U(.2), Hd); x.globalAlpha = 1;
@@ -2288,6 +2294,10 @@ function liveryMat(body, cfg, F, spec) {
     x.fillStyle = '#ffffff'; x.beginPath(); x.ellipse(cx, cy, ru, rv, 0, 0, TAU); x.fill(); x.strokeStyle = acc; x.lineWidth = Wd * .004; x.stroke();
     x.save(); x.translate(cx, cy); x.rotate(rot); x.scale(rv / ru, 1); x.fillStyle = '#15141c'; x.font = `900 ${Math.round(ru * 1.25)}px sans-serif`; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(num, 0, ru * .06); x.restore(); }
   // petit logo « WK » à l'arrière
+  // emblème original Wild Kart sur le capot (rond blanc, anneau d'accent, étoile), dessiné rond en mètres
+  if (sp.capot !== false) { const cx = U(.5), cy = Vv(sp.vCapot || .82), rx = Wd * .045, ry = rx * Hd / Wd * 1.05; x.fillStyle = '#ffffff'; x.beginPath(); x.ellipse(cx, cy, rx, ry, 0, 0, TAU); x.fill(); x.lineWidth = Wd * .006; x.strokeStyle = acc; x.stroke();
+    x.save(); x.translate(cx, cy); x.scale(1, ry / rx); x.lineWidth = rx * .08; x.strokeStyle = dk; x.beginPath(); x.arc(0, 0, rx * .78, 0, TAU); x.stroke();   // double anneau
+    x.fillStyle = dk; x.beginPath(); for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? rx * .26 : rx * .62; x.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); } x.closePath(); x.fill(); x.restore(); }   // étoile Wild Kart (aucune lettre : pas de monogramme pouvant évoquer une autre marque)
   x.save(); x.translate(U(.5), Vv(.1)); x.scale(1, 2); x.fillStyle = acc; x.font = `900 ${Math.round(Hd * .03)}px sans-serif`; x.textAlign = 'center'; x.fillText('WILD KART', 0, 0); x.restore();
   const tex = new T.CanvasTexture(cv); tex.anisotropy = Math.min(8, (renderer.capabilities && renderer.capabilities.getMaxAnisotropy()) || 1); if ('colorSpace' in tex) tex.colorSpace = T.SRGBColorSpace; else tex.encoding = T.sRGBEncoding;
   const m = hi ? new T.MeshPhysicalMaterial({ color: '#ffffff', map: tex, roughness: Math.min(F.r, .32), roughnessMap: paintTex(), metalness: F.m, bumpMap: flakeTex(), bumpScale: .0012, clearcoat: F.m > .9 ? .35 : 1, clearcoatRoughness: .06 })
@@ -2299,6 +2309,7 @@ function plastiqueMat() { const key = 'plastique|' + qual().shadows; if (!matCac
 function chromeMat() { const key = 'chrome|' + qual().shadows; if (!matCache.has(key)) matCache.set(key, new T.MeshStandardMaterial({ color: '#f2f4fa', roughness: .08, metalness: 1, envMapIntensity: 1.3 })); return matCache.get(key); }
 function verreMat() { const key = 'verre'; if (!matCache.has(key)) matCache.set(key, new T.MeshPhysicalMaterial({ color: '#2a3650', roughness: .04, metalness: .2, transmission: 0, transparent: true, opacity: .82, clearcoat: 1, clearcoatRoughness: .02 })); return matCache.get(key); }
 const BODY_SPEC = {
+  galet: { num: 7, joints: [.36, .62], ouies: [], vCapot: .95, vNum: .5 },   // emblème sur le nez, devant la prise d'air de capot
   equilibre: { num: 7, joints: [.34, .7], ouies: [[.46, 3]] }, bolide: { num: 1, joints: [.3, .62], ouies: [[.42, 4]], vNum: .45, vCapot: .86 }, libellule: { num: 5, joints: [.62], ouies: [], vNum: .5 },
   buggy: { num: 4, joints: [.4], ouies: [[.5, 2]] }, fusee: { num: 9, joints: [.25, .55, .75], ouies: [], vNum: .5, capot: false }, sport: { num: 3, joints: [.3, .72], portes: [[.38, .58]], ouies: [[.62, 4]] },
   monstre: { num: 8, joints: [.5], ouies: [], bas: .2 }, baignoire: { num: 0 }, scarabee: { num: 2, joints: [], ouies: [], capot: false }, lutin: { num: 6, joints: [.7], ouies: [] }, requin: { num: 13, joints: [], ouies: [[.62, 4]], capot: false },
@@ -2606,6 +2617,35 @@ function checkerMat() {
     matCache.set('checker', new T.MeshStandardMaterial({ map: t, roughness: .3, metalness: .2 })); }
   return matCache.get('checker');
 }
+// #36 (fiches V1, V4 et L de docs/art/references/FICHES-LOT1.md) : finition du véhicule, ombrage des creux cuit dans les sommets,
+// peinture vernie diélectrique, plastique semi-mat grainé. window.WK_FINITION_AVANT = true rend l'ancien aspect (banc avant/après).
+function finitionVehicule(geo, mats, F) {
+  const fin = {};   // matériaux finis réservés aux maillages de carrosserie (le pilote garde les siens, sans couleurs de sommets)
+  for (const k of ['paint', 'coque', 'accent', 'paint2', 'dark', 'plast']) { const g = geo.merged[k]; if (!g || !g.attributes.position || !mats[k]) continue;
+    if (!g.attributes.color) { g.computeBoundingBox(); const b = g.boundingBox, p = g.attributes.position, n = g.attributes.normal, c = new Float32Array(p.count * 3), H = Math.max(.01, b.max.y - b.min.y);
+      // bas de caisse assombri (dégradé vertical) et faces tournées vers le sol plus sombres (occlusion simple)
+      for (let i = 0; i < p.count; i++) { const h = Math.min(1, Math.max(0, (p.getY(i) - b.min.y) / H)), sm = h * h * (3 - 2 * h); let v = .72 + .28 * sm; if (n && n.getY(i) < 0) v *= 1 + .32 * n.getY(i); c[i * 3] = c[i * 3 + 1] = c[i * 3 + 2] = v; }
+      g.setAttribute('color', new T.BufferAttribute(c, 3)); }
+    const m = mats[k].clone(); m.vertexColors = true;
+    if (k === 'dark' || k === 'plast') { if (!m.map) { m.map = paintTex(); m.roughnessMap = paintTex(); } m.roughness = .6; m.metalness = .05; }   // plastique semi-mat grainé
+    else if (F.m < .9) { if (k === 'coque') m.color.setScalar(.84); m.envMapIntensity = .5;   // le reflet bleuté de l'environnement délavait le rouge en saumon   // livrée un peu plus dense : évite l'aspect délavé sous le vernis
+      m.metalness = F.m > .3 ? .12 : .04; m.roughness = Math.min(m.roughness, F.r < .5 ? .3 : m.roughness); if ('clearcoat' in m) { m.clearcoat = .45; m.clearcoatRoughness = .08; } }   // peinture diélectrique + vernis
+    fin[k] = m; }
+  return fin;
+}
+// Lentille de phare bombée (fiche V2) : presque transparente, vernie, laisse voir le réflecteur.
+function lentilleMat() { const key = 'lentille|' + qual().shadows; if (!matCache.has(key)) matCache.set(key, qual().shadows ? new T.MeshPhysicalMaterial({ color: '#ffffff', transparent: true, opacity: .28, roughness: .02, metalness: 0, clearcoat: 1, clearcoatRoughness: .02, depthWrite: false }) : new T.MeshStandardMaterial({ color: '#ffffff', transparent: true, opacity: .25, roughness: .05, metalness: 0, depthWrite: false })); return matCache.get(key); }
+// Calandre en nid d'abeille (fiche V3) : texture, pas de géométrie.
+function grilleMat() { const key = 'grille'; if (!matCache.has(key)) { const t = ktexCanvas(128, 128, (x, w, h) => { x.fillStyle = '#0c0b12'; x.fillRect(0, 0, w, h); x.strokeStyle = '#6d6f7c'; x.lineWidth = 3; const R = 10, dx = R * Math.sqrt(3);
+      for (let j = -1; j < h / (R * 1.5) + 1; j++) for (let i = -1; i < w / dx + 1; i++) { const cx = i * dx + (j % 2 ? dx / 2 : 0), cy = j * R * 1.5; x.beginPath(); for (let a = 0; a < 6; a++) { const t = Math.PI / 6 + a * Math.PI / 3; x[a ? 'lineTo' : 'moveTo'](cx + R * Math.cos(t), cy + R * Math.sin(t)); } x.closePath(); x.stroke(); } });
+    matCache.set(key, new T.MeshStandardMaterial({ map: t, roughness: .45, metalness: .5, side: T.DoubleSide })); } return matCache.get(key); }
+// Tissu de combinaison (pilotes) : trame fine et coutures, rugosité élevée.
+function tissuMat(color, rough = .82) { const key = 'tissu|' + color + '|' + rough; if (!matCache.has(key)) { if (!KTEX.tissu) { const r = kRand(23); KTEX.tissu = ktexCanvas(128, 128, (x, w, h) => { x.fillStyle = '#ffffff'; x.fillRect(0, 0, w, h);
+      for (let y = 0; y < h; y += 2) { x.fillStyle = `rgba(0,0,0,${.05 + r() * .04})`; x.fillRect(0, y, w, 1); } for (let i = 0; i < w; i += 2) { x.fillStyle = `rgba(0,0,0,${.03 + r() * .03})`; x.fillRect(i, 0, 1, h); }
+      x.fillStyle = 'rgba(0,0,0,.22)'; x.fillRect(0, 62, w, 2); x.fillStyle = 'rgba(255,255,255,.25)'; x.fillRect(0, 65, w, 1); }); KTEX.tissu.repeat.set(3, 3); }
+    matCache.set(key, new T.MeshStandardMaterial({ color, map: KTEX.tissu, roughness: rough, roughnessMap: KTEX.tissu, metalness: 0 })); } return matCache.get(key); }
+// Casque verni (pilotes) : base peinte peu métallique, vernis net en qualité haute.
+function casqueMat(color) { const hi = qual().shadows, key = 'casque|' + color + '|' + hi; if (!matCache.has(key)) matCache.set(key, hi ? new T.MeshPhysicalMaterial({ color, roughness: .3, metalness: .05, clearcoat: 1, clearcoatRoughness: .05 }) : new T.MeshStandardMaterial({ color, roughness: .26, metalness: .08 })); return matCache.get(key); }
 function kartMesh(cfgIn) {
   const cfg = cleanCfg(cfgIn), bodyId = cfg.body; cfg.body = BODY_V2.has(cfg.body) ? cfg.body : shapeB(cfg.body); cfg.wheels = WHEEL_V2.has(cfg.wheels) ? cfg.wheels : shapeW(cfg.wheels);
   const g = new T.Group(); const tilt = new T.Group(); g.add(tilt);
@@ -2614,10 +2654,12 @@ function kartMesh(cfgIn) {
     helm: stdMat(cfg.helmet, .15, .3), visor: stdMat('#0b0b16', .05, .85), glove: stdMat('#f7f5ee', .6, 0), skin: stdMat(cfg.skin, .72, 0), glass: stdMat('#101018', .05, .75),
     coque: liveryMat(bodyId, cfg, F, BODY_SPEC[bodyId]), plast: plastiqueMat(), chrome: chromeMat(), verre: verreMat(), email: (() => { const k = 'email|' + qual().shadows; if (!matCache.has(k)) matCache.set(k, qual().shadows ? new T.MeshPhysicalMaterial({ color: '#fbfaf6', roughness: .18, metalness: 0, clearcoat: 1, clearcoatRoughness: .05 }) : new T.MeshStandardMaterial({ color: '#fbfaf6', roughness: .22, metalness: 0 })); return matCache.get(k); })(),
     accent: paintMat(cfg.helmet, F), paint2: paintMat(darken(cfg.color, .55), F), led: glowMat('#2ee6ff'), lampe: glowMat('#fff3c8'), feu: glowMat('#ff3048'), gold: stdMat('#ffc531', .22, .85), ivory: stdMat('#f1e7cf', .5, 0), water: stdMat('#6fd8ff', .1, .2), duck: stdMat('#ffd23a', .4, 0), beak: stdMat('#ff8a1e', .5, 0),
-    canopy: new T.MeshStandardMaterial({ color: '#bfe6ff', transparent: true, opacity: .45, roughness: .05, metalness: .3 }) };
+    canopy: new T.MeshStandardMaterial({ color: '#bfe6ff', transparent: true, opacity: .45, roughness: .05, metalness: .3 }), lentille: lentilleMat(), grille: grilleMat(), satin: stdMat('#c9ccd6', .36, .55) };   // satin : liserés et rebords gris satinés (fiche V4)
+  if (!(typeof window !== 'undefined' && window.WK_FINITION_AVANT)) { mats.suit = tissuMat(mats.suit.color.getStyle()); mats.helm = casqueMat(cfg.helmet); mats.skin = stdMat(cfg.skin, .58, 0); mats.glove = tissuMat('#f7f5ee', .62); }
   mats.arch = new T.MeshStandardMaterial({ color: cfg.color, roughness: F.r, metalness: F.m, side: T.DoubleSide });
+  const fin = typeof window !== 'undefined' && window.WK_FINITION_AVANT ? {} : finitionVehicule(geo, mats, F);
   let rig = null; if (RIG_PILOTS.has(cfg.pilot)) { rig = heroRig(cfg, mats); tilt.add(rig.root); }
-  for (const k in geo.merged) { if (k.startsWith('h:')) { if (rig) { const m = new T.Mesh(geo.merged[k], mats[k.slice(2)]); m.position.set(0, -1.7, .3); rig.head.add(m); } continue; } tilt.add(new T.Mesh(geo.merged[k], mats[k])); }
+  for (const k in geo.merged) { if (k.startsWith('h:')) { if (rig) { const m = new T.Mesh(geo.merged[k], mats[k.slice(2)]); m.position.set(0, -1.7, .3); rig.head.add(m); } continue; } tilt.add(new T.Mesh(geo.merged[k], fin[k] || mats[k])); }
   if (geo.deco) tilt.add(new T.Mesh(geo.deco, cfg.deco === 'damier' ? checkerMat() : stdMat(cfg.helmet, F.r, F.m)));
   const WD = geo.WD; const neon = cfg.wheels === 'neon';
   const wt = cfg.wheels; const tireM = wt === 'bois' ? stdMat('#a0703f', .8, 0) : wt === 'ballon' ? stdMat(cfg.helmet, .35, .05) : wheelMat('pneu'), rimM = neon || wt === 'disco' ? glowMat(cfg.helmet) : wt === 'etoile' ? stdMat('#ffc531', .22, .85) : wt === 'bois' ? stdMat('#5a3c24', .7, 0) : wt === 'ballon' ? stdMat('#fffdf7', .3, .1) : wt === 'crampons' ? stdMat('#e8b020', .45, .35) : wt === 'jantes' ? stdMat('#2a2a34', .25, .85) : wheelMat('jante'), capM = neon ? stdMat('#1c1b24', .4, .5) : stdMat(cfg.helmet, .3, .4);
@@ -2657,8 +2699,12 @@ Object.assign(BODIES, {
   tracteur: { name: 'Tracteur', shape: 'monstre', sc: [1.05, 1.1, .95], speed: -.1, accel: 0, handling: -.04, weight: .3, off: .28 },
   comete: { name: 'Comète', shape: 'sport', sc: [.95, .9, 1.12], speed: .16, accel: .04, handling: -.2, weight: -.05, off: 0 },
   galet: { name: 'Galet', speed: 0, accel: 0, handling: 0, weight: 0, off: 0 },
-  mini: { name: 'Mini', shape: 'equilibre', sc: [.88, .92, .84] }, fourgon: { name: 'Fourgonnette', shape: 'baignoire', sc: [1.1, 1.22, 1.08] }, limousine: { name: 'Limousine', shape: 'sport', sc: [1, .88, 1.32] },
-  herisson: { name: 'Hérisson', shape: 'monstre', sc: [.92, .95, .9] }, torpille: { name: 'Torpille', shape: 'fusee', sc: [.84, .84, 1.28] },
+  // Statistiques explicites (audit du 4 nov. : ces cinq carrosseries n'en avaient pas → NaN dans statsFor et makeKart).
+  mini: { name: 'Mini', shape: 'equilibre', sc: [.88, .92, .84], speed: -.08, accel: .16, handling: .16, weight: -.22, off: -.04 },
+  fourgon: { name: 'Fourgonnette', shape: 'baignoire', sc: [1.1, 1.22, 1.08], speed: -.04, accel: -.04, handling: -.08, weight: .3, off: .1 },
+  limousine: { name: 'Limousine', shape: 'sport', sc: [1, .88, 1.32], speed: .18, accel: -.1, handling: -.14, weight: .22, off: -.1 },
+  herisson: { name: 'Hérisson', shape: 'monstre', sc: [.92, .95, .9], speed: -.06, accel: .1, handling: .04, weight: -.06, off: .22 },
+  torpille: { name: 'Torpille', shape: 'fusee', sc: [.84, .84, 1.28], speed: .22, accel: -.14, handling: -.06, weight: .06, off: -.12 },
 });
 Object.assign(WHEELS, {
   monstre: { name: 'Géantes', speed: -.04, accel: -.02, handling: -.04, weight: .14, off: .45 },
@@ -2720,6 +2766,47 @@ function galetBody(add, cap, V, cfg, WD) {
 // Pilote Héros : maillages séparés (tête, torse, bras, volant) pour l'animation ; segments de bras = capsules unitaires orientées à chaque image.
 // Pilotes animés (rig) : tous les pilotes du jeu depuis la refonte du 3 novembre.
 const RIG_PILOTS = new Set(['casque', 'casquette', 'capuche', 'robot', 'heros']);
+/* #36.P1 — Fusion des maillages STATIQUES du pilote, frère par frère et par matériau, pour réduire les appels de rendu (le pilote
+   pesait 43 maillages sur ~64 par kart, autant d'appels d'ombre). Ne sont fusionnés que des maillages feuilles du même parent, de même
+   matériau, même appartenance à « detail » (masqués de loin), mêmes réglages d'ombre/ordre et mêmes attributs (position, normale,
+   uv éventuel), sans groupes ni morphs. Exclus : tout objet référencé par le rig (bouche, dents, sourcils, bras, volant… animés un
+   par un) et tout maillage portant des userData (animations, étiquettes de pièces). La position de chaque maillage est appliquée à
+   sa géométrie : rendu identique, transformations du parent conservées. */
+// Fusion qui CONSERVE les index (mergeGeos désindexe : +2,6 % de mémoire mesurés avec 8 karts). null si une géométrie n'est pas indexée.
+function fusionIndexee(geos) {
+  if (!geos.every((g) => g.index && g.attributes.normal)) return null;
+  const uv = geos.every((g) => g.attributes.uv); let nv = 0, ni = 0; for (const g of geos) { nv += g.attributes.position.count; ni += g.index.count; }
+  const P = new Float32Array(nv * 3), N = new Float32Array(nv * 3), U = uv ? new Float32Array(nv * 2) : null, I = nv > 65535 ? new Uint32Array(ni) : new Uint16Array(ni);
+  let ov = 0, oi = 0;
+  for (const g of geos) { const c = g.attributes.position.count; P.set(g.attributes.position.array, ov * 3); N.set(g.attributes.normal.array, ov * 3); if (U) U.set(g.attributes.uv.array, ov * 2);
+    const ix = g.index.array; for (let k = 0; k < ix.length; k++) I[oi + k] = ix[k] + ov; ov += c; oi += ix.length; }
+  const m = new T.BufferGeometry(); m.setAttribute('position', new T.BufferAttribute(P, 3)); m.setAttribute('normal', new T.BufferAttribute(N, 3)); if (U) m.setAttribute('uv', new T.BufferAttribute(U, 2)); m.setIndex(new T.BufferAttribute(I, 1)); return m;
+}
+function fusionPilote(rig) {
+  const proteges = new Set(), vu = new Set();
+  const marquer = (v, prof) => { if (!v || typeof v !== 'object' || vu.has(v) || prof > 2) return; vu.add(v); if (v.isObject3D) { proteges.add(v); return; }
+    if (Array.isArray(v)) { for (const x of v) marquer(x, prof + 1); return; } if (v.constructor === Object) for (const k in v) marquer(v[k], prof + 1); };
+  for (const k in rig) if (k !== 'root' && k !== 'detail') marquer(rig[k], 0);
+  const det = new Set(rig.detail), parents = new Set(); rig.root.traverse((o) => { if (o.isMesh && o.parent) parents.add(o.parent); });
+  const attrs = (g) => Object.keys(g.attributes).sort().join(',');
+  for (const par of parents) {
+    const lots = new Map();
+    for (const m of par.children) {
+      if (!m.isMesh || m.isSkinnedMesh || m.isInstancedMesh || m.children.length || proteges.has(m) || Object.keys(m.userData).length || Array.isArray(m.material)) continue;
+      const g = m.geometry; if (!g || g.groups.length > 1 || Object.keys(g.morphAttributes).length || !/^(normal,)?position(,uv)?$/.test(attrs(g))) continue;
+      const cle = [m.material.uuid, det.has(m), m.castShadow, m.receiveShadow, m.renderOrder, m.visible, m.frustumCulled, attrs(g)].join('|');
+      if (!lots.has(cle)) lots.set(cle, []); lots.get(cle).push(m);
+    }
+    for (const lot of lots.values()) {
+      if (lot.length < 2) continue;
+      const geos = lot.map((m) => { m.updateMatrix(); const q = m.geometry.clone(); q.applyMatrix4(m.matrix); return q; });
+      const f = new T.Mesh(fusionIndexee(geos) || mergeGeos(geos), lot[0].material); f.castShadow = lot[0].castShadow; f.receiveShadow = lot[0].receiveShadow; f.renderOrder = lot[0].renderOrder; f.name = 'fusion-pilote';
+      par.add(f); for (const m of lot) par.remove(m);   // géométries d'origine non libérées : elles peuvent être partagées (caches)
+      if (det.has(lot[0])) { rig.detail = rig.detail.filter((x) => !lot.includes(x)); rig.detail.push(f); }
+    }
+  }
+  return rig;
+}
 function heroRig(cfg, mats) {
   // Pièces fixes fusionnées par matériau (tête, volant) : ~20 maillages au lieu de 54 (budget d'appels de rendu mobile).
   const root = new T.Group(), unit = new T.CapsuleGeometry(.5, 1, 4, 10), V3 = (x, y, z) => new T.Vector3(x, y, z);
@@ -2728,13 +2815,19 @@ function heroRig(cfg, mats) {
   const torso = new T.Group(); torso.position.set(0, 1.08, -.42); root.add(torso);
   mesh([G(new T.CapsuleGeometry(.29, .26, 8, 18), 0, .04, 0, 0, 0, 0, 1.05, 1, .82)], mats.suit, torso);
   mesh([G(new T.TorusGeometry(.2, .07, 10, 24), 0, .27, .04, Math.PI / 2)], mats.paint, torso);   // écharpe
+  // Retour du 5 nov. (cockpit du Galet creusé) : bassin, cuisses et tibias fixes ; genoux visibles devant le siège, pieds sous le
+  // capot. Avant, le pilote s'arrêtait à la taille et la coque masquait ce vide. Matériau de la combinaison, aucun effet sur la physique.
+  { const jambe = (a, b, r) => { const d = b.clone().sub(a), g = new T.CapsuleGeometry(r, d.length(), 4, 12); g.applyMatrix4(new T.Matrix4().compose(a.clone().add(b).multiplyScalar(.5), new T.Quaternion().setFromUnitVectors(V3(0, 1, 0), d.normalize()), V3(1, 1, 1))); return g; };
+    const L = [G(new T.SphereGeometry(.2, 16, 12), 0, .79, -.36, 0, 0, 0, 1.3, .62, 1.05)];
+    for (const s of [-1, 1]) { const hanche = V3(s * .13, .8, -.3), genou = V3(s * .16, .88, .1), pied = V3(s * .16, .6, .52); L.push(jambe(hanche, genou, .095), jambe(genou, pied, .08), G(new T.SphereGeometry(.09, 12, 8), s * .16, .56, .58, 0, 0, 0, 1, .7, 1.5)); }
+    mesh(L, mats.suit, root); }
   const head = new T.Group(); head.position.set(0, 1.7, -.3); root.add(head);
   // Refonte des pilotes (3 novembre, demande du propriétaire) : TOUS les pilotes partagent le rig animé du Héros (visage expressif,
   // mains sur le volant, tête qui suit le virage, réactions boost / saut / choc / victoire) ; seule la coiffe change selon le pilote.
   const style = cfg.pilot, robot = style === 'robot', detail = [], cheek = [], whites = [], pupils = [], brows = [];
   if (robot) {
     mesh([G(new T.CapsuleGeometry(.27, .16, 8, 20), 0, 0, 0, 0, 0, Math.PI / 2, 1, 1.05, .95)], mats.metal, head);   // tête arrondie
-    mesh([G(new T.TorusGeometry(.3, .04, 10, 32), 0, 0, 0, 0, Math.PI / 2, 0), G(new T.CylinderGeometry(.09, .09, .1, 14), -.34, 0, 0, 0, 0, Math.PI / 2), G(new T.CylinderGeometry(.09, .09, .1, 14), .34, 0, 0, 0, 0, Math.PI / 2), G(new T.CylinderGeometry(.015, .015, .22, 6), .14, .38, -.05), G(new T.SphereGeometry(.045, 10, 8), .14, .5, -.05)], mats.dark, head);
+    mesh([G(new T.TorusGeometry(.3, .04, 10, 32, Math.PI), 0, 0, -.02), G(new T.CylinderGeometry(.09, .09, .1, 14), -.34, 0, 0, 0, 0, Math.PI / 2), G(new T.CylinderGeometry(.09, .09, .1, 14), .34, 0, 0, 0, 0, Math.PI / 2), G(new T.CylinderGeometry(.015, .015, .22, 6), .14, .38, -.05), G(new T.SphereGeometry(.045, 10, 8), .14, .5, -.05)], mats.dark, head);
     detail.push(mesh([G(rbox(.46, .2, .04, .05), 0, .02, .27)], mats.visor || mats.glass, head));            // écran du visage
   } else {
     mesh([G(new T.SphereGeometry(style === 'heros' ? .325 : .295, 32, 24), 0, 0, 0, 0, 0, 0, 1, .95, .94), G(new T.SphereGeometry(.05, 12, 10), 0, -.07, style === 'heros' ? .33 : .3)], mats.skin, head);
@@ -2750,7 +2843,9 @@ function heroRig(cfg, mats) {
     mesh([G(new T.SphereGeometry(.08, 10, 8), -.25, .02, .08, 0, 0, 0, .7, 1, 1.1), G(new T.SphereGeometry(.08, 10, 8), .25, .02, .08, 0, 0, 0, .7, 1, 1.1), G(new T.SphereGeometry(.09, 10, 8), 0, .02, -.27, 0, 0, 0, 1.6, .9, .8)], mats.dark, head);
     mesh([G(new T.SphereGeometry(.065, 10, 8), -.3, -.03, 0, 0, 0, 0, .5, 1, .8), G(new T.SphereGeometry(.065, 10, 8), .3, -.03, 0, 0, 0, 0, .5, 1, .8)], mats.skin, head);
   } else if (style === 'capuche') {     // capuche ouverte sur le visage, cordons
-    mesh([G(new T.SphereGeometry(.4, 28, 18, Math.PI / 2 + .95, TAU - 1.9, 0, Math.PI * .75), 0, .03, -.03), G(new T.TorusGeometry(.31, .05, 10, 30, Math.PI * 1.25), 0, .01, .17, 0, 0, -Math.PI * .125 + Math.PI)], mats.suit, head);
+    { // Capuche fermée sur le dessus (bug signalé le 4 nov. : l'ouverture du visage remontait jusqu'au sommet, crâne visible) ; double face.
+      const hood = mesh([G(new T.SphereGeometry(.4, 28, 18, Math.PI / 2 + .95, TAU - 1.9, 0, Math.PI * .75), 0, .03, -.03), G(new T.SphereGeometry(.4, 28, 8, 0, TAU, 0, Math.PI * .3), 0, .03, -.03), G(new T.TorusGeometry(.31, .05, 10, 30, Math.PI * 1.25), 0, .01, .17, 0, 0, -Math.PI * .125 + Math.PI)], mats.suit, head);
+      hood.material = mats.suit.clone(); hood.material.side = T.DoubleSide; }
     mesh([G(new T.CylinderGeometry(.012, .012, .22, 6), -.1, -.32, .27), G(new T.CylinderGeometry(.012, .012, .22, 6), .1, -.32, .27), G(new T.SphereGeometry(.025, 8, 6), -.1, -.44, .27), G(new T.SphereGeometry(.025, 8, 6), .1, -.44, .27)], mats.glove, head);
   } else if (!robot) {                  // casque intégral ouvert devant, visière relevée, bande de couleur
     mesh([G(new T.SphereGeometry(.37, 32, 22, Math.PI / 2 + .85, TAU - 1.7, 0, Math.PI * .8), 0, .02, -.02)], mats.helm, head);
@@ -2761,18 +2856,53 @@ function heroRig(cfg, mats) {
     whites.push(robot ? G(rbox(.1, .07, .02, .03), s * .11, 0, 0) : G(new T.SphereGeometry(.07, 18, 12), s * .115, 0, 0, 0, 0, 0, 1, 1.15, .32)); pupils.push(G(new T.SphereGeometry(robot ? .028 : .034, 14, 10), s * (robot ? .11 : .115), 0, robot ? .012 : .023, 0, 0, 0, 1, 1, robot ? 1 : .4));
     brows.push(G(new T.CapsuleGeometry(.022, .09, 4, 8), s * .12, 0, 0, 0, 0, Math.PI / 2 + s * .18));
   }
-  const eyesG = new T.Group(); eyesG.position.set(0, robot ? .02 : -.01, robot ? .3 : style === 'heros' ? .28 : .25); head.add(eyesG); detail.push(mesh(whites, robot ? glowMat('#2ee6ff') : stdMat('#ffffff', .4, 0), eyesG), mesh(pupils, robot ? glowMat('#ffffff') : stdMat('#1a1630', .2, 0), eyesG));
-  const browG = new T.Group(); browG.position.set(0, robot ? .13 : .12, robot ? .31 : style === 'heros' ? .31 : .28); head.add(browG); detail.push(mesh(brows, mats.dark, browG));
+  const eyesG = new T.Group(); eyesG.position.set(0, robot ? .02 : -.01, robot ? .3 : style === 'heros' ? .28 : .25); head.add(eyesG);
+  if (!robot && !(typeof window !== 'undefined' && window.WK_FINITION_AVANT)) {   // #36 : œil verni à iris coloré, pupille et reflet (lisible de loin)
+    const IRIS = { heros: '#3d7bd9', casquette: '#5a9a3a', capuche: '#8a5a2e', casque: '#2f8f9a' }, iris = [], shine = [];
+    for (let i = 0; i < pupils.length; i++) { const s = i ? 1 : -1; iris.push(G(new T.SphereGeometry(.047, 16, 10), s * .115, -.004, .019, 0, 0, 0, 1, 1.1, .4)); pupils[i] = G(new T.SphereGeometry(.026, 12, 8), s * .115, -.004, .029, 0, 0, 0, 1, 1.1, .4); shine.push(G(new T.SphereGeometry(.012, 8, 6), s * .115 - .016, .022, .04)); }
+    const contour = []; for (let i = 0; i < 2; i++) contour.push(G(new T.TorusGeometry(.071, .0085, 6, 28), (i ? 1 : -1) * .115, 0, .006, 0, 0, 0, 1, 1.15, 1));
+    detail.push(mesh(contour, mats.dark, eyesG));
+    detail.push(mesh(whites, stdMat('#ffffff', .12, 0), eyesG), mesh(iris, stdMat(IRIS[style] || '#3d7bd9', .2, 0), eyesG), mesh(pupils, stdMat('#0d0b18', .1, 0), eyesG), mesh(shine, glowMat('#ffffff'), eyesG));
+  } else detail.push(mesh(whites, robot ? glowMat('#2ee6ff') : stdMat('#ffffff', .4, 0), eyesG), mesh(pupils, robot ? glowMat('#ffffff') : stdMat('#1a1630', .2, 0), eyesG));
+  const browG = new T.Group(); browG.position.set(0, robot ? .13 : .12, robot ? .31 : style === 'heros' ? .31 : .28); head.add(browG);
+  // #36 personnage : sourcils séparés (expressions), dents dans la bouche ouverte, gants plus gros. Robot et ancien rendu inchangés.
+  const expressif = !(typeof window !== 'undefined' && window.WK_FINITION_AVANT), browM = [];
+  if (expressif) for (const s of [-1, 1]) { const m = new T.Mesh(new T.CapsuleGeometry(.025, .1, 4, 8), mats.dark); m.rotation.z = Math.PI / 2 + s * .18; m.position.x = s * .12; m.userData.s = s; browG.add(m); browM.push(m); detail.push(m); }
+  else detail.push(mesh(brows, mats.dark, browG));
   const mouth = mesh([new T.TorusGeometry(.075, .02, 8, 16, Math.PI)], robot ? glowMat('#2ee6ff') : mats.dark, head); mouth.position.set(0, robot ? -.1 : -.15, robot ? .3 : style === 'heros' ? .29 : .26); mouth.rotation.z = Math.PI;
+  if (expressif && !robot) {   // #36 : sourire épousant la surface du visage (tube posé sur l'ellipsoïde de la tête), plus de crochet de profil
+    const Rh = style === 'heros' ? .325 : .295, ry = Rh * .95, rz = Rh * .94, y0 = -.15, onFace = (x, y) => rz * Math.sqrt(Math.max(0, 1 - (x * x) / (Rh * Rh) - (y * y) / (ry * ry))) + .006;
+    const c = new T.Vector3(0, y0, onFace(0, y0)), pts = []; for (let i = 0; i <= 12; i++) { const t = i / 6 - 1, x = t * .068, y = y0 + .026 * t * t - .006; pts.push(new T.Vector3(x, y, onFace(x, y)).sub(c)); }
+    mouth.geometry.dispose(); mouth.geometry = new T.TubeGeometry(new T.CatmullRomCurve3(pts), 24, .0115, 6, false); mouth.position.copy(c); mouth.rotation.z = 0; }   // sourire intégré à la surface du visage (ne ressort plus de trois quarts)
   const open = mesh([new T.SphereGeometry(.07, 14, 10)], robot ? glowMat('#2ee6ff') : stdMat('#5a1020', .6, 0), head); open.position.set(0, robot ? -.1 : -.14, robot ? .29 : style === 'heros' ? .27 : .24); open.scale.set(1.15, .85, .45); open.visible = false;
-  const wheel = new T.Group(); wheel.position.set(0, 1.2, .23); wheel.rotation.x = -.9; root.add(wheel);
+  let teeth = null; if (expressif && !robot) { teeth = new T.Mesh(new T.BoxGeometry(.105, .032, .03), stdMat('#fffdf6', .3, 0)); teeth.position.set(0, .042, .055); open.add(teeth); const tongue = new T.Mesh(new T.SphereGeometry(.045, 10, 8), stdMat('#e2566e', .55, 0)); tongue.scale.set(1.1, .5, .6); tongue.position.set(0, -.04, .03); open.add(tongue); }
+  // Volant face au pilote (correction 4 nov., signalée par le propriétaire) : haut de la jante penché vers le capot, face tournée vers le
+  // haut et l'arrière (vers le buste), axe aligné sur la colonne de direction des carrosseries.
+  const wheel = new T.Group(); wheel.position.set(0, 1.2, .23); wheel.rotation.x = .55; root.add(wheel);
   const spin = new T.Group(); wheel.add(spin); mesh([new T.TorusGeometry(.2, .035, 10, 28)], mats.dark, spin);
   mesh([0, 2.1, 4.2].map((a) => G(new T.CylinderGeometry(.018, .018, .2, 6), Math.sin(a) * .1, Math.cos(a) * .1, 0, 0, 0, -a)).concat([G(new T.CylinderGeometry(.05, .05, .05, 12), 0, 0, 0, Math.PI / 2)]), mats.metal, spin);
   const sleeve = stdMat(cfg.color, .55, .05), seg = () => { const m = new T.Mesh(unit, sleeve); m.castShadow = true; root.add(m); return m; };
-  const arms = [-1, 1].map((s) => ({ s, up: seg(), lo: seg(), hand: (() => { const h = new T.Mesh(new T.SphereGeometry(.085, 12, 10), mats.glove); h.castShadow = true; root.add(h); return h; })() }));
+  const arms = [-1, 1].map((s) => ({ s, up: seg(), lo: seg(), hand: (() => { if (!expressif) { const h = new T.Mesh(new T.SphereGeometry(.085, 12, 10), mats.glove); h.castShadow = true; root.add(h); return h; }
+    // #36 : gant moufle (paume, pouce refermé sur la jante, manchette) au lieu d'une boule ; orienté sur la jante dans heroAnimate
+    const h = new T.Group(); h.userData.moufle = true; const part = (g) => { const m = new T.Mesh(g, mats.glove); m.castShadow = true; h.add(m); return m; };
+    const paume = new T.SphereGeometry(.1, 16, 12); paume.scale(1.05, .85, 1.15); part(paume);
+    const pouce = new T.CapsuleGeometry(.034, .05, 4, 10); pouce.rotateZ(s * .9); pouce.translate(-s * .07, .055, .03); part(pouce);
+    const manchette = new T.TorusGeometry(.075, .028, 8, 20); manchette.translate(0, 0, -.1); part(manchette);
+    root.add(h); return h; })() }));
   for (const A of arms) detail.push(A.hand, A.up, A.lo); detail.push(mouth);   // loin : bras et mains masqués aussi (budget d'appels Samsung)
-  const rig = { detail, far: false, root, torso, head, eyes: [eyesG], brows: [browG], mouth, open, wheel, spin, arms, ang: 0, blink: 2 + Math.random() * 3, cheer: 0, _a: V3(), _b: V3(), _c: V3(), _q: new T.Quaternion(), _y: V3(0, 1, 0) };
+  const rig = { detail, far: false, root, torso, head, eyes: [eyesG], brows: [browG], browM, teeth, mouth, open, wheel, spin, arms, ang: 0, blink: 2 + Math.random() * 3, cheer: 0, _a: V3(), _b: V3(), _c: V3(), _q: new T.Quaternion(), _y: V3(0, 1, 0) };
   if (window.WKPilotesPrototype) window.WKPilotesPrototype.habiller(T, cfg, mats, rig);
+  // #36 identité des cinq pilotes au-delà de la coiffe : proportions, posture et visage (nez, taches de rousseur, menton).
+  if (expressif) { const GAB = { heros: { tete: 1.04, buste: [1, 1, 1], pench: .1, yeux: 1 }, casque: { tete: .93, buste: [1.14, 1.05, 1.06], pench: .22, yeux: .88 },
+      casquette: { tete: 1.0, buste: [.95, .94, .95], pench: .0, yeux: 1.08 }, capuche: { tete: .9, buste: [.88, 1.04, .94], pench: .17, yeux: 1.16 }, robot: { tete: 1.05, buste: [1.12, 1.06, 1.06], pench: 0, yeux: 1 } }[style] || { tete: 1, buste: [1, 1, 1], pench: 0, yeux: 1 };
+    head.scale.multiplyScalar(GAB.tete); torso.scale.multiply(V3(...GAB.buste)); rig.pench = GAB.pench; rig.eyeBase = GAB.yeux; eyesG.scale.set(GAB.yeux, GAB.yeux, GAB.yeux); head.position.z += GAB.pench * .55; head.userData.z0 = head.position.z;
+    // Héros : mèche en épis qui dépasse du casque (trait original ; pas de gros nez rond, trop proche d'un personnage existant)
+    if (style === 'heros') detail.push(mesh([-.11, -.04, .03, .1].map((x, i) => G(new T.ConeGeometry(.045, .16, 8), x, .2 + (i % 2) * .02, .26, .9 + (i % 2) * .2, 0, -x * 1.6)), stdMat('#e0782a', .7, 0), head));
+    else if (style === 'casque') detail.push(mesh([G(rbox(.2, .08, .1, .035), 0, -.25, .2)], mats.skin, head));                                        // menton carré d'athlète
+    else if (style === 'casquette') detail.push(mesh([-1, 1].flatMap((sd) => [0, 1, 2].map((k) => G(new T.SphereGeometry(.011, 6, 4), sd * (.15 + k * .025), -.08 - (k % 2) * .02, .27 - k * .012))), stdMat('#b8734a', .7, 0), head));   // taches de rousseur
+    else if (style === 'capuche') detail.push(mesh([G(new T.SphereGeometry(.04, 12, 8), 0, -.05, .3, -.35)], mats.skin, head));                         // petit nez retroussé
+  }
+  if (!(typeof window !== 'undefined' && window.WK_SANS_FUSION)) fusionPilote(rig);   // #36.P1 : moins d'appels de rendu (rendu identique, mesuré)
   return rig;
 }
 // Place une capsule unitaire entre deux points (rayon r).
@@ -2780,23 +2910,37 @@ function heroSeg(m, a, b, r, R) { const d = R._c.subVectors(b, a), L = d.length(
 // Animation : volant et mains, regard et inclinaison dans le virage, dérive, boost, choc, saut, victoire, clignement.
 function heroAnimate(R, k, st, dt, now) {
   const e = 1 - Math.exp(-dt * 10), turn = clamp(st, -1, 1), hit = k.spin > 0, boost = k.boost > 0, win = k.finished && k.place === 1;
-  R.ang = lerp(R.ang, -turn * 1.5, e); R.spin.rotation.z = R.ang;
+  // Sens du volant (correction 4 nov., signalée par le propriétaire) : virage à droite = volant tourné dans le sens horaire vu du pilote,
+  // le haut de la jante part vers la droite du pilote (-x), exactement comme les mains (angle + R.ang ci-dessous).
+  R.ang = lerp(R.ang, -turn * 1.5, e); R.spin.rotation.z = -R.ang;
   R.head.rotation.y = lerp(R.head.rotation.y, hit ? Math.sin(now * 18) * .5 : -turn * .38 + (k.drift ? -k.drift * .2 : 0), e);
   R.head.rotation.z = lerp(R.head.rotation.z, turn * .12, e); R.head.rotation.x = lerp(R.head.rotation.x, boost ? -.12 : k.air ? -.18 : 0, e);
-  R.torso.rotation.z = lerp(R.torso.rotation.z, turn * .14 + (k.drift ? k.drift * .1 : 0), e); R.torso.rotation.x = lerp(R.torso.rotation.x, boost ? -.12 : 0, e);
+  R.torso.rotation.z = lerp(R.torso.rotation.z, turn * .14 + (k.drift ? k.drift * .1 : 0), e); R.torso.rotation.x = lerp(R.torso.rotation.x, (boost ? -.12 : 0) + (R.pench || 0), e);
   R.blink -= dt; const closed = R.blink < .12 || hit; if (R.blink < 0) R.blink = 2 + Math.random() * 3;
-  for (const ey of R.eyes) ey.scale.y = lerp(ey.scale.y, closed ? .12 : boost || win ? 1.15 : 1, 1 - Math.exp(-dt * 30));
+  for (const ey of R.eyes) ey.scale.y = lerp(ey.scale.y, (closed ? .12 : boost || win ? 1.15 : 1) * (R.eyeBase || 1), 1 - Math.exp(-dt * 30));
   R.brows[0].position.y = lerp(R.brows[0].position.y, hit ? .08 : boost || k.air ? .16 : .12, e);
   R.open.visible = boost || win || !!k.air; R.mouth.visible = !R.open.visible; R.mouth.scale.y = lerp(R.mouth.scale.y, hit ? -.8 : 1, e);
   R.cheer = lerp(R.cheer, win ? 1 : 0, 1 - Math.exp(-dt * 4));
+  if (R.browM && R.browM.length) {   // #36 : cinq expressions lisibles (neutre, déterminé, surpris, sonné, joie)
+    // tilt > 0 : pointe intérieure du sourcil abaissée (colère / détermination) ; < 0 : relevée (inquiétude, surprise)
+    const ex = hit ? 'aie' : win ? 'joie' : boost ? 'determine' : k.air ? 'surpris' : 'neutre';
+    const tilt = { neutre: .1, determine: .48, surpris: -.12, aie: -.45, joie: -.2 }[ex], dy = { neutre: 0, determine: -.025, surpris: .05, aie: .01, joie: .035 }[ex];
+    for (const b of R.browM) { b.rotation.z = lerp(b.rotation.z, Math.PI / 2 + b.userData.s * tilt, e); b.position.y = lerp(b.position.y, dy - (R.brows[0].position.y - .12), e); }
+    const O = { determine: [1.35, .5], surpris: [.75, 1.05], joie: [1.45, .85] }[ex]; if (O) { R.open.scale.x = lerp(R.open.scale.x, O[0] * 1.15, e); R.open.scale.y = lerp(R.open.scale.y, O[1] * .85, e); }
+    if (R.teeth) R.teeth.visible = ex === 'determine' || ex === 'joie';
+    if (ex === 'joie' && !closed) for (const ey of R.eyes) ey.scale.y = lerp(ey.scale.y, .5 * (R.eyeBase || 1), 1 - Math.exp(-dt * 20));   // yeux plissés de joie
+    const bond = win ? Math.abs(Math.sin(now * 7)) * .05 * R.cheer : 0; R.torso.position.y = 1.08 + bond; R.head.position.y = 1.7 + bond;   // rebond de joie
+    if (win) R.head.rotation.x = lerp(R.head.rotation.x, -.2, e);
+  }
   // mains : sur la jante du volant (à 10 h 10), qui tourne ; en victoire, bras droit levé
   R.wheel.updateMatrix();
   for (const A of R.arms) {
-    const sh = R._a.set(A.s * .34, 1.32, -.36).applyAxisAngle(R._y.set(0, 0, 1), R.torso.rotation.z); R._y.set(0, 1, 0);
+    const sh = R._a.set(A.s * .34, 1.32, -.36 + (R.pench || 0) * .3).applyAxisAngle(R._y.set(0, 0, 1), R.torso.rotation.z); R._y.set(0, 1, 0);
     const ang = A.s * 1.05 + R.ang; let hand = new T.Vector3(Math.sin(ang) * .2, Math.cos(ang) * .2, 0).applyMatrix4(R.wheel.matrix);
     if (A.s > 0 && R.cheer > .05) hand.lerp(new T.Vector3(.45, 2.25 + Math.sin(now * 9) * .08, -.2), R.cheer);
     const elbow = R._b.copy(sh).lerp(hand, .5).add(new T.Vector3(A.s * .2, -.12, 0));
     heroSeg(A.up, sh, elbow, .095, R); heroSeg(A.lo, elbow, hand, .085, R); A.hand.position.copy(hand);
+    if (A.hand.userData.moufle) { A.hand.quaternion.copy(R.wheel.quaternion); A.hand.rotateZ(-ang); if (A.s > 0 && R.cheer > .05) A.hand.quaternion.slerp(R._q.identity(), R.cheer); }   // paume refermée sur la jante
   }
 }
 function extraBody(body, add, limb, cap, V) {
@@ -2836,15 +2980,15 @@ function sportExtras(add, cap) {
 function wheelMat(k) { const key = 'roue|' + k + '|' + qual().shadows; if (!matCache.has(key)) matCache.set(key, k === 'pneu' ? new T.MeshStandardMaterial({ color: '#ffffff', map: tireTex(), roughness: .92, metalness: 0, envMapIntensity: .25 }) : new T.MeshStandardMaterial({ color: '#dfe2ea', map: brushTex(), roughness: .28, metalness: .9 })); return matCache.get(key); }
 function spokes(n, R, w, r0, wid, depth, faces = [-1, 1], twist = 0) { const L = []; for (const sx of faces) for (let k = 0; k < n; k++) { const a = k / n * TAU, g = rbox(depth, R * .5, wid, Math.min(wid, depth) * .45); g.translate(0, R * .5 * .5 + r0, 0); g.applyMatrix4(trs(sx * w * .3, 0, 0, a + twist, 0, 0)); L.push(g); } return mergeGeos(L); }
 function ringOf(n, R, x, mk) { const L = []; for (let k = 0; k < n; k++) { const a = k / n * TAU, g = mk(); g.translate(x, Math.cos(a) * R, Math.sin(a) * R); L.push(g); } return mergeGeos(L); }
-function discGeo(R, w) { const pts = [[.001, w * .33], [R * .9, w * .3], [R * .97, w * .38], [R * .97, -w * .38], [R * .9, -w * .3], [.001, -w * .33]].map((p) => new T.Vector2(p[0], p[1])); const g = new T.LatheGeometry(pts, 32); g.rotateZ(Math.PI / 2); return g; }
+function discGeo(R, w, talon = false) { const pts = (talon ? [[.001, w * .33], [R * .9, w * .3], ...rimLevre(R, w, 1).reverse(), ...rimLevre(R, w, -1), [R * .9, -w * .3], [.001, -w * .33]] : [[.001, w * .33], [R * .9, w * .3], [R * .97, w * .38], [R * .97, -w * .38], [R * .9, -w * .3], [.001, -w * .33]]).map((p) => new T.Vector2(p[0], p[1])); const g = new T.LatheGeometry(pts, 32); g.rotateZ(Math.PI / 2); return g; }
 function wheelGeoV2(type, WD) {
   const R = WD.r, w = WD.w, r0 = R * .6, wh = {}, both = (mk) => mergeGeos([-1, 1].map((sx) => { const g = mk(); g.translate(sx * w * .34, 0, 0); return g; }));
   if (type === 'standard') { wh.tire = tireGeo(R, w, false); wh.rim = rimGeo(R, w); }
-  else if (type === 'slicks') { wh.tire = tireGeo(R, w, false, 'lisse'); wh.rim = discGeo(r0, w); wh.detail = both(() => ringOf(6, r0 * .55, 0, () => { const c = new T.CylinderGeometry(r0 * .14, r0 * .14, .02, 14); c.rotateZ(Math.PI / 2); return c; })); }
+  else if (type === 'slicks') { wh.tire = tireGeo(R, w, false, 'lisse'); wh.rim = discGeo(r0, w, true); wh.detail = both(() => ringOf(6, r0 * .55, 0, () => { const c = new T.CylinderGeometry(r0 * .14, r0 * .14, .02, 14); c.rotateZ(Math.PI / 2); return c; })); }
   else if (type === 'jantes') { wh.tire = tireGeo(R, w, false, 'lisse'); wh.rim = mergeGeos([discGeo(r0 * .35, w), spokes(10, r0 * 1.6, w, r0 * .1, .045, .05)]); const cal = new T.TorusGeometry(r0 * .72, .07, 6, 12, 1.4); cal.rotateY(Math.PI / 2); cal.translate(w * .1, 0, 0); wh.accent = cal; }
   else if (type === 'offroad') { wh.tire = tireGeo(R, w, true); wh.rim = mergeGeos([rimGeo(R, w), spokes(6, r0 * 1.5, w, r0 * .15, .12, .06)]); wh.bolts = both(() => ringOf(10, r0 * .86, 0, () => new T.SphereGeometry(.028, 8, 6))); }
-  else if (type === 'crampons') { wh.tire = tireGeo(R, w, 'chevrons'); wh.rim = discGeo(r0, w); wh.detail = both(() => ringOf(4, r0 * .55, 0, () => { const c = new T.CylinderGeometry(r0 * .2, r0 * .2, .02, 16); c.rotateZ(Math.PI / 2); return c; })); }
-  else if (type === 'monstre') { wh.tire = tireGeo(R, w, true); wh.rim = mergeGeos([discGeo(r0, w), spokes(6, r0 * 1.5, w, r0 * .18, .16, .08)]); wh.bolts = both(() => ringOf(8, r0 * .3, 0, () => new T.SphereGeometry(.035, 8, 6))); }
+  else if (type === 'crampons') { wh.tire = tireGeo(R, w, 'chevrons'); wh.rim = discGeo(r0, w, true); wh.detail = both(() => ringOf(4, r0 * .55, 0, () => { const c = new T.CylinderGeometry(r0 * .2, r0 * .2, .02, 16); c.rotateZ(Math.PI / 2); return c; })); }
+  else if (type === 'monstre') { wh.tire = tireGeo(R, w, true); wh.rim = mergeGeos([discGeo(r0, w, true), spokes(6, r0 * 1.5, w, r0 * .18, .16, .08)]); wh.bolts = both(() => ringOf(8, r0 * .3, 0, () => new T.SphereGeometry(.035, 8, 6))); }
   else if (type === 'neon') { wh.tire = tireGeo(R, w, false, 'lisse'); wh.rim = mergeGeos([discGeo(r0 * .3, w), spokes(3, r0 * 1.6, w, r0 * .15, .07, .05)]); const a = new T.TorusGeometry(R * .8, .028, 8, 32); a.rotateY(Math.PI / 2); const b = a.clone(); a.translate(w / 2 + .005, 0, 0); b.translate(-w / 2 - .005, 0, 0); wh.glow = mergeGeos([a, b]); }
   else if (type === 'disco') { wh.tire = tireGeo(R, w, false, 'lisse'); wh.rim = mergeGeos([-1, 1].map((sx) => { const g = new T.TorusGeometry(r0 * .92, .035, 6, 28); g.rotateY(Math.PI / 2); g.translate(sx * w * .33, 0, 0); return g; })); wh.accent = both(() => { const g = new T.IcosahedronGeometry(r0 * .55, 1); g.scale(.35, 1, 1); return g; }); }
   else return null;
@@ -3496,13 +3640,29 @@ const frIds = () => { const ids = new Set(frList().map((f) => f.id)); for (const
 const frHot = () => document.visibilityState === 'visible' && !(G.race && G.race.state !== 'attract') && !G.locked;
 // quelque chose a changé ici (nouveau groupe, nouvel ami…) : on coupe l'attente en cours et on repasse tout de suite au serveur
 function frKick() { FR.quick = true; if (FR.busy) { if (FR.ac) try { FR.ac.abort(); } catch (e) { /* rien */ } } else frPoll(); }
-async function frPoll() { if (FR.busy || typeof acctCall !== 'function') return; FR.busy = true; const hot = frHot() && FR.open && (FR.lpFail || 0) < 3 && !FR.quick, t0 = Date.now(); let again = false; FR.quick = false;
+/* #34.Q4 — Onglets d'un même appareil : ils partagent le même jeton, le serveur ne peut pas les distinguer. Le dernier onglet ouvert
+   (ou celui où l'on touche « Jouer ici ») est le seul actif ; les autres quittent le jeu en ligne, coupent la présence amis et
+   affichent un écran d'attente. Aucune donnée n'est touchée. Sans BroadcastChannel, rien ne change (ancien comportement). */
+const ONGLET = { id: Math.random().toString(36).slice(2, 10), inactif: false, bc: null };
+function ongletActiver() { ONGLET.inactif = false; const d = document.getElementById('onglet'); if (d) d.hidden = true; try { ONGLET.bc && ONGLET.bc.postMessage({ t: 'actif', id: ONGLET.id }); } catch (e) { /* canal fermé */ } }
+function ongletMettreEnAttente() {
+  if (ONGLET.inactif) return; ONGLET.inactif = true;
+  const enLigne = !!(Net && Net.peer); try { netReset(); } catch (e) { /* réseau déjà fermé */ }
+  if (enLigne && G.race && G.race.state !== 'attract') { try { toMenu(); } catch (e) { /* écran déjà changé */ } }
+  let d = document.getElementById('onglet');
+  if (!d) { d = document.createElement('div'); d.id = 'onglet'; d.style.cssText = 'position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;background:rgba(10,8,30,.82)';
+    d.innerHTML = '<div class="gate-box acct-box"><h2>Wild Kart est ouvert ailleurs</h2><p>Le jeu tourne dans un autre onglet de cet appareil. Un seul onglet peut jouer à la fois.</p><button class="btn red" id="onglet-ici"><span>Jouer ici</span></button></div>';
+    document.body.appendChild(d); d.querySelector('#onglet-ici').onclick = ongletActiver; }
+  d.hidden = false;
+}
+try { if (typeof BroadcastChannel !== 'undefined') { ONGLET.bc = new BroadcastChannel('wild-kart-onglet'); ONGLET.bc.onmessage = (e) => { const m = e.data || {}; if (m.t === 'actif' && m.id !== ONGLET.id) ongletMettreEnAttente(); }; setTimeout(ongletActiver, 0); } } catch (e) { /* navigateur sans canal */ }
+async function frPoll() { if (FR.busy || typeof acctCall !== 'function' || ONGLET.inactif) return; if (FR.compteRequis && !SAVE.acct && Date.now() - FR.compteRequis < 300e3) return; /* invité (option B) : pas de relance inutile pendant 5 min */ FR.busy = true; const hot = frHot() && FR.open && (FR.lpFail || 0) < 3 && !FR.quick, t0 = Date.now(); let again = false; FR.quick = false;
   const ac = FR.ac = hot && typeof AbortController !== 'undefined' ? new AbortController() : null;
   try { const r = await acctCall('fpoll', { me: Object.assign(frMe(), { st: frStatusV(), pu: SAVE.acct ? SAVE.acct.u : '' }), since: FR.since || 0, ack: FR.since || 0, ids: frIds(), groups: grList().map((g) => g.code), wait: hot ? 10 : 0 }, ac && ac.signal);
     if (ac && ac.signal.aborted) { again = true; FR.quick = true; return; }
     if (r.ok && r.msgs && r.msgs.length) FR.quick = true;   // messages reçus : on revient vite (groupes et amis à jour)
     if (hot) { FR.lpFail = r.ok ? (r.msgs && r.msgs.length) || Date.now() - t0 > 2500 ? 0 : (FR.lpFail || 0) + 1 : (FR.lpFail || 0) + 1; } else FR.lpFail = 0; again = r.ok;   // serveur sans attente : on revient au rythme normal
-    if (!r.ok) { FR.open = false; frRender(); return; } FR.open = true;
+    if (!r.ok) { FR.open = false; if (r.code === 'compte-requis') FR.compteRequis = Date.now(); frRender(); return; } FR.open = true; FR.compteRequis = 0; /* #34.Q6 : invité refusé par le serveur (option B) */
     for (const [id, t] of Object.entries(r.online || {})) FR.status.set(id, !!t && r.now - t < 90e3);
     for (const [code, g] of Object.entries(r.groups || {})) { if (g) grMerge(g, true); else { const lg = grFind(code); if (lg && lg.owner === frMyId()) acctCall('gsave', { group: lg, me: frMe() }); } }   // ancien groupe (d'avant le serveur) : son créateur le remet en ligne
     for (const m of r.msgs || []) { FR.since = Math.max(FR.since || 0, m.at); try { frOnData(null, m); } catch (e) { /* rien */ } }
@@ -3579,7 +3739,7 @@ const FRU = { tab: 'amis', open: null };
 function frRender() { const root = $('#fr-root'); if (!root || UI.screen !== 'friends') return; const me = frMyId(), L = frList(), Gs = grList(), inParty = !!(Net.peer && Net.code), esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
   const st = (id) => FR.status.has(id) ? (FR.status.get(id) ? '<b class="on">en ligne</b>' : '<b class="off">hors ligne</b>') : '<b class="off">…</b>';
   let h = '<header class="sh-head"><button class="back" data-go="frback" aria-label="Retour">←</button><h2>Amis et groupes</h2></header>';
-  h += '<div class="group"><h3>Ton nom</h3><div class="set-row"><span><b class="fr-me">' + esc(SAVE.name || SAVE.acct && SAVE.acct.u || 'Joueur') + '</b><small>Donne-le à tes amis pour qu\'ils t\'ajoutent. Tu peux le changer dans Mon compte. ' + (FR.open ? 'Connecté.' : 'Connexion au serveur…') + '</small></span><button class="btn sm" id="fr-copy"><span>Copier</span></button></div>'
+  h += '<div class="group"><h3>Ton nom</h3><div class="set-row"><span><b class="fr-me">' + esc(SAVE.name || SAVE.acct && SAVE.acct.u || 'Joueur') + '</b><small>Donne-le à tes amis pour qu\'ils t\'ajoutent. Tu peux le changer dans Mon compte. ' + (FR.open ? 'Connecté.' : FR.compteRequis && !SAVE.acct ? 'Les amis et les groupes demandent un compte : connecte-toi dans Mon compte.' : 'Connexion au serveur…') + '</small></span><button class="btn sm" id="fr-copy"><span>Copier</span></button></div>'
      + '<div class="set-row"><small>' + (SAVE.acct ? 'Compte : ' + esc(SAVE.acct.u) : 'Pas de compte : crée-le pour tout retrouver sur un autre téléphone.') + '</small><button class="btn sm ghost" id="fr-acct"><span>' + (SAVE.acct ? 'Mon compte' : 'Créer un compte') + '</span></button></div></div>';
   h += '<div class="seg fr-tabs"><button data-t="amis" aria-pressed="' + (FRU.tab === 'amis') + '">Amis (' + L.length + ')</button><button data-t="groupes" aria-pressed="' + (FRU.tab === 'groupes') + '">Groupes (' + Gs.length + ')</button></div>';
   if (FRU.tab === 'amis') {
@@ -3820,11 +3980,30 @@ const WK_API = window.TK_API || 'https://wild-kart-serveur.uncreeper5431.workers
 // tout est dans le compte (kart, réglages, calibrage, records…) sauf : la clé du chef (secrète), ce qui sert à revenir dans une partie
 // en cours sur CET appareil, et les graphismes (qui dépendent de la puissance de chaque téléphone)
 const ACC_SKIP = new Set(['acct', 'chefKey', 'uid', 'lastCode', 'lastCodeAt', 'quality', 'fps', 'accSeen', 'updSeen', 'braquage', 'v']);
-const ACU = { tab: 'creer', busy: false, msg: '', rec: '', timer: 0, lastUp: 0, open: false };
+const ACU = { tab: 'creer', busy: false, msg: '', rec: '', timer: 0, lastUp: 0, open: false, autre: null };
+const ACC_AUTH = new Set(['fpoll', 'fsend', 'sigreg', 'sigpoll', 'sigsend', 'sigdel', 'find', 'ginv', 'gjoin', 'gleave', 'gren', 'gsave']);   // #34.Q3/Q6 : toute action réseau ou d'amis présente la session
+/* #34.Q — Un seul appareil connecté par compte. Le serveur a ouvert la session ailleurs (ou changé le mot de passe) : cet appareil
+   se déconnecte, quitte le jeu en ligne et le salon, et garde toutes ses données locales (elles se refusionnent à la reconnexion).
+   Une réponse tardive portant un ancien jeton (déjà remplacé ici par une nouvelle connexion) est ignorée. */
+const ACC_RAISONS = { 'autre-appareil': 'Ton compte vient d\'être ouvert sur un autre appareil.', 'mot-de-passe': 'Le mot de passe de ton compte a été changé.', deconnexion: 'Ton compte a été déconnecté.' };
+function acctRevoque(raison, tok) {
+  if (!SAVE.acct || (tok && SAVE.acct.tok !== tok)) return;
+  SAVE.acct = null; clearTimeout(ACU.timer); store();
+  const enLigne = !!(Net && Net.peer); try { netReset(); } catch (e) { /* réseau déjà fermé */ }
+  if (enLigne && G.race && G.race.state !== 'attract') { try { toMenu(); } catch (e) { /* écran déjà changé */ } }
+  acctRequire(); ACU.tab = 'co'; ACU.msg = (ACC_RAISONS[raison] || ACC_RAISONS['autre-appareil']) + ' Tes données restent sur ce téléphone. Reconnecte-toi pour jouer ici.'; acctRender(); acctInfo();
+}
 async function acctCall(a, body, ext) {
   const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null, tm = setTimeout(() => ctl && ctl.abort(), 15000); if (ext && ctl) ext.addEventListener('abort', () => ctl.abort());
-  try { const r = await fetch(WK_API, { method: 'POST', headers: { 'content-type': 'text/plain;charset=UTF-8' }, body: JSON.stringify(Object.assign({ a }, body)), signal: ctl ? ctl.signal : undefined, keepalive: a === 'save' });
-    let j = {}; try { j = await r.json(); } catch (e) { /* rien */ } if (!r.ok && !j.e) j.e = 'Serveur des comptes indisponible (' + r.status + ').'; j.status = r.status; return j; }
+  // #34.Q : la présence et le jeu en ligne présentent la session du compte, pour qu'un appareil déconnecté ne puisse plus jouer.
+  const auth = ACC_AUTH.has(a) && SAVE.acct ? { auth: { pseudo: SAVE.acct.u, tok: SAVE.acct.tok } } : null, tokEnvoye = (body && body.tok) || (auth && auth.auth.tok);
+  try { const r = await fetch(WK_API, { method: 'POST', headers: { 'content-type': 'text/plain;charset=UTF-8' }, body: JSON.stringify(Object.assign({ a }, body, auth, ACC_AUTH.has(a) ? { cv: 2 } : null)), signal: ctl ? ctl.signal : undefined, keepalive: a === 'save' });
+    // Le délai de 15 s couvre l'attente de la réponse, pas la lecture de son corps : sur un appareil saturé, l'annulation tardive
+    // coupait la lecture et remplaçait le message du serveur par « indisponible » (banc comptes.cjs intermittent, 5 nov.).
+    clearTimeout(tm);
+    let j = {}; try { j = await r.json(); } catch (e) { /* corps illisible */ } if (!r.ok && !j.e) j.e = 'Serveur des comptes indisponible (' + r.status + ').'; j.status = r.status;
+    if (r.status === 401 && j.code === 'session-remplacee') acctRevoque(j.raison, tokEnvoye);
+    return j; }
   catch (e) { return { e: 'Pas de connexion au serveur des comptes (' + (e && e.name === 'AbortError' ? 'trop lent' : 'réseau') + ').' }; } finally { clearTimeout(tm); } }
 // Le nom public est modifiable ; le pseudo de connexion et les liens d'amitié restent stables.
 function acctName() { if (!SAVE.name && SAVE.acct) { SAVE.name = SAVE.acct.u; store(); } }
@@ -3889,6 +4068,7 @@ function acctRender() { const d = $('#acct'); if (!d || !ACU.open) return; const
     if (ACU.tab === 'choix') h += '<p>Un compte est nécessaire pour jouer.<br><small>Il garde tes amis, ton code d\'accès, ton kart et tes records, même si tu changes de téléphone.</small></p><div class="acct-choice"><button class="btn red" data-t="creer"><span>Créer un compte</span></button><button class="btn" data-t="co"><span>Se connecter</span></button></div>';
     else h += '<button class="btn sm ghost acct-back" data-t="choix"><span>← Retour</span></button>';
     if (ACU.tab === 'creer') h += '<p><small>Ton pseudo sera ton premier nom de joueur. Tu pourras ensuite changer de nom dans Mon compte.</small></p>' + inp('ac-u', 'Pseudo (ex. Lea_92)') + inp('ac-p', 'Mot de passe (4 caractères ou plus)', 'password') + '<button class="btn red" id="ac-go"><span>Créer mon compte</span></button>';
+    else if (ACU.tab === 'co' && ACU.autre) h += '<p class="acct-autre"><b>Ton compte est déjà ouvert sur un autre appareil.</b><br><small>Si tu continues ici, l\'autre appareil sera déconnecté et quittera la partie en ligne. Aucune donnée n\'est perdue : tout reste sauvegardé.</small></p><div class="acct-row"><button class="btn red" id="ac-force"><span>Continuer ici</span></button><button class="btn sm ghost" id="ac-annule"><span>Annuler</span></button></div>';
     else if (ACU.tab === 'co') h += '<p><small>Les données de ce téléphone seront remplacées par celles de ton compte.</small></p>' + inp('ac-u', 'Pseudo') + inp('ac-p', 'Mot de passe', 'password') + '<button class="btn red" id="ac-go"><span>Se connecter</span></button><p><button class="btn sm ghost" data-t="perdu"><span>Mot de passe oublié ?</span></button></p>';
     else if (ACU.tab === 'perdu') h += '<p><small>Mets ton code de secours, ou un code de réinitialisation demandé au chef.</small></p>' + inp('ac-u', 'Pseudo') + inp('ac-c', 'Code de secours ou code du chef') + inp('ac-p', 'Nouveau mot de passe', 'password') + '<button class="btn red" id="ac-go"><span>Réinitialiser</span></button>';
   }
@@ -3899,10 +4079,16 @@ function acctWire() { const q = (s) => $('#acct ' + s), v = (s) => (q(s) ? q(s).
   const cl = q('#ac-close'); if (cl) cl.onclick = acctClose;
   const ok = q('#ac-ok'); if (ok) ok.onclick = () => { ACU.rec = ''; location.reload(); };
   const busy = async (fn) => { if (ACU.busy) return; ACU.busy = true; acctRender(); let r; try { r = await fn(); } finally { ACU.busy = false; } if (r && r.e) ACU.msg = r.e; acctRender(); return r; };
+  // Connexion (#34.Q) : le serveur prévient si le compte est ouvert ailleurs ; « Continuer ici » reprend avec force.
+  const seConnecter = async (u, p, force) => { ACU.autre = null; const r = await acctCall('login', { pseudo: u, pass: p, v2: true, force });
+    if (!r.ok && r.code === 'autre-session') { ACU.autre = { u, p, depuis: r.depuis }; return null; }
+    if (r.ok) { const fidWas = SAVE.fid; acctApply(r); if (fidWas !== SAVE.fid) frRestart(); acctUpload(); frSyncName(); toast('Connecté ! Tout est récupéré.', 2500); acctClose(); G.locked = false; accessTick(); } return r; };
   const go = q('#ac-go'); if (go) go.onclick = () => { const u = v('#ac-u'), p = q('#ac-p').value, cd = v('#ac-c'); busy(async () => {
     if (ACU.tab === 'creer') { const r = await acctCall('create', { pseudo: u, pass: p, fid: frMyId(), save: acctPack() }); if (r.ok) { const old = SAVE.fid; acctApply(r); ACU.rec = r.rec; if (old !== r.fid) frRestart(); frSyncName(); toast('Compte créé.', 2500); acctRender(); } return r; }
-    if (ACU.tab === 'co') { const r = await acctCall('login', { pseudo: u, pass: p }); if (r.ok) { const fidWas = SAVE.fid; acctApply(r); if (fidWas !== SAVE.fid) frRestart(); acctUpload(); frSyncName(); toast('Connecté ! Tout est récupéré.', 2500); acctClose(); G.locked = false; accessTick(); } return r; }
+    if (ACU.tab === 'co') return seConnecter(u, p, false);
     const r = await acctCall('reset', { pseudo: u, code: cd, pass: p }); if (r.ok) { acctApply(r); frSyncName(); ACU.rec = r.rec; acctRender(); } return r; }); };
+  const fo = q('#ac-force'); if (fo) fo.onclick = () => { const a = ACU.autre; if (a) busy(() => seConnecter(a.u, a.p, true)); };
+  const an = q('#ac-annule'); if (an) an.onclick = () => { ACU.autre = null; ACU.msg = ''; acctRender(); };
   const rn = q('#ac-rename'); if (rn) rn.onclick = () => { const name = v('#ac-name'); busy(async () => { const r = await acctSetName(name); if (r.ok) ACU.msg = 'Nom modifié. Tes amis et groupes sont conservés.'; return r; }); };
   const sv = q('#ac-save'); if (sv) sv.onclick = () => busy(async () => { const r = await acctUpload(); if (r && r.ok) { ACU.msg = 'Sauvegardé.'; acctRender(); } return r; });
   const out = q('#ac-out'); if (out) out.onclick = () => busy(async () => { const acc = SAVE.acct; if (!acc) return; await acctUpload(); const a2 = SAVE.acct || acc; await acctCall('logout', { pseudo: a2.u, tok: a2.tok }); SAVE.acct = null; store(); ACU.tab = 'choix'; ACU.msg = 'Déconnecté. Tes données restent sur ce téléphone.'; G.locked = true; acctRender(); });
@@ -4258,7 +4444,7 @@ async function launchPrepared(ti, cc, who) {
   const PT = G.prepT = { ti, t0: performance.now() }, mk = (k) => { PT[k] = Math.round(performance.now() - PT.t0); };
   RACE_LOADER.show(TRACKS[ti] && TRACKS[ti].name); G.prep = true; if (ATTRACT_P) { try { await ATTRACT_P; } catch (e) { /* rien */ } } const cv = renderer.domElement; await yieldFrame(); cv.style.visibility = 'hidden'; mk('ecran'); // canvas 3D caché pendant la préparation : l'écran de chargement s'affiche sans recomposer la 3D
   try {
-    RACE_OPTS.laps = SAVE.laps || 0; RACE_OPTS.obst = SAVE.obst !== false; RACE_OPTS.seed = (Math.random() * 4294967295) >>> 0; RACE_OPTS.music = SAVE.musicPick || 'auto';
+    RACE_OPTS.laps = (window.WK_ESSAI && window.WK_ESSAI.laps) || SAVE.laps || 0; RACE_OPTS.obst = SAVE.obst !== false; RACE_OPTS.seed = (Math.random() * 4294967295) >>> 0; RACE_OPTS.music = SAVE.musicPick || 'auto';   /* essai de l'atelier : un tour */
     if (G.W) { disposeWorld(G.W); G.W = null; } G.race = null; // le menu derrière n'est plus rendu : mémoire libérée avant de construire
     PIXEL_JOBS = []; let W;
     try { W = await runSlicedLoad(buildWorldSteps(ti), (p) => RACE_LOADER.set(p * .75)); } finally { while (PIXEL_JOBS.length) texReady({ userData: { wkFill: PIXEL_JOBS.shift() } }); PIXEL_JOBS = null; }
@@ -4937,7 +5123,7 @@ function buildHaunted(W, ext, cx, cz, scatter, ring, q) {
 /* ---------- fantôme de ton meilleur tour (courses solo) : un kart transparent refait ton record ---------- */
 const GH = { rec: null, play: null, mesh: null };
 const ghostKey = () => 'wk-ghost-' + TRACKS[G.race.ti].id + '-' + (G.race.cc || 0);
-function ghostOk() { const R = G.race; return !!(R && R.player && !R.online && !R.bombMode && !G.W.def.arena && UI.mode !== 'party'); }
+function ghostOk() { const R = G.race; return !!(R && R.player && !R.online && !R.bombMode && !G.W.def.arena && UI.mode !== 'party' && !window.WK_ESSAI); }   // essai de l'atelier : pas de fantôme
 function ghostStart() { GH.rec = null; GH.play = null; if (GH.mesh) { G.W.scene.remove(GH.mesh.g); GH.mesh = null; } if (!ghostOk()) return;
   try { const j = JSON.parse(localStorage.getItem(ghostKey()) || 'null'); if (j && j.d && j.d.length > 40) GH.play = j; } catch (e) { /* rien */ }
   if (!GH.play) return; const m = kartMesh(myCfg()); m.g.traverse((o) => { if (o.material) { o.material = o.material.clone(); o.material.transparent = true; o.material.opacity = .32; o.material.depthWrite = false; } }); m.g.visible = false; G.W.scene.add(m.g); GH.mesh = m; }
@@ -8422,6 +8608,9 @@ function playerFinished() {
   // Circuit de Wild Kart Studio : ni record ni progression. Son identifiant change à chaque modification : sinon chaque test
   // ajouterait une entrée à la sauvegarde du joueur (croissance sans limite) et un circuit trivial servirait à gagner de l'expérience.
   if (TRACKS[R.ti] && TRACKS[R.ti].studio) { dailyFinish(R, P); return; }
+  // Essai d'un tour depuis l'atelier (#34.G2) : brouillon non équipé, un seul tour → ni record (un « record de course » d'un tour
+  // battrait à tort les vraies courses), ni progression, ni défi du jour.
+  if (window.WK_ESSAI) return;
   const rec = SAVE.records[TRACKS[R.ti].id] || {}; rec.lap = Math.min(rec.lap || Infinity, P.bestLap); rec.race = Math.min(rec.race || Infinity, P.finishTime);
   SAVE.records[TRACKS[R.ti].id] = rec; store(); dailyFinish(R, P); progAward(R, P);
 }
@@ -9397,12 +9586,12 @@ function netUsable() {
 }
 function netReset() {
   if (SAVE.lastCode) { SAVE.lastCode = ''; store(); }
-  Net.leaving = true; clearTimeout(Net.rejoinT); for (const t of Net.drops.values()) clearTimeout(t);
+  Net.leaving = true; Net.sessMode = ''; clearTimeout(Net.rejoinT); for (const t of Net.drops.values()) clearTimeout(t);
   try { for (const c of Net.conns.values()) c.close(); } catch (e) { /* déjà fermé */ }
   try { if (Net.hc) Net.hc.close(); } catch (e) { /* déjà fermé */ }
   try { if (Net.peer) Net.peer.destroy(); } catch (e) { /* déjà détruit */ }
   Object.assign(Net, { peer: null, host: false, code: '', id: '', pid: '', hc: null, players: [], inRace: false, sendT: 0, leaving: false, rejoining: false, lastStart: null });
-  Net.conns = new Map(); Net.states = new Map(); Net.uidOf = new Map(); Net.seen = new Map(); Net.drops = new Map();
+  Net.conns = new Map(); Net.states = new Map(); Net.uidOf = new Map(); Net.seen = new Map(); Net.drops = new Map(); clearInterval(Net.tkT); Net.tk = '';
 }
 function netFail(e) { const off = $('#on-offline'); if (off) off.hidden = false; const t = e && e.type; netStatus(t === 'hote-injoignable' ? 'Impossible de joindre l\'hôte. Vérifiez que vous avez tous les deux la même version (Réglages, tout en bas), puis réessayez.' : t === 'peer-unavailable' ? 'Aucune partie avec ce code. Vérifie le code, et que vous avez tous les deux la même version (Réglages, tout en bas).' : t === 'network' || t === 'server-error' || t === 'socket-error' ? 'Pas de connexion au serveur. Vérifie internet et réessaie.' : 'Connexion impossible (' + (t || 'erreur') + ').'); netReset(); renderOnline(); }
 const PEER_OPTS = () => Object.assign({ debug: 0 }, window.TK_PEER_OPTS || {});
@@ -9426,20 +9615,51 @@ function netCreate() {
 }
 function hostRelay(d, except) { for (const [id, c] of Net.conns) if (id !== except && c.open) { try { c.send(d); } catch (e) { /* connexion fermée */ } } }
 function hostBroadcast(d) { hostRelay(d, null); }
-function lobbyPlayers() { return Net.players.map((p) => ({ id: p.id, name: p.name, cfg: p.cfg, host: !!p.host, away: !!p.away, fid: p.fid || (p.host ? frMyId() : '') })); }
+// #34.Q6 : en mode vérifié (option A ou B), l'identifiant d'ami d'un joueur non vérifié n'est pas diffusé (un invité ne peut pas se faire passer
+// pour un ami) ; « inv » signale un invité, « ok » un compte dont la session a été vérifiée par le serveur.
+function lobbyPlayers() { const verif = Net.sessMode && Net.sessMode !== 'non';
+  return Net.players.map((p) => ({ id: p.id, name: p.name, cfg: p.cfg, host: !!p.host, away: !!p.away, inv: !!p.inv, ok: !!(p.verifie || (p.host && SAVE.acct)),
+    fid: p.host ? frMyId() : verif && !p.verifie ? '' : p.fid || '' })); }
 function hostBroadcastLobby() { musPrewarmOnline(); hostBroadcast({ t: 'lobby', players: lobbyPlayers(), settings: Net.settings, code: Net.code, inRace: Net.inRace, cl: SAVE.chefList || '' }); renderOnline(); }
+/* #34.Q3 — Ticket d'hôte. Un joueur connecté à un compte présente un ticket court (90 s) délivré par le serveur et le renouvelle
+   toutes les 30 s ; l'hôte demande au serveur s'il est toujours lié à la session active de ce compte. Session remplacée ou ticket
+   d'un autre compte → le joueur est exclu (« sessionfin »). Ancien client sans ticket : accepté tant que le serveur n'est pas en
+   mode strict. Erreur réseau : aucune exclusion (on revérifie au tour suivant). */
+async function hostVerifTicket(conn, p, tk) {
+  if (!p || !Net.host) return;
+  const t0 = Date.now(), r = await acctCall('tverif', { ticket: tk || '' }); (Net.tvLog = (Net.tvLog || []).slice(-30)).push({ t: t0, ms: Date.now() - t0, qui: p.name, ok: !!(r && r.ok), valide: !!(r && r.valide) }); /* journal court des vérifications (bancs, diagnostic) */
+  if (!r || !r.ok) return;   // erreur réseau : aucune exclusion, on revérifie au tour suivant
+  const mode = r.mode || (r.strict ? 'tous' : 'non'); Net.sessMode = mode;
+  if (r.valide && (!p.pu || r.pseudo === String(p.pu).toLowerCase())) { p.tkOk = Date.now(); if (p.verifie !== r.pseudo || p.inv) { p.verifie = r.pseudo; p.inv = false; hostBroadcastLobby(); } return; }
+  if (!tk) {
+    if (mode === 'non') return;                                                                   // compatibilité : rien n'est exigé
+    if (mode === 'comptes' && !p.pu) { if (!p.inv) { p.inv = true; p.verifie = ''; hostBroadcastLobby(); } return; }   // option B : invité admis, marqué comme tel
+  }
+  // Ticket d'un autre compte, session remplacée, ou compte annoncé sans ticket (option B) / sans ticket du tout (option A) : exclu.
+  try { conn.send({ t: 'sessionfin' }); } catch (e) { /* déjà fermé */ } setTimeout(() => { try { conn.close(); } catch (e) { /* rien */ } }, 300);
+  toast(p.name + ' a quitté : session du compte terminée.', 3500);
+}
+// Un joueur qui annonce un compte envoie son ticket avec « hello » ou juste après ; on l'attend jusqu'à ~44 s (8 + 6 × 6) avant de juger :
+// 20 s ne suffisaient pas (ticket arrivé trop tard dans un essai réel du 6 nov. → exclusion à tort). Pendant l'attente il reste non vérifié.
+function hostAttendreTicket(conn, p, n) { if (p.tk || n >= 6 || !p.pu) return hostVerifTicket(conn, p, p.tk); setTimeout(() => hostAttendreTicket(conn, p, n + 1), 6000); }
+setInterval(() => { if (!Net.host) return; for (const p of Net.players) { if (!p.pu || p.away) continue; const c = Net.conns.get(p.pid); if (c) hostVerifTicket(c, p, p.tk); } }, 30000);
 function hostOnData(conn, d) {
   if (!d || typeof d !== 'object') return;
+  if (d.t === 'tk') { const p = Net.players.find((x) => x.pid === conn.peer); if (p) { p.tk = String(d.tk || '').slice(0, 64); hostVerifTicket(conn, p, p.tk); } return; }
   if (d.t === 'hello') {
     if (d.cl && chefListApply(d.cl, true)) { hostBroadcastLobby(); hostKickBanned(); }
     if ((d.fid && CHEF.b.has(String(d.fid))) || (Array.isArray(d.fo) && d.fo.some((x) => CHEF.b.has(String(x)))) || (d.pu && CHEF.b.has('@' + String(d.pu)))) { try { conn.send({ t: 'banned' }); } catch (e) { /* rien */ } setTimeout(() => conn.close(), 400); return; }
-    const id = String(d.uid || conn.peer).slice(0, 40); Net.uidOf.set(conn.peer, id); Net.seen.set(id, performance.now());
+    let id = String(d.uid || conn.peer).slice(0, 40); Net.uidOf.set(conn.peer, id); Net.seen.set(id, performance.now());
     let p = Net.players.find((x) => x.id === id);
-    if (p) { const was = p.away; p.away = 0; p.pid = conn.peer; p.name = String(d.name || p.name).slice(0, 10); p.cfg = cleanCfg(d.cfg); if (d.fid) p.fid = String(d.fid).slice(0, 20); clearTimeout(Net.drops.get(id)); Net.drops.delete(id); if (was) toast(p.name + ' est de retour !'); }
+    // #34.Q6 : la place d'un compte VÉRIFIÉ ne peut être reprise que par le même compte (qui repassera le ticket) ; sinon place distincte.
+    if (p && p.verifie && String(d.pu || '').toLowerCase() !== p.verifie && !p.host) { const id2 = (id + '~' + String(conn.peer).slice(-4)).slice(0, 40); id = id2; Net.uidOf.set(conn.peer, id); Net.seen.set(id, performance.now()); p = Net.players.find((x) => x.id === id) || null; }
+    if (p) { const was = p.away; p.away = 0; p.pid = conn.peer; p.name = String(d.name || p.name).slice(0, 10); p.cfg = cleanCfg(d.cfg); if (d.fid) p.fid = String(d.fid).slice(0, 20);
+      { const pu = d.pu ? String(d.pu).slice(0, 16) : ''; if (pu !== (p.pu || '')) { p.pu = pu; p.tk = ''; p.tkOk = 0; p.verifie = ''; p.inv = false; } }   /* #34.Q6 : au retour, l'identité annoncée est réévaluée (ex. compte révoqué pendant l'absence → invité) */ clearTimeout(Net.drops.get(id)); Net.drops.delete(id); if (was) toast(p.name + ' est de retour !'); }
     else {
       if (present().length >= 8) { try { conn.send({ t: 'busy' }); } catch (e) { /* rien */ } setTimeout(() => conn.close(), 400); Net.uidOf.delete(conn.peer); return; }
       p = { id, pid: conn.peer, name: String(d.name || 'Joueur').slice(0, 10), cfg: cleanCfg(d.cfg), fid: d.fid ? String(d.fid).slice(0, 20) : '', pu: d.pu ? String(d.pu).slice(0, 16) : '' }; Net.players.push(p); AudioSys.sfx('got');
     }
+    if (d.tk) { p.tk = String(d.tk).slice(0, 64); hostVerifTicket(conn, p, p.tk); } else setTimeout(() => hostAttendreTicket(conn, p, 0), 8000);   // #34.Q3 : le ticket suit hello de près
     hostBroadcastLobby();
     // on le remet là où en est la partie
     try {
@@ -9473,6 +9693,7 @@ function hostDrop(uid) {
 function netJoin(code) {
   if (!netUsable()) return; code = (code || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4); if (code.length !== 4) { netStatus('Le code fait 4 lettres.'); return; }
   AudioSys.init(); prepControls(); netReset(); Net.host = false; Net.code = code; netStatus('Connexion à la partie ' + code + '…');
+  if (SAVE.acct) netTicketEnvoi(null);   /* #34.Q6 : ticket demandé dès maintenant, pour partir avec « hello » (réseau lent) */
   netNewPeer();
 }
 function netNewPeer() {
@@ -9481,12 +9702,15 @@ function netNewPeer() {
   peer.on('error', (e) => { if (Net.peer !== peer) return; if (Net.rejoining || Net.lastHost) return; netFail(e); });
   peer.on('disconnected', () => { setTimeout(() => { try { if (Net.peer === peer && !peer.destroyed && peer.disconnected) peer.reconnect(); } catch (e) { /* rien */ } }, 500); });
 }
+// #34.Q3 : demande un ticket d'hôte au serveur (lié à la session active) et l'envoie à l'hôte.
+async function netTicketEnvoi(c) { if (!SAVE.acct) return; const r = await acctCall('ticket', { pseudo: SAVE.acct.u, tok: SAVE.acct.tok }); if (r && r.ok && r.ticket) { Net.tk = r.ticket; try { if (c && c.open) c.send({ t: 'tk', tk: r.ticket }); } catch (e) { /* rien */ } } }
 function clientConnect() {
   const peer = Net.peer; if (!peer || peer.destroyed) return;
   const c = peer.connect(NET_PREFIX + Net.code, { reliable: true, serialization: 'json' }); const old = Net.hc; Net.hc = c; if (old && old !== c) { try { old.close(); } catch (e) { /* rien */ } }
   const to = setTimeout(() => { if (!c.open && Net.hc === c && !Net.rejoining && !Net.lastHost) netFail({ type: 'hote-injoignable' }); }, 28000);
   c.on('open', () => {
-    if (Net.hc !== c) return; clearTimeout(to); Net.lastHost = performance.now(); c.send({ t: 'hello', name: SAVE.name || 'Joueur', cfg: myCfg(), uid: UID, fid: frMyId(), fo: SAVE.fidOld || [], pu: SAVE.acct ? String(SAVE.acct.u).toLowerCase() : '', cl: SAVE.chefList || '' });
+    if (Net.hc !== c) return; clearTimeout(to); Net.lastHost = performance.now(); c.send({ t: 'hello', name: SAVE.name || 'Joueur', cfg: myCfg(), uid: UID, fid: frMyId(), fo: SAVE.fidOld || [], pu: SAVE.acct ? String(SAVE.acct.u).toLowerCase() : '', cl: SAVE.chefList || '', tk: Net.tk || '' });
+    netTicketEnvoi(c); clearInterval(Net.tkT); Net.tkT = setInterval(() => { if (Net.hc === c && c.open) netTicketEnvoi(c); else clearInterval(Net.tkT); }, 30000);   // #34.Q3
     if (Net.rejoining) { Net.rejoining = false; clearTimeout(Net.rejoinT); toast('De retour dans la partie !', 2200); } else netStatus('Connecté !');
     SAVE.lastCode = Net.code; SAVE.lastCodeAt = Date.now(); store();
   });
@@ -9515,6 +9739,7 @@ function clientOnData(d) {
     case 'ping': if (d.r && d.r[Net.id] != null) Net.ping = d.r[Net.id]; if (Net.hc && Net.hc.open) { try { Net.hc.send({ t: 'pong', c: d.c }); } catch (e) { /* rien */ } } break;
     case 'busy': toast('La partie est pleine (8 joueurs).', 4500); netReset(); renderOnline(); break;
     case 'banned': toast('Le chef t\'a bloqué : impossible de rejoindre cette partie.', 5000); netReset(); renderOnline(); break;
+    case 'sessionfin': toast('Ton compte est utilisé ailleurs : tu as quitté la partie.', 5000); netReset(); renderOnline(); break;   // #34.Q3
     case 'lobby': if (d.cl) chefListApply(d.cl, true); Net.players = d.players || []; Net.settings = Object.assign(Net.settings, d.settings || {}); musPrewarmOnline(); if (!Net.inRace) { if (UI.screen !== 'calib' && !(UI.screen === 'mini' && MINI.cur) && UI.screen !== 'settings' && UI.screen !== 'chef') show('online'); renderOnline(); } chefRender(); break;
     case 'start': netStartRace(d); break;
     case 'watch': if (!(G.race && G.race.online && G.race.raceId === d.start.raceId)) netWatch(d); break;
@@ -9678,7 +9903,7 @@ function renderOnline() {
   $('#on-start').hidden = inLobby; $('#on-lobby').hidden = !inLobby; if (!inLobby) return;
   $('#on-codeval').textContent = Net.code;
   const list = $('#on-players'); list.innerHTML = '';
-  for (const p of Net.players) { const b = document.createElement('span'); b.className = 'pchip'; b.style.setProperty('--c', (p.cfg && p.cfg.color) || '#ff4f3a'); b.innerHTML = '<i></i><span></span>'; b.querySelector('span').textContent = p.name + (p.host ? ' (hôte)' : '') + (p.id === Net.id ? ' · toi' : '') + (p.away ? ' · absent' : ''); if (p.away) b.style.opacity = '.55'; list.appendChild(b); }
+  for (const p of Net.players) { const b = document.createElement('span'); b.className = 'pchip'; b.style.setProperty('--c', (p.cfg && p.cfg.color) || '#ff4f3a'); b.innerHTML = '<i></i><span></span>'; b.querySelector('span').textContent = p.name + (p.host ? ' (hôte)' : '') + (p.inv ? ' · invité' : '') + (p.id === Net.id ? ' · toi' : '') + (p.away ? ' · absent' : ''); if (p.away) b.style.opacity = '.55'; list.appendChild(b); }
   const S = Net.settings; $('#on-host-opts').hidden = !Net.host; $('#on-go').hidden = !Net.host;
   if (Net.host) {
     const upd = (k, v) => { S[k] = v; hostBroadcastLobby(); };
@@ -10112,7 +10337,8 @@ function openStudio() {
   toast('Ouverture du Studio…', 1500);
   load(studioSrc('studio-core.js')).then(() => load(studioSrc('studio3d.js')).catch(() => null)).then(() => load(studioSrc('studio.js'))).then(() => window.WKStudio.open()).catch(() => toast('Le Studio n\'a pas pu se charger (connexion ?).'));
 }
-function toMenu() { resetPerf(); if (Net.peer) netReset(); UI.quiz = null; UI.party = null; UI.mode = 'quick'; G.race = null; G.paused = false; showHud(false); AudioSys.engine(0, false); AudioSys.stopMusic(); UI.gp = null; show('title'); const back = UI.afterMenu; UI.afterMenu = null; if (back) back(); }
+function toMenu() { { const E = window.WK_ESSAI; if (E) { window.WK_ESSAI = null; const P = G.race && G.race.player; E.tour = P && isFinite(P.bestLap) && P.bestLap > 0 ? P.bestLap : null; E.fini = !!(P && P.finished); E.cfgCourse = P && P.cfg ? { body: P.cfg.body, wheels: P.cfg.wheels, glider: P.cfg.glider } : null; window.WK_ESSAI_FIN = E; } }   // #34.G2 : fin d'essai de l'atelier
+  resetPerf(); if (Net.peer) netReset(); UI.quiz = null; UI.party = null; UI.mode = 'quick'; G.race = null; G.paused = false; showHud(false); AudioSys.engine(0, false); AudioSys.stopMusic(); UI.gp = null; show('title'); const back = UI.afterMenu; UI.afterMenu = null; if (back) back(); }
 
 function drawTrackThumb(c, def) {
   const S = buildSamples(def), x = c.getContext('2d'), w = c.width, h = c.height;
@@ -10170,7 +10396,8 @@ document.addEventListener('click', (e) => {
 });
 
 /* garage */
-const GS = { scene: null, kart: null, rot: 0 };
+const GS = { scene: null, kart: null, rot: 0, vit: 0, glisse: null, touche: 0 };
+const GARAGE_K = { spin: 0, boost: 0, finished: false, place: 0, drift: 0, air: false };   // kart à l'arrêt pour poser le pilote au garage
 function buildGarageScene() {
   const s = new T.Scene(); s.background = new T.Color('#2a2560');
   s.add(new T.HemisphereLight('#ffffff', '#2a2560', 1.6)); const d = new T.DirectionalLight('#fff3e0', 2.6); d.position.set(5, 8, 6); s.add(d);
@@ -10347,25 +10574,53 @@ $('#p-settings').onclick = () => { AudioSys.sfx('click'); UI.settingsBack = 'pau
 function refreshGarageKart() {
   if (!GS.scene) buildGarageScene();
   if (GS.kart) { GS.scene.remove(GS.kart.g); GS.kart.g.traverse((o) => { if (o.geometry && !o.geometry.userData.keep) o.geometry.dispose(); }); }
-  GS.kart = kartMesh(myCfg()); GS.kart.shadow = null; GS.scene.add(GS.kart.g); GS.fake = { air: GS.showGlider ? 'glide' : false, glOpen: 0, vy: 0, x: 0, h: 0, vh: 0 };
+  GS.kart = kartMesh(window.WK_APERCU ? Object.assign(myCfgEquipe(), window.WK_APERCU) : myCfg()); GS.kart.shadow = null; if (GS.kart.rig && !window.WK_GARAGE_SANS_POSE) heroAnimate(GS.kart.rig, GARAGE_K, 0, 1, performance.now() / 1000);   /* posé dès la création (pas d'attente de l'image suivante) */ /* WK_APERCU : brouillon de l'atelier (#34.G2) */ GS.scene.add(GS.kart.g); GS.fake = { air: GS.showGlider ? 'glide' : false, glOpen: 0, vy: 0, x: 0, h: 0, vh: 0 };
   $('#g-name').textContent = SAVE.name || 'Toi';
   const st = statsFor(SAVE.body, SAVE.wheels, SAVE.glider); const box = $('#g-stats'); box.innerHTML = '';
   [['Vitesse', st.speed], ['Accélération', st.accel], ['Maniabilité', st.handling], ['Poids', st.weight], ['Tout-terrain', st.off], ['Planeur', st.air]].forEach(([n, v]) => {
     const l = document.createElement('span'); l.textContent = n; const bar = document.createElement('div'); bar.className = 'bar'; const i = document.createElement('i'); i.style.width = Math.round(15 + v * 85) + '%'; bar.appendChild(i); box.append(l, bar);
   });
 }
-function enterGarage() { if (typeof progRender === 'function') progRender(); chipGroup($('#g-body'), BODIES, 'body'); chipGroup($('#g-wheels'), WHEELS, 'wheels'); chipGroup($('#g-glider'), GLIDERS, 'glider'); chipGroup($('#g-pilot'), PILOTS, 'pilot'); chipGroup($('#g-acc'), ACCS, 'acc'); chipGroup($('#g-finish'), FINISHES, 'finish'); chipGroup($('#g-deco'), DECOS, 'deco'); chipGroup($('#g-trail'), TRAILS, 'trail'); swatchGroup($('#g-color'), 'color'); swatchGroup($('#g-helmet'), 'helmet'); swatchGroup($('#g-skin'), 'skin', SKINS); $('#g-pseudo').value = SAVE.name; refreshGarageKart(); }
+function enterGarage() { garageRotation(); if (typeof progRender === 'function') progRender(); chipGroup($('#g-body'), BODIES, 'body'); chipGroup($('#g-wheels'), WHEELS, 'wheels'); chipGroup($('#g-glider'), GLIDERS, 'glider'); chipGroup($('#g-pilot'), PILOTS, 'pilot'); chipGroup($('#g-acc'), ACCS, 'acc'); chipGroup($('#g-finish'), FINISHES, 'finish'); chipGroup($('#g-deco'), DECOS, 'deco'); chipGroup($('#g-trail'), TRAILS, 'trail'); swatchGroup($('#g-color'), 'color'); swatchGroup($('#g-helmet'), 'helmet'); swatchGroup($('#g-skin'), 'skin', SKINS); $('#g-pseudo').value = SAVE.name; refreshGarageKart(); }
 $('#g-glide').onclick = () => { AudioSys.sfx('click'); GS.showGlider = !GS.showGlider; if (GS.fake) GS.fake.air = GS.showGlider ? 'glide' : false; $('#g-glide span').textContent = GS.showGlider ? 'Ranger le planeur' : 'Voir le planeur'; };
 $$('#g-tabs button').forEach((b) => b.addEventListener('click', () => { if (b.dataset.t === 'planeur' && !GS.showGlider) $('#g-glide').click(); }));
+/* #34.G12 (demande du 5 nov.) : tourner le kart au doigt ou à la souris en glissant sur la scène du garage. Lâché, il garde un
+   peu d'élan puis ralentit ; la rotation automatique reprend en douceur après 3 s sans geste. Les boutons et le panneau de réglages
+   (défilement vertical) ne sont pas concernés. */
+function garageRotation() {
+  const zone = document.querySelector('#s-garage .g-stage'); if (!zone || zone.dataset.rotation) return; zone.dataset.rotation = '1';
+  zone.style.touchAction = 'none'; zone.style.cursor = 'grab';
+  zone.addEventListener('pointerdown', (e) => { if (e.target.closest('button,input,a')) return; GS.glisse = { id: e.pointerId, x: e.clientX, t: performance.now() }; GS.vit = 0; GS.touche = performance.now(); zone.style.cursor = 'grabbing'; try { zone.setPointerCapture(e.pointerId); } catch (x) { /* rien */ } });
+  zone.addEventListener('pointermove', (e) => { const g = GS.glisse; if (!g || g.id !== e.pointerId) return; const now = performance.now(), dx = e.clientX - g.x, d = dx * .012;
+    GS.rot += d; GS.vit = d / Math.max(.008, (now - g.t) / 1000); g.x = e.clientX; g.t = now; GS.touche = now; });
+  const fin = (e) => { if (!GS.glisse || GS.glisse.id !== e.pointerId) return; GS.glisse = null; GS.touche = performance.now(); zone.style.cursor = 'grab'; };
+  zone.addEventListener('pointerup', fin); zone.addEventListener('pointercancel', fin);
+}
 function renderGarage(dt) {
-  GS.rot += dt * .6; GS.kart.g.rotation.y = GS.rot;
+  { const repos = (performance.now() - GS.touche) / 1000;
+    if (!GS.glisse) { GS.rot += GS.vit * dt; GS.vit *= Math.exp(-dt * 3.5); if (Math.abs(GS.vit) < .02) GS.vit = 0; }
+    if (!GS.glisse && repos > 3) GS.rot += dt * .6 * Math.min(1, (repos - 3) / 1.5); }   // reprise douce de la rotation automatique
+  GS.kart.g.rotation.y = GS.rot;
   if (GS.fake) animateGlider(GS.fake, GS.kart, dt, performance.now() / 1000);
+  // Pose du pilote au garage (et dans l'atelier) : heroAnimate n'était appelé qu'en course, si bien qu'au garage les bras restaient
+  // non posés (segments à l'origine, mains à 1,22 m du volant, cachées dans le corps) — constaté le 6 nov., antérieur à la fusion #36.P1.
+  if (GS.kart.rig && !window.WK_GARAGE_SANS_POSE) heroAnimate(GS.kart.rig, GARAGE_K, 0, Math.min(dt, .1), performance.now() / 1000);   /* WK_GARAGE_SANS_POSE : témoin des bancs (ancien comportement) */
   const portrait = camera.aspect < 1;
   camera.fov = 40; camera.updateProjectionMatrix();
   const up = GS.showGlider ? 1 : 0;
-  if (portrait) { camera.position.set(0, 3.4 + up, 11 + up * 2); camera.lookAt(0, 1.7 + up * .6, 0); }
+  // #34.G1 — En portrait, le panneau couvre le bas de l'écran : le kart (centré sur l'axe de visée) était rendu DERRIÈRE lui.
+  // On recule la caméra selon la hauteur de la zone de scène visible (.g-stage) et on décale l'image pour que le point visé
+  // tombe au centre de cette zone ; le décalage est retiré après le rendu (la caméra de course reste intacte).
+  let dec = 0, zone = null;
+  if (portrait) { const st = GS.stageEl || (GS.stageEl = document.querySelector('#s-garage .g-stage')), H = renderer.domElement.clientHeight;
+    if (st && H > 0) { const r0 = st.getBoundingClientRect(); let bas = r0.bottom;
+      for (const el of [document.querySelector('#s-garage .g-panel'), document.getElementById('atl')]) if (el && !el.hidden) { const q = el.getBoundingClientRect(); if (q.height > 0 && q.top > r0.top + 40) bas = Math.min(bas, q.top); }   /* panneau affiché (choix rapide ou atelier #34.G2) */
+      const r = { top: r0.top, bottom: bas, height: bas - r0.top }; if (r.height > 40 && r.bottom < H * .8) zone = { r, H, W: renderer.domElement.clientWidth }; } }
+  if (portrait) { const pp = zone ? clamp(.55 * zone.H / zone.r.height, 1, 2.4) : 1; camera.position.set(0, (3.4 + up) * pp, (11 + up * 2) * pp); camera.lookAt(0, (zone ? 1.2 : 1.7) + up * .6, 0); }
   else { camera.position.set(2.8, 3.2 + up * 1.2, 9 + up * 2.4); camera.lookAt(3.1, 1.0 + up * .7, 0); }
+  if (zone) { dec = Math.round(zone.H / 2 - (zone.r.top + zone.r.height * .5)); camera.setViewOffset(zone.W, zone.H, 0, dec, zone.W, zone.H); }
   renderer.render(GS.scene, camera);
+  if (zone) camera.clearViewOffset();
 }
 /* ---- aide au démarrage (premières courses) ---- */
 function showHints() {
@@ -10507,7 +10762,7 @@ if (window.TK_TEST) (function testPanel() {
 })();
 
 // accès pour les tests automatisés
-window.__TK = { buildWorldSteps, disposeWorld, QAUTO, adaptPerf, PERF, setInstZone: (v) => { INST_ZONE = v; }, setDecorLeger: (v) => { DECOR_LEGER = !!v; delete DECOR.bush; }, startAttract, simStep, netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, updateItems, throwFwd, FRONT_TRAPS, onNetEvent, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, videoReady, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner, progOpen, weekDefs, updateObstacles, bridgeAvoid, brAt, raftsAvoid, playerEmote, kartEmote, aiControl, collideKarts, openStudio, toMenu, zoneEnv, studioSurfAt, obstacleHits };
+window.__TK = { PILOTS, ACCS, FINISHES, DECOS, TRAILS, COLORS, SKINS, lockInfo, refreshGarageKart, launchPrepared, toast, ownedColors: typeof ownedColors === 'function' ? ownedColors : null, lobbyPlayers, heroAnimate, frAddFriend, frSend, buildWorldSteps, acctUpload, acctCall, ONGLET, GS, hostOnData, hostVerifTicket, clientOnData, netTicketEnvoi, disposeWorld, QAUTO, adaptPerf, PERF, setInstZone: (v) => { INST_ZONE = v; }, setDecorLeger: (v) => { DECOR_LEGER = !!v; delete DECOR.bush; }, startAttract, simStep, netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, updateItems, throwFwd, FRONT_TRAPS, onNetEvent, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, videoReady, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner, progOpen, weekDefs, updateObstacles, bridgeAvoid, brAt, raftsAvoid, playerEmote, kartEmote, aiControl, collideKarts, openStudio, toMenu, zoneEnv, studioSurfAt, obstacleHits };
 Object.assign(window.__TK, { Graphics, adaptPerf, enhancedGraphics, gravPulse, gravExposed, gravSurf, gravAvail, aiUse13x, GCUT_T, ICONS, ITEM_FR, heroAnimate, QUIZ });
 })();
 

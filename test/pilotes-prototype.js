@@ -63,7 +63,7 @@
       panel(head, mats.dark, .16, .025, .025, 0, .22, .3);
     }
     // Inserts du volant, toujours enfants du pivot tournant existant.
-    ball(spin, mats.helm, .042, .042, .02, 0, 0, .032);
+    ball(spin, mats.helm, .042, .042, .02, 0, 0, -.032);   // côté pilote (l'axe +z du volant pointe vers la colonne)
     // Fusion par parent et matériau : les détails suivent le rig sans maillage par couture.
     for (const [parent, byMat] of groups) for (const [material, gs] of byMat) {
       const raw = gs.map(g => g.index ? g.toNonIndexed() : g), count = raw.reduce((n, g) => n + g.attributes.position.count, 0);
