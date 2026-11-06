@@ -1049,6 +1049,34 @@ function roundRectShape(w, h, r) {
   s.moveTo(x + r, y); s.lineTo(x + w - r, y); s.quadraticCurveTo(x + w, y, x + w, y + r); s.lineTo(x + w, y + h - r); s.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
   s.lineTo(x + r, y + h); s.quadraticCurveTo(x, y + h, x, y + h - r); s.lineTo(x, y + r); s.quadraticCurveTo(x, y, x + r, y); return s;
 }
+/* #36.E1 — Visage sculpté : la tête est une SURFACE RADIALE r(direction) = ellipsoïde × (1 + reliefs doux) : joues pleines, menton
+   affiné, front légèrement aplati, arête et bout du nez en relief continu (pas de boule collée). z(x, y) donne la surface avant en
+   (x, y) : yeux, sourcils, joues, bouche y sont posés au lieu de flotter. */
+function formeVisage(style) {
+  const R = style === 'heros' ? .325 : .295, P = { heros: { nez: .05, joue: .05, menton: .2, carre: 0, nezY: .2 }, casque: { nez: .045, joue: .03, menton: .08, carre: .07, nezY: .2 }, casquette: { nez: .055, joue: .06, menton: .16, carre: 0, nezY: .2 }, capuche: { nez: .06, joue: .055, menton: .22, carre: 0, nezY: .14 } }[style] || { nez: .045, joue: .05, menton: .2, carre: 0, nezY: .2 };   /* carre : mâchoire large (Casque) ; nezY : hauteur du bout du nez (Capuche : retroussé) */
+  const gauss = (a, b, w) => Math.exp(-(a * a + b * b) / (w * w));
+  function rayon(dx, dy, dz) {   /* direction unitaire → rayon */
+    let r = R / Math.sqrt(dx * dx + (dy / .95) ** 2 + (dz / .94) ** 2);
+    const av = Math.max(0, dz);
+    r *= 1 + P.joue * av * gauss(Math.abs(dx) - .5, dy + .3, .32);                    /* joues */
+    r *= 1 - P.menton * av * Math.max(0, -dy - .35) ** 2 * (1 + 2 * dx * dx);          /* menton plus étroit, mâchoire adoucie */
+    r *= 1 - .03 * av * gauss(dx, dy - .45, .35);                                       /* front légèrement aplati */
+    r *= 1 + P.carre * av * gauss(dx * .8, dy + .72, .3);                                /* menton carré intégré (plus de bloc rapporté) */
+    r *= 1 + P.nez * av ** 6 * gauss(dx * 1.6, dy + P.nezY, .2) + P.nez * .35 * av ** 6 * gauss(dx * 2.5, dy + .02, .14);   /* bout puis arête du nez */
+    return r;
+  }
+  function z(x, y) { let lo = 0, hi = R * 1.4; for (let i = 0; i < 30; i++) { const m = (lo + hi) / 2, l = Math.hypot(x, y, m); if (l < rayon(x / l, y / l, m / l)) lo = m; else hi = m; } return lo; }
+  return { R, rayon, z };
+}
+function teteSculptee(T, F) {
+  const g = new T.SphereGeometry(1, 48, 36), p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), zz = p.getZ(i), r = F.rayon(x, y, zz); p.setXYZ(i, x * r, y * r, zz * r); }
+  g.computeVertexNormals();
+  /* couture de la sphère : moyenne des normales des sommets confondus (pas de ligne d'ombrage) */
+  const n = g.attributes.normal, M = new Map(); for (let i = 0; i < p.count; i++) { const k = p.getX(i).toFixed(5) + ',' + p.getY(i).toFixed(5) + ',' + p.getZ(i).toFixed(5); if (!M.has(k)) M.set(k, []); M.get(k).push(i); }
+  for (const l of M.values()) if (l.length > 1) { let a = 0, b = 0, c = 0; for (const i of l) { a += n.getX(i); b += n.getY(i); c += n.getZ(i); } const L = Math.hypot(a, b, c) || 1; for (const i of l) n.setXYZ(i, a / L, b / L, c / L); }
+  return g;
+}
 function rbox(w, h, d, r) {
   r = Math.min(r, w / 2 - .002, h / 2 - .002, d / 2 - .002);
   const g = new T.ExtrudeGeometry(roundRectShape(w - 2 * r, h - 2 * r, r * .9), { depth: Math.max(.002, d - 2 * r), bevelEnabled: true, bevelThickness: r, bevelSize: r, bevelSegments: 3, curveSegments: 5 });
@@ -2825,13 +2853,16 @@ function heroRig(cfg, mats) {
   // Refonte des pilotes (3 novembre, demande du propriétaire) : TOUS les pilotes partagent le rig animé du Héros (visage expressif,
   // mains sur le volant, tête qui suit le virage, réactions boost / saut / choc / victoire) ; seule la coiffe change selon le pilote.
   const style = cfg.pilot, robot = style === 'robot', detail = [], cheek = [], whites = [], pupils = [], brows = [];
+  /* #36.E1 (retour du 6 nov.) : visage sculpté. WK_VISAGE_AVANT = ancien rendu (témoin des planches avant/après). */
+  const VISAGE2 = !robot && !(typeof window !== 'undefined' && (window.WK_VISAGE_AVANT || window.WK_FINITION_AVANT)), FACE = VISAGE2 ? formeVisage(style) : null;
   if (robot) {
     mesh([G(new T.CapsuleGeometry(.27, .16, 8, 20), 0, 0, 0, 0, 0, Math.PI / 2, 1, 1.05, .95)], mats.metal, head);   // tête arrondie
     mesh([G(new T.TorusGeometry(.3, .04, 10, 32, Math.PI), 0, 0, -.02), G(new T.CylinderGeometry(.09, .09, .1, 14), -.34, 0, 0, 0, 0, Math.PI / 2), G(new T.CylinderGeometry(.09, .09, .1, 14), .34, 0, 0, 0, 0, Math.PI / 2), G(new T.CylinderGeometry(.015, .015, .22, 6), .14, .38, -.05), G(new T.SphereGeometry(.045, 10, 8), .14, .5, -.05)], mats.dark, head);
     detail.push(mesh([G(rbox(.46, .2, .04, .05), 0, .02, .27)], mats.visor || mats.glass, head));            // écran du visage
   } else {
-    mesh([G(new T.SphereGeometry(style === 'heros' ? .325 : .295, 32, 24), 0, 0, 0, 0, 0, 0, 1, .95, .94), G(new T.SphereGeometry(.05, 12, 10), 0, -.07, style === 'heros' ? .33 : .3)], mats.skin, head);
-    for (const s of [-1, 1]) cheek.push(G(new T.SphereGeometry(.05, 10, 8), s * .19, -.1, .24, 0, 0, 0, 1, .6, .4));
+    if (VISAGE2) mesh([teteSculptee(T, FACE)], mats.skin, head);   // #36.E1 : une seule surface (front, joues, menton, nez intégrés)
+    else mesh([G(new T.SphereGeometry(style === 'heros' ? .325 : .295, 32, 24), 0, 0, 0, 0, 0, 0, 1, .95, .94), G(new T.SphereGeometry(.05, 12, 10), 0, -.07, style === 'heros' ? .33 : .3)], mats.skin, head);
+    for (const s of [-1, 1]) cheek.push(VISAGE2 ? G(new T.SphereGeometry(.05, 10, 8), s * .175, -.105, FACE.z(s * .175, -.105) - .012, 0, s * .55, 0, 1, .6, .35) : G(new T.SphereGeometry(.05, 10, 8), s * .19, -.1, .24, 0, 0, 0, 1, .6, .4));
     detail.push(mesh(cheek, stdMat('#ff8fa3', .7, 0), head));
   }
   if (style === 'heros') {
@@ -2839,14 +2870,31 @@ function heroRig(cfg, mats) {
     const gog = [], lens = []; for (const s of [-1, 1]) { gog.push(G(new T.TorusGeometry(.07, .024, 8, 18), s * .11, .29, .3, -.55)); lens.push(G(new T.CircleGeometry(.055, 16), s * .11, .29, .3, -.55)); }
     detail.push(mesh(gog, mats.metal, head), mesh(lens, mats.glass, head));
   } else if (style === 'casquette') {   // casquette à visière, mèches et oreilles
+    if (VISAGE2) {   /* #36.E3 : calotte relevée au-dessus des sourcils, bord roulé, visière courbe épaisse aux bords arrondis, mèches brunes */
+      const vis = new T.Shape(), a0 = -.85, a1 = .85, Ro = .46, Ri = .3; for (let i = 0; i <= 24; i++) { const a = a0 + (a1 - a0) * i / 24; (i ? vis.lineTo : vis.moveTo).call(vis, Math.sin(a) * Ro, Math.cos(a) * Ro * .78); }
+      for (let i = 24; i >= 0; i--) { const a = a0 + (a1 - a0) * i / 24; vis.lineTo(Math.sin(a) * Ri, Math.cos(a) * Ri); }
+      const vg = new T.ExtrudeGeometry(vis, { depth: .012, bevelEnabled: true, bevelThickness: .008, bevelSize: .008, bevelSegments: 3, curveSegments: 4 }); vg.rotateX(Math.PI / 2);
+      { const p = vg.attributes.position; for (let i = 0; i < p.count; i++) { const x = p.getX(i), z = p.getZ(i); p.setY(i, p.getY(i) - .55 * x * x - .06 * Math.max(0, z - .3)); } vg.computeVertexNormals(); }   /* bombée et inclinée vers l'avant */
+      mesh([G(new T.SphereGeometry(.318, 32, 14, 0, TAU, 0, Math.PI * .365), 0, .03, -.01), G(new T.TorusGeometry(.275, .014, 8, 48), 0, .162, -.01, Math.PI / 2), G(vg, 0, .178, -.01), G(new T.SphereGeometry(.035, 10, 8), 0, .345, -.01)], mats.helm, head);
+      /* lisière de cheveux continue sous la calotte, des tempes à la nuque (plus de boules sombres séparées) */
+      const lis = new T.SphereGeometry(.306, 36, 10, Math.PI * .82, Math.PI * 1.36, Math.PI * .36, Math.PI * .2); lis.scale(1, .95, .94);   /* φ centré sur la nuque (−z) */ mesh([G(lis, 0, .012, -.008)], stdMat('#5b3a24', .75, 0), head);   /* cheveux : calotte partielle qui épouse la tête (tempes → nuque) sous la casquette */
+    } else {
     mesh([G(new T.SphereGeometry(.318, 28, 12, 0, TAU, 0, Math.PI * .47), 0, .03, -.01), G(rbox(.42, .045, .3, .022), 0, .1, .33, .14, 0, 0), G(new T.SphereGeometry(.035, 10, 8), 0, .34, 0)], mats.helm, head);
-    mesh([G(new T.SphereGeometry(.08, 10, 8), -.25, .02, .08, 0, 0, 0, .7, 1, 1.1), G(new T.SphereGeometry(.08, 10, 8), .25, .02, .08, 0, 0, 0, .7, 1, 1.1), G(new T.SphereGeometry(.09, 10, 8), 0, .02, -.27, 0, 0, 0, 1.6, .9, .8)], mats.dark, head);
+    mesh([G(new T.SphereGeometry(.08, 10, 8), -.25, .02, .08, 0, 0, 0, .7, 1, 1.1), G(new T.SphereGeometry(.08, 10, 8), .25, .02, .08, 0, 0, 0, .7, 1, 1.1), G(new T.SphereGeometry(.09, 10, 8), 0, .02, -.27, 0, 0, 0, 1.6, .9, .8)], mats.dark, head); }
     mesh([G(new T.SphereGeometry(.065, 10, 8), -.3, -.03, 0, 0, 0, 0, .5, 1, .8), G(new T.SphereGeometry(.065, 10, 8), .3, -.03, 0, 0, 0, 0, .5, 1, .8)], mats.skin, head);
   } else if (style === 'capuche') {     // capuche ouverte sur le visage, cordons
-    { // Capuche fermée sur le dessus (bug signalé le 4 nov. : l'ouverture du visage remontait jusqu'au sommet, crâne visible) ; double face.
+    if (VISAGE2) { /* #36.E3 : coque sphérique fermée percée d'une ouverture ELLIPTIQUE autour du visage, bordure tubulaire continue (bord
+         épais et arrondi, plus de découpe à angle vif ni de calotte plate), double face pour l'intérieur. Cordons : portés par le buste. */
+      const Rh = .4, C = [0, .03, -.03], ouv = (x, y, z) => z > 0 && (x / .6) ** 2 + ((y + .06) / .68) ** 2 < 1;
+      const g = new T.SphereGeometry(Rh, 72, 48), p = g.attributes.position, ix = g.index.array, keep = [];
+      for (let i = 0; i < ix.length; i += 3) { let dedans = 0; for (let j = 0; j < 3; j++) { const v = ix[i + j]; if (ouv(p.getX(v) / Rh, p.getY(v) / Rh, p.getZ(v) / Rh)) dedans++; } if (!dedans) keep.push(ix[i], ix[i + 1], ix[i + 2]); }   /* aucun triangle ne mord sur l'ouverture */
+      g.setIndex(keep); g.translate(...C);
+      const bord = []; for (let i = 0; i < 64; i++) { const t = i / 64 * TAU, dx = .6 * 1.04 * Math.cos(t), dy = -.06 + .68 * 1.04 * Math.sin(t),   /* bordure sur le bord réel du maillage (≈ une maille hors de l'ellipse) */ dz = Math.sqrt(Math.max(0, 1 - dx * dx - dy * dy)); bord.push(V3(C[0] + Rh * .985 * dx, C[1] + Rh * .985 * dy, C[2] + Rh * .985 * dz)); }
+      const hood = mesh([g, new T.TubeGeometry(new T.CatmullRomCurve3(bord, true), 96, .026, 8, true)], mats.suit, head); hood.material = mats.suit.clone(); hood.material.side = T.DoubleSide;
+    } else { // Capuche fermée sur le dessus (bug signalé le 4 nov. : l'ouverture du visage remontait jusqu'au sommet, crâne visible) ; double face.
       const hood = mesh([G(new T.SphereGeometry(.4, 28, 18, Math.PI / 2 + .95, TAU - 1.9, 0, Math.PI * .75), 0, .03, -.03), G(new T.SphereGeometry(.4, 28, 8, 0, TAU, 0, Math.PI * .3), 0, .03, -.03), G(new T.TorusGeometry(.31, .05, 10, 30, Math.PI * 1.25), 0, .01, .17, 0, 0, -Math.PI * .125 + Math.PI)], mats.suit, head);
       hood.material = mats.suit.clone(); hood.material.side = T.DoubleSide; }
-    mesh([G(new T.CylinderGeometry(.012, .012, .22, 6), -.1, -.32, .27), G(new T.CylinderGeometry(.012, .012, .22, 6), .1, -.32, .27), G(new T.SphereGeometry(.025, 8, 6), -.1, -.44, .27), G(new T.SphereGeometry(.025, 8, 6), .1, -.44, .27)], mats.glove, head);
+    if (!VISAGE2) mesh([G(new T.CylinderGeometry(.012, .012, .22, 6), -.1, -.32, .27), G(new T.CylinderGeometry(.012, .012, .22, 6), .1, -.32, .27), G(new T.SphereGeometry(.025, 8, 6), -.1, -.44, .27), G(new T.SphereGeometry(.025, 8, 6), .1, -.44, .27)], mats.glove, head);
   } else if (!robot) {                  // casque intégral ouvert devant, visière relevée, bande de couleur
     mesh([G(new T.SphereGeometry(.37, 32, 22, Math.PI / 2 + .85, TAU - 1.7, 0, Math.PI * .8), 0, .02, -.02)], mats.helm, head);
     mesh([G(new T.TorusGeometry(.372, .04, 10, 40, Math.PI - .75), 0, .02, -.02, 0, Math.PI / 2, 0)], mats.paint, head);   // bande de la nuque jusqu'au-dessus du front (jamais sur le visage)
@@ -2856,25 +2904,30 @@ function heroRig(cfg, mats) {
     whites.push(robot ? G(rbox(.1, .07, .02, .03), s * .11, 0, 0) : G(new T.SphereGeometry(.07, 18, 12), s * .115, 0, 0, 0, 0, 0, 1, 1.15, .32)); pupils.push(G(new T.SphereGeometry(robot ? .028 : .034, 14, 10), s * (robot ? .11 : .115), 0, robot ? .012 : .023, 0, 0, 0, 1, 1, robot ? 1 : .4));
     brows.push(G(new T.CapsuleGeometry(.022, .09, 4, 8), s * .12, 0, 0, 0, 0, Math.PI / 2 + s * .18));
   }
-  const eyesG = new T.Group(); eyesG.position.set(0, robot ? .02 : -.01, robot ? .3 : style === 'heros' ? .28 : .25); head.add(eyesG);
+  const eyesG = new T.Group(); eyesG.position.set(0, robot ? .02 : -.01, robot ? .3 : VISAGE2 ? FACE.z(.115, -.01) - .006 : style === 'heros' ? .28 : .25); head.add(eyesG);
   if (!robot && !(typeof window !== 'undefined' && window.WK_FINITION_AVANT)) {   // #36 : œil verni à iris coloré, pupille et reflet (lisible de loin)
     const IRIS = { heros: '#3d7bd9', casquette: '#5a9a3a', capuche: '#8a5a2e', casque: '#2f8f9a' }, iris = [], shine = [];
     for (let i = 0; i < pupils.length; i++) { const s = i ? 1 : -1; iris.push(G(new T.SphereGeometry(.047, 16, 10), s * .115, -.004, .019, 0, 0, 0, 1, 1.1, .4)); pupils[i] = G(new T.SphereGeometry(.026, 12, 8), s * .115, -.004, .029, 0, 0, 0, 1, 1.1, .4); shine.push(G(new T.SphereGeometry(.012, 8, 6), s * .115 - .016, .022, .04)); }
-    const contour = []; for (let i = 0; i < 2; i++) contour.push(G(new T.TorusGeometry(.071, .0085, 6, 28), (i ? 1 : -1) * .115, 0, .006, 0, 0, 0, 1, 1.15, 1));
+    const contour = []; for (let i = 0; i < 2; i++) contour.push(G(new T.TorusGeometry(.071, VISAGE2 ? .0048 : .0085, 6, 28), (i ? 1 : -1) * .115, 0, .006, 0, 0, 0, 1, 1.15, 1));
     detail.push(mesh(contour, mats.dark, eyesG));
     detail.push(mesh(whites, stdMat('#ffffff', .12, 0), eyesG), mesh(iris, stdMat(IRIS[style] || '#3d7bd9', .2, 0), eyesG), mesh(pupils, stdMat('#0d0b18', .1, 0), eyesG), mesh(shine, glowMat('#ffffff'), eyesG));
   } else detail.push(mesh(whites, robot ? glowMat('#2ee6ff') : stdMat('#ffffff', .4, 0), eyesG), mesh(pupils, robot ? glowMat('#ffffff') : stdMat('#1a1630', .2, 0), eyesG));
-  const browG = new T.Group(); browG.position.set(0, robot ? .13 : .12, robot ? .31 : style === 'heros' ? .31 : .28); head.add(browG);
+  const browG = new T.Group(); browG.position.set(0, robot ? .13 : .12, robot ? .31 : VISAGE2 ? FACE.z(.12, .12) + .004 : style === 'heros' ? .31 : .28); head.add(browG);
   // #36 personnage : sourcils séparés (expressions), dents dans la bouche ouverte, gants plus gros. Robot et ancien rendu inchangés.
   const expressif = !(typeof window !== 'undefined' && window.WK_FINITION_AVANT), browM = [];
-  if (expressif) for (const s of [-1, 1]) { const m = new T.Mesh(new T.CapsuleGeometry(.025, .1, 4, 8), mats.dark); m.rotation.z = Math.PI / 2 + s * .18; m.position.x = s * .12; m.userData.s = s; browG.add(m); browM.push(m); detail.push(m); }
+  const sourcil = (s) => { const g = new T.CapsuleGeometry(.025, .1, 4, 8); if (!VISAGE2) return g;
+    /* #36.E1 : sourcil aplati (épaisseur ×0,45) et courbé sur le front : chaque sommet suit la surface (plus de tube qui ressort de profil) */
+    g.scale(1, 1, .45); const a = Math.PI / 2 + s * .18, c = Math.cos(a), sn = Math.sin(a), z0 = FACE.z(.12, .12), p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) { const lx = p.getX(i), ly = p.getY(i), x = s * .12 + lx * c - ly * sn, y = .12 + lx * sn + ly * c; p.setZ(i, p.getZ(i) + FACE.z(x, y) - z0); }
+    g.computeVertexNormals(); return g; };
+  if (expressif) for (const s of [-1, 1]) { const m = new T.Mesh(sourcil(s), mats.dark); m.rotation.z = Math.PI / 2 + s * .18; m.position.x = s * .12; m.userData.s = s; browG.add(m); browM.push(m); detail.push(m); }
   else detail.push(mesh(brows, mats.dark, browG));
   const mouth = mesh([new T.TorusGeometry(.075, .02, 8, 16, Math.PI)], robot ? glowMat('#2ee6ff') : mats.dark, head); mouth.position.set(0, robot ? -.1 : -.15, robot ? .3 : style === 'heros' ? .29 : .26); mouth.rotation.z = Math.PI;
   if (expressif && !robot) {   // #36 : sourire épousant la surface du visage (tube posé sur l'ellipsoïde de la tête), plus de crochet de profil
-    const Rh = style === 'heros' ? .325 : .295, ry = Rh * .95, rz = Rh * .94, y0 = -.15, onFace = (x, y) => rz * Math.sqrt(Math.max(0, 1 - (x * x) / (Rh * Rh) - (y * y) / (ry * ry))) + .006;
+    const Rh = style === 'heros' ? .325 : .295, ry = Rh * .95, rz = Rh * .94, y0 = -.15, onFace = VISAGE2 ? (x, y) => FACE.z(x, y) + .004 : (x, y) => rz * Math.sqrt(Math.max(0, 1 - (x * x) / (Rh * Rh) - (y * y) / (ry * ry))) + .006;
     const c = new T.Vector3(0, y0, onFace(0, y0)), pts = []; for (let i = 0; i <= 12; i++) { const t = i / 6 - 1, x = t * .068, y = y0 + .026 * t * t - .006; pts.push(new T.Vector3(x, y, onFace(x, y)).sub(c)); }
     mouth.geometry.dispose(); mouth.geometry = new T.TubeGeometry(new T.CatmullRomCurve3(pts), 24, .0115, 6, false); mouth.position.copy(c); mouth.rotation.z = 0; }   // sourire intégré à la surface du visage (ne ressort plus de trois quarts)
-  const open = mesh([new T.SphereGeometry(.07, 14, 10)], robot ? glowMat('#2ee6ff') : stdMat('#5a1020', .6, 0), head); open.position.set(0, robot ? -.1 : -.14, robot ? .29 : style === 'heros' ? .27 : .24); open.scale.set(1.15, .85, .45); open.visible = false;
+  const open = mesh([new T.SphereGeometry(.07, 14, 10)], robot ? glowMat('#2ee6ff') : stdMat('#5a1020', .6, 0), head); open.position.set(0, robot ? -.1 : -.14, robot ? .29 : VISAGE2 ? FACE.z(0, -.14) - .025 : style === 'heros' ? .27 : .24); open.scale.set(1.15, .85, .45); open.visible = false;
   let teeth = null; if (expressif && !robot) { teeth = new T.Mesh(new T.BoxGeometry(.105, .032, .03), stdMat('#fffdf6', .3, 0)); teeth.position.set(0, .042, .055); open.add(teeth); const tongue = new T.Mesh(new T.SphereGeometry(.045, 10, 8), stdMat('#e2566e', .55, 0)); tongue.scale.set(1.1, .5, .6); tongue.position.set(0, -.04, .03); open.add(tongue); }
   // Volant face au pilote (correction 4 nov., signalée par le propriétaire) : haut de la jante penché vers le capot, face tournée vers le
   // haut et l'arrière (vers le buste), axe aligné sur la colonne de direction des carrosseries.
@@ -2890,7 +2943,7 @@ function heroRig(cfg, mats) {
     const manchette = new T.TorusGeometry(.075, .028, 8, 20); manchette.translate(0, 0, -.1); part(manchette);
     root.add(h); return h; })() }));
   for (const A of arms) detail.push(A.hand, A.up, A.lo); detail.push(mouth);   // loin : bras et mains masqués aussi (budget d'appels Samsung)
-  const rig = { detail, far: false, root, torso, head, eyes: [eyesG], brows: [browG], browM, teeth, mouth, open, wheel, spin, arms, ang: 0, blink: 2 + Math.random() * 3, cheer: 0, _a: V3(), _b: V3(), _c: V3(), _q: new T.Quaternion(), _y: V3(0, 1, 0) };
+  const rig = { visage2: VISAGE2, face: FACE, detail, far: false, root, torso, head, eyes: [eyesG], brows: [browG], browM, teeth, mouth, open, wheel, spin, arms, ang: 0, blink: 2 + Math.random() * 3, cheer: 0, _a: V3(), _b: V3(), _c: V3(), _q: new T.Quaternion(), _y: V3(0, 1, 0) };
   if (window.WKPilotesPrototype) window.WKPilotesPrototype.habiller(T, cfg, mats, rig);
   // #36 identité des cinq pilotes au-delà de la coiffe : proportions, posture et visage (nez, taches de rousseur, menton).
   if (expressif) { const GAB = { heros: { tete: 1.04, buste: [1, 1, 1], pench: .1, yeux: 1 }, casque: { tete: .93, buste: [1.14, 1.05, 1.06], pench: .22, yeux: .88 },
@@ -2898,9 +2951,9 @@ function heroRig(cfg, mats) {
     head.scale.multiplyScalar(GAB.tete); torso.scale.multiply(V3(...GAB.buste)); rig.pench = GAB.pench; rig.eyeBase = GAB.yeux; eyesG.scale.set(GAB.yeux, GAB.yeux, GAB.yeux); head.position.z += GAB.pench * .55; head.userData.z0 = head.position.z;
     // Héros : mèche en épis qui dépasse du casque (trait original ; pas de gros nez rond, trop proche d'un personnage existant)
     if (style === 'heros') detail.push(mesh([-.11, -.04, .03, .1].map((x, i) => G(new T.ConeGeometry(.045, .16, 8), x, .2 + (i % 2) * .02, .26, .9 + (i % 2) * .2, 0, -x * 1.6)), stdMat('#e0782a', .7, 0), head));
-    else if (style === 'casque') detail.push(mesh([G(rbox(.2, .08, .1, .035), 0, -.25, .2)], mats.skin, head));                                        // menton carré d'athlète
-    else if (style === 'casquette') detail.push(mesh([-1, 1].flatMap((sd) => [0, 1, 2].map((k) => G(new T.SphereGeometry(.011, 6, 4), sd * (.15 + k * .025), -.08 - (k % 2) * .02, .27 - k * .012))), stdMat('#b8734a', .7, 0), head));   // taches de rousseur
-    else if (style === 'capuche') detail.push(mesh([G(new T.SphereGeometry(.04, 12, 8), 0, -.05, .3, -.35)], mats.skin, head));                         // petit nez retroussé
+    else if (style === 'casque') { if (!VISAGE2) detail.push(mesh([G(rbox(.2, .08, .1, .035), 0, -.25, .2)], mats.skin, head)); }                                        // menton carré d'athlète
+    else if (style === 'casquette') detail.push(mesh([-1, 1].flatMap((sd) => [0, 1, 2].map((k) => { const fx = sd * (.15 + k * .025), fy = -.08 - (k % 2) * .02; return G(new T.SphereGeometry(.011, 6, 4), fx, fy, VISAGE2 ? FACE.z(fx, fy) - .004 : .27 - k * .012, 0, 0, 0, 1, 1, VISAGE2 ? .4 : 1); })), stdMat('#b8734a', .7, 0), head));   // taches de rousseur
+    else if (style === 'capuche') { if (!VISAGE2) detail.push(mesh([G(new T.SphereGeometry(.04, 12, 8), 0, -.05, .3, -.35)], mats.skin, head)); }                         // petit nez retroussé
   }
   if (!(typeof window !== 'undefined' && window.WK_SANS_FUSION)) fusionPilote(rig);   // #36.P1 : moins d'appels de rendu (rendu identique, mesuré)
   return rig;

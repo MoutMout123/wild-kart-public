@@ -15,7 +15,7 @@ button{font:inherit;font-size:12px;font-weight:700;border:2px solid #fff;backgro
 <div id="barre"><button id="b-profil">Mur frontal</button><button id="b-cam">Caméra : pilote</button><button id="b-horizon">Horizon 50 %</button><button id="b-traces" class="on">Traces</button><button id="b-auto">Pilote auto</button><button id="b-cc">150cc</button><button id="b-raz">↺ Départ</button></div>
 <div class="pad" id="gauche"><button id="t-g">◀</button><button id="t-d">▶</button></div>
 <div class="pad" id="droite"><button id="t-f">FREIN</button><button id="t-a" class="on">GAZ</button></div>
-<div id="etiquette">PROTOTYPE #32 — vraie surface 3D (palier mur frontal, virages sur paroi, étages) · kart simplifié · non intégré aux circuits</div>
+<div id="etiquette">PROTOTYPE #32 — vraie surface 3D (palier mur frontal, virages sur paroi, étages, parcours composé) · kart simplifié · non intégré aux circuits</div>
 <script src="three.min.js"></script>
 <script src="surface3d.js"></script>
 <script>
@@ -26,10 +26,11 @@ button{font:inherit;font-size:12px;font-weight:700;border:2px solid #fff;backgro
   const PROFILS = { mur: () => S.profilMurFrontal(), gauche: () => S.profilParoi('gauche'), droite: () => S.profilParoi('droite'), s: () => S.profilParoi('s'), epingle: () => S.profilParoi('epingle'), spirale: () => S.profilParoi('spirale') };
   const NOMS = { mur: 'Mur frontal', gauche: 'Paroi gauche', droite: 'Paroi droite', s: 'S sur paroi', epingle: 'Épingle', spirale: 'Spirale' };
   /* #32.B3 : scènes à PLUSIEURS surfaces (réseau) — croisement par pont, saut d'un étage à l'autre, bifurcation et réunion */
-  const RESEAUX = ['croisement', 'etage', 'bifurcation']; for (const r of RESEAUX) PROFILS[r] = null;
-  Object.assign(NOMS, { croisement: 'Pont (croisement)', etage: 'Étages', bifurcation: 'Bifurcation' });
+  const RESEAUX = ['croisement', 'etage', 'bifurcation', 'parcours']; for (const r of RESEAUX) PROFILS[r] = null;
+  Object.assign(NOMS, { croisement: 'Pont (croisement)', etage: 'Étages', bifurcation: 'Bifurcation', parcours: 'Parcours composé' });
   const scene = (nom) => RESEAUX.includes(nom) ? S.sceneReseau(nom) : { surfaces: { piste: S.depuisProfil(PROFILS[nom]()) }, liens: {}, vide: {}, depart: 'piste' };
-  let profil = 'mur', SC = scene('mur'), RS = S.reseau(SC.surfaces, SC.liens, SC.vide), surf = SC.surfaces[SC.depart], choix = 1;   /* choix : branche visée par le pilote auto (+1 gauche, −1 droite), alternée à chaque départ */
+  const reseauDe = (sc) => S.reseau(sc.surfaces, sc.liens, sc.vide, { depart: sc.depart, points: sc.points || [] });   /* #32.B4 : points de passage, progression, IA par graphe */
+  let profil = 'mur', SC = scene('mur'), RS = reseauDe(SC), surf = SC.surfaces[SC.depart], choix = 1;   /* choix : branche visée par le pilote auto (+1 gauche, −1 droite), alternée à chaque départ */
   const R = new T.WebGLRenderer({ antialias: true }); R.setPixelRatio(Math.min(2, devicePixelRatio || 1)); R.setSize(innerWidth, innerHeight); document.body.appendChild(R.domElement);
   const sc = new T.Scene(); sc.background = new T.Color('#7ec8f0'); sc.fog = new T.Fog('#7ec8f0', 120, 420);
   sc.add(new T.HemisphereLight('#ffffff', '#4a6a3a', 1.4)); const sol = new T.DirectionalLight('#fff4dd', 2.2); sol.position.set(40, 80, 30); sc.add(sol);
@@ -74,7 +75,7 @@ button{font:inherit;font-size:12px;font-weight:700;border:2px solid #fff;backgro
   bascule('b-auto', (e) => { auto = !auto; e.currentTarget.classList.toggle('on', auto); });
   bascule('b-cc', (e) => { cc = cc === '150cc' ? '50cc' : cc === '50cc' ? '100cc' : '150cc'; e.currentTarget.textContent = cc; depart(); });
   bascule('b-raz', depart);
-  function changerProfil(nom) { profil = nom; SC = scene(nom); RS = S.reseau(SC.surfaces, SC.liens, SC.vide); surf = SC.surfaces[SC.depart]; construirePiste(); depart(); document.getElementById('b-profil').textContent = NOMS[nom]; }
+  function changerProfil(nom) { profil = nom; SC = scene(nom); RS = reseauDe(SC); surf = SC.surfaces[SC.depart]; construirePiste(); depart(); document.getElementById('b-profil').textContent = NOMS[nom]; }
   bascule('b-profil', () => { const l = Object.keys(PROFILS); changerProfil(l[(l.indexOf(profil) + 1) % l.length]); });
   bascule('b-horizon', (e) => { horizon = horizon === .5 ? .8 : horizon === .8 ? .25 : .5; e.currentTarget.textContent = 'Horizon ' + Math.round(horizon * 100) + ' %'; });
   const tient = (id, cle) => { const b = document.getElementById(id); const on = (v) => (ev) => { ev.preventDefault(); E[cle] = v; b.classList.toggle('on', v); }; b.addEventListener('pointerdown', on(true)); b.addEventListener('pointerup', on(false)); b.addEventListener('pointerleave', on(false)); };
@@ -85,10 +86,10 @@ button{font:inherit;font-size:12px;font-weight:700;border:2px solid #fff;backgro
   addEventListener('resize', () => { R.setSize(innerWidth, innerHeight); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); });
   // Boucle : physique à 120 Hz fixes, affichage à la cadence de l'écran.
   let acc = 0, last = performance.now(); const DT = 1 / 120, camPos = new T.Vector3(-12, 6, 0), camHaut = new T.Vector3(0, 1, 0), capNiveau = new T.Vector3(1, 0, 0);
-  const etat = { images: 0 }; window.WKPalier = { get surf() { return k ? k.surf : surf; }, get profil() { return profil; }, get surfaceId() { return k ? RS.id(k.surf) : null; }, get choix() { return choix; }, fini: () => !!k && k.attache && RS.terminus(k.surf) && k.s >= k.surf.longueur - 2, PROFILS: Object.keys(PROFILS), kart: () => k, etat, regler: (o) => { if (o.profil && o.profil in PROFILS) changerProfil(o.profil); if (o.horizon != null) horizon = o.horizon; if (o.auto != null) auto = o.auto; if (o.cam) { camMode = o.cam; document.getElementById('b-cam').textContent = 'Caméra : ' + camMode; } if (o.cc) { cc = o.cc; depart(); } } };
+  const etat = { images: 0 }; window.WKPalier = { get surf() { return k ? k.surf : surf; }, get profil() { return profil; }, get surfaceId() { return k ? RS.id(k.surf) : null; }, get choix() { return choix; }, get points() { return k ? k.point || 0 : 0; }, reseau: () => RS, fini: () => !!k && k.attache && RS.terminus(k.surf) && k.s >= k.surf.longueur - 2, PROFILS: Object.keys(PROFILS), kart: () => k, etat, regler: (o) => { if (o.profil && o.profil in PROFILS) changerProfil(o.profil); if (o.horizon != null) horizon = o.horizon; if (o.auto != null) auto = o.auto; if (o.cam) { camMode = o.cam; document.getElementById('b-cam').textContent = 'Caméra : ' + camMode; } if (o.cc) { cc = o.cc; depart(); } } };
   function boucle(now) {
     acc += Math.min(.1, (now - last) / 1000); last = now;
-    while (acc >= DT) { const F = SC.fourche, cible = F && k.surf === SC.surfaces[F.surface] && k.s > F.depuis ? F.decal * choix : 0;   /* le pilote auto vise sa branche avant la fourche */
+    while (acc >= DT) { const F = SC.fourche, cible = F ? (k.surf === SC.surfaces[F.surface] && k.s > F.depuis ? F.decal * choix : 0) : RS.cibleIA(k, choix > 0 ? 'court' : 'long');   /* le pilote auto vise sa branche avant la fourche */
       const brq = auto ? Math.max(-1, Math.min(1, (k.d - cible) * .25 + Math.sin(k.cap) * 2)) : (E.d ? 1 : 0) - (E.g ? 1 : 0);
       RS.pas(k, DT, { gaz: auto || E.gaz ? 1 : 0, frein: E.frein ? 1 : 0, braquage: brq }); acc -= DT;
       if (k.attache && RS.terminus(k.surf) && k.s >= k.surf.longueur - 1.5) { k.s = k.surf.longueur - 1.5; k.v = 0; } }
@@ -115,7 +116,7 @@ button{font:inherit;font-size:12px;font-weight:700;border:2px solid #fff;backgro
     else { cam.position.set(p.x + 30, p.y + 38, p.z + 30); cam.up.set(0, 1, 0); cam.lookAt(p); } /* virages : vue plongeante qui suit le kart */
     R.render(sc, cam); etat.images++;
     const raide = k.raide != null ? k.raide : 0;
-    document.getElementById('hud').innerHTML = '<b>' + Math.round(Math.abs(k.v) * 3.6) + ' km/h</b> · ' + cc + '<br>chaussée : ' + raide.toFixed(0) + '° ' + (k.surf.aimante(k.s) ? '(aimantée)' : '') + (RESEAUX.includes(profil) ? ' · surface ' + RS.id(k.surf) : '') + (SC.fourche ? ' · vise ' + (choix > 0 ? 'gauche' : 'droite') : '') + '<br>' + (k.attache ? 'roues au contact' : 'EN VOL') +
+    document.getElementById('hud').innerHTML = '<b>' + Math.round(Math.abs(k.v) * 3.6) + ' km/h</b> · ' + cc + '<br>chaussée : ' + raide.toFixed(0) + '° ' + (k.surf.aimante(k.s) ? '(aimantée)' : '') + (RESEAUX.includes(profil) ? ' · surface ' + RS.id(k.surf) : '') + (SC.fourche ? ' · vise ' + (choix > 0 ? 'gauche' : 'droite') : '') + (SC.points ? '<br>points de passage ' + (k.point || 0) + '/' + SC.points.length + ' · IA : branche ' + (choix > 0 ? 'courte' : 'longue') + ' · progression ' + RS.progression(k).toFixed(0) + ' m' : '') + '<br>' + (k.attache ? 'roues au contact' : 'EN VOL') +
       ' · détachements ' + k.detachements + (k.remises ? ' · remises ' + k.remises : '') + '<br>s = ' + k.s.toFixed(0) + ' / ' + k.surf.longueur.toFixed(0) + ' m · écart ' + k.d.toFixed(1) + ' m';
     requestAnimationFrame(boucle);
   }

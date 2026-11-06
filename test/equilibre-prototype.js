@@ -69,10 +69,44 @@
       for (const [ring, sgn] of [[0, 1], [nArc, -1]]) { const c0 = pos.length / 3, th = -arc / 2 + arc * ring / nArc; pos.push(cx, cy + rc * Math.cos(th), cz + rc * Math.sin(th)); for (let j = 0; j < m; j++) { const a = ring * m + j, b = ring * m + (j + 1) % m; if (sgn > 0) ids.push(c0, b, a); else ids.push(c0, a, b); } }
       const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setIndex(ids); g.computeVertexNormals(); return g;
     }
-    return { V, place, boite, tube, cyl, panneau, livree, ailePleine };
+    /* #36.D7 (retour du 6 nov.) — Garde-boue DESSINÉ : section bombée à bords roulés (superellipse + bombé du dessus), dessous à rayon
+       intérieur rIn conservé (même passage de roue, même dégagement au braquage), bouts EFFILÉS sur « effile » de l'arc (largeur −45 %,
+       épaisseur −40 %) avec léger relevé, fermés par une pointe arrondie ; UV en mètres (u le long de l'arc, v autour de la section) pour
+       une peinture et des reflets nets. joncAile : jonc continu balayé sur le même tracé, effilé avec l'aile (plus de tores posés). */
+    const evol = (th, arc, o) => { const t = Math.abs(th) / (arc / 2), u = Math.min(1, Math.max(0, (t - (1 - o.effile)) / o.effile)), s = u * u * (3 - 2 * u); return { w: 1 - .45 * s, e: 1 - .4 * s, r: o.releve * s * s }; };
+    const optsAile = (o) => Object.assign({ effile: .18, releve: .03, bombe: .012, expo: 3, nArc: 36, nProf: 24 }, o || {});
+    function aileDessinee(rIn, ep, wf, arc, cx, cy, cz, o) {
+      o = optsAile(o); const hw = wf / 2, ht = ep / 2, m = o.nProf, pos = [], uv = [], ids = [], rings = [];
+      const prof = []; for (let j = 0; j < m; j++) { const a = j / m * tau, c = Math.cos(a), s = Math.sin(a), px = Math.sign(c) * Math.pow(Math.abs(c), 2 / o.expo), py = Math.sign(s) * Math.pow(Math.abs(s), 2 / o.expo); prof.push([px, py]); }
+      let vLen = 0; const vAcc = [0]; for (let j = 1; j <= m; j++) { const a = prof[j - 1], b = prof[j % m]; vLen += Math.hypot((b[0] - a[0]) * hw, (b[1] - a[1]) * ht); vAcc.push(vLen); }
+      const anneauA = (th, sc) => { const E = evol(th, arc, o), w = hw * E.w * sc, h = ht * E.e * sc, rc = rIn + ht * E.e + E.r, base = pos.length / 3;
+        for (let j = 0; j < m; j++) { const [px, py] = prof[j], lx = px * w, lr = py * h + (py > 0 ? o.bombe * E.e * sc * (1 - (px * px)) : 0); pos.push(cx + lx, cy + (rc + lr) * Math.cos(th), cz + (rc + lr) * Math.sin(th)); uv.push(th * rc, vAcc[j]); }
+        rings.push(base); };
+      /* pointe arrondie : bout refermé en DEMI-ELLIPSE en plan (section × cos φ, avancée = 0,8 × demi-largeur restante × sin φ) — une
+         aile large (Baignoire, ~80 cm) se referme sur ~18 cm et non sur 2 cm, sans tranche plate */
+      const embout = [20, 40, 58, 72, 84].map((d) => [Math.cos(d * Math.PI / 180), Math.sin(d * Math.PI / 180)]);
+      const fin = (sgn) => { const E = evol(arc / 2, arc, o), rc = rIn + ht * E.e + E.r, hwF = hw * E.w; return embout.map(([sc, sn]) => [sgn * (arc / 2 + .8 * hwF * sn / rc), sc]); };
+      const liste = fin(-1).reverse().concat(Array.from({ length: o.nArc + 1 }, (_, i) => [-arc / 2 + arc * i / o.nArc, 1])).concat(fin(1));
+      for (const [th, sc] of liste) anneauA(th, sc);
+      for (let i = 0; i < rings.length - 1; i++) for (let j = 0; j < m; j++) { const a = rings[i] + j, b = rings[i] + (j + 1) % m, c2 = rings[i + 1] + j, d = rings[i + 1] + (j + 1) % m; ids.push(a, c2, b, b, c2, d); }
+      for (const [k, sgn] of [[0, 1], [rings.length - 1, -1]]) { const th = liste[k][0], E = evol(arc / 2, arc, o), rc = rIn + ht * E.e + E.r, c0 = pos.length / 3; pos.push(cx, cy + rc * Math.cos(th), cz + rc * Math.sin(th)); uv.push(th * rc, 0);
+        for (let j = 0; j < m; j++) { const a = rings[k] + j, b = rings[k] + (j + 1) % m; if (sgn > 0) ids.push(c0, b, a); else ids.push(c0, a, b); } }
+      const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new T.Float32BufferAttribute(uv, 2)); g.setIndex(ids); g.computeVertexNormals(); return g;
+    }
+    /* jonc continu d'un bord de l'aile (bord = +1 : côté x croissant), section ronde rj, mêmes effilement et relevé que l'aile */
+    function joncAile(rIn, ep, wf, arc, cx, cy, cz, bord, rj, o) {
+      o = optsAile(o); const pts = [], n = o.nArc;
+      for (let i = 0; i <= n; i++) { const th = -arc / 2 + arc * i / n, E = evol(th, arc, o), rc = rIn + ep / 2 * E.e + E.r; pts.push(V(cx + bord * (wf / 2 * E.w - rj * .55), cy + rc * Math.cos(th), cz + rc * Math.sin(th))); }
+      const g = new T.TubeGeometry(new T.CatmullRomCurve3(pts), n * 2, rj, 8, false), p = g.attributes.position, L = pts.length;
+      /* effilement du jonc aux bouts : rayon ramené vers l'axe proportionnellement à la largeur de l'aile */
+      for (let i = 0; i < p.count; i++) { const ring = Math.floor(i / 9), t = ring / (n * 2), th = -arc / 2 + arc * t, E = evol(th, arc, o), k = (.45 + .55 * (E.w - .55) / .45) * Math.sqrt(Math.min(1, Math.max(0, (.5 - Math.abs(t - .5)) / .03))), c = new T.Vector3();   /* bouts du jonc refermés en pointe (tube non ouvert) */ new T.CatmullRomCurve3(pts).getPointAt(Math.min(1, t), c); const q = V(p.getX(i), p.getY(i), p.getZ(i)).sub(c).multiplyScalar(k).add(c); p.setXYZ(i, q.x, q.y, q.z); void L; }
+      g.computeVertexNormals(); return g;
+    }
+    const AILE_AVANT = typeof window !== 'undefined' && !!window.WK_AILE_AVANT;   /* témoin : ancien garde-boue (planches avant/après) */
+    return { V, place, boite, tube, cyl, panneau, livree, ailePleine, aileDessinee, joncAile, AILE_AVANT };
   }
   function construire(T, add, WD, cfg) {
-    const { boite, tube, cyl, panneau, livree, ailePleine } = outillage(T, add);
+    const { boite, tube, cyl, panneau, livree, ailePleine, aileDessinee, joncAile, AILE_AVANT } = outillage(T, add);
     const rw = .92 + WD.w / 2 - .12;
     // Châssis visible, appuis de pare-chocs et liaisons aux roues existantes.
     for (const s of [-1, 1]) {
@@ -116,6 +150,10 @@
     for (const s of [-1, 1]) {
       const a = Math.PI * .7, rad = WD.r + .115;
       // Retour du 5 nov. : garde-boue pleins (secteur de 4 cm extrudé, bouts fermés) au lieu de tôles ouvertes ; boudins conservés.
+      if (!AILE_AVANT) { /* #36.D7 : identité du Galet conservée (bourrelets épais des deux bords), mais intégrés à l'aile dessinée et effilés */
+        for (const z of [-1, 1.05]) { const e = aileDessinee(rad, .04, WD.w + .1, a, s * rw, WD.r, z, { effile: .2 }); e.userData.piece = 'aile'; add('paint', e);
+          for (const b of [-1, 1]) { const j = joncAile(rad - .005, .06, WD.w + .1 + .06, a, s * rw, WD.r, z, b, .042, { effile: .2 }); j.userData.piece = 'aile'; add('paint', j); } }
+        continue; }
       const plein = (z) => { const e = ailePleine(rad, .04, WD.w + .1, a, s * rw, WD.r, z); e.userData.piece = 'aile'; return e; };
       add('paint', plein(-1));
       // #36 : ailes avant et boudins de tranche (silhouette plus pleine, inspirée des karts de dessin animé, dessin original).

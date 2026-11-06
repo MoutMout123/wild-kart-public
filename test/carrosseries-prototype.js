@@ -32,7 +32,12 @@
       for (let i = 0; i < n; i++) for (let j = 0; j < m; j++) { const a = i * (m + 1) + j, b = a + m + 1; ids.push(a, a + 1, b, a + 1, b + 1, b); }
       const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setIndex(ids); g.computeVertexNormals(); g.userData.piece = nomPiece; add(k, g); return g; };
     const tubeEntre = (A0, B0, r0) => { const d = new T.Vector3(B0[0] - A0[0], B0[1] - A0[1], B0[2] - A0[2]), L = d.length(); if (L < .02) return;
-      const g = new T.CylinderGeometry(r0, r0, L + .02, 10); g.applyMatrix4(new T.Matrix4().compose(new T.Vector3((A0[0] + B0[0]) / 2, (A0[1] + B0[1]) / 2, (A0[2] + B0[2]) / 2), new T.Quaternion().setFromUnitVectors(new T.Vector3(0, 1, 0), d.normalize()), new T.Vector3(1, 1, 1))); g.userData.piece = 'support'; add('metal', g); };
+      const g = new T.CylinderGeometry(r0, r0, L + .02, 10); g.applyMatrix4(new T.Matrix4().compose(new T.Vector3((A0[0] + B0[0]) / 2, (A0[1] + B0[1]) / 2, (A0[2] + B0[2]) / 2), new T.Quaternion().setFromUnitVectors(new T.Vector3(0, 1, 0), d.normalize()), new T.Vector3(1, 1, 1))); g.userData.piece = 'support'; add('metal', g); finir(A0, B0, r0); };
+    /* #36.D7 : finition des supports — colliers aux deux bouts du tube et semelle de fixation côté châssis (plus d'aspect « tube posé ») */
+    const finir = (A0, B0, r0) => { if (typeof window !== "undefined" && window.WK_AILE_AVANT) return; const a = new T.Vector3(...A0), b = new T.Vector3(...B0), d = b.clone().sub(a), L = d.length(); if (L < .06) return; d.normalize();
+      const q = new T.Quaternion().setFromUnitVectors(new T.Vector3(0, 0, 1), d), pose = (g, p) => { g.applyMatrix4(new T.Matrix4().compose(p, q, new T.Vector3(1, 1, 1))); g.userData.piece = 'support'; add('metal', g); };
+      for (const f of [.035 / L, 1 - .035 / L]) pose(new T.TorusGeometry(r0 * 1.25, r0 * .42, 6, 14), a.clone().lerp(b, f));
+      pose(new T.CylinderGeometry(r0 * 2.1, r0 * 2.3, .014, 14).rotateX(Math.PI / 2), b.clone().addScaledVector(d, -.004)); };
     const supports = (side, zc, rad, arc) => { const bras = [];
       if (zc === fz) {
         // Roue avant (braquée ±0,45 rad) : équerre. Bras horizontal du bout de l'aile vers l'intérieur (il s'éloigne de l'axe de pivot),
@@ -52,7 +57,7 @@
       for (const e of [-1, 1]) { const ph = e * arc / 2 * .82, z = zc + Math.sin(ph) * (rad - .015), y = WD.r + Math.cos(ph) * (rad - .015), A0 = [side * (xi + .03), y, z], q = arrimage(side, y, z), B0 = q ? [q[0], q[1], q[2]] : [side * .6, Math.min(y, .45), z];
         const d = new T.Vector3(B0[0] - A0[0], B0[1] - A0[1], B0[2] - A0[2]), L = d.length(); if (L < .03) continue;
         const g = new T.CylinderGeometry(.022, .022, L + .02, 10); g.applyMatrix4(new T.Matrix4().compose(new T.Vector3((A0[0] + B0[0]) / 2, (A0[1] + B0[1]) / 2, (A0[2] + B0[2]) / 2), new T.Quaternion().setFromUnitVectors(new T.Vector3(0, 1, 0), d.normalize()), new T.Vector3(1, 1, 1)));
-        g.userData.piece = 'support'; add('metal', g); bras.push({ aile: A0.map((v) => +v.toFixed(3)), chassis: B0.map((v) => +v.toFixed(3)), arrime: !!q }); }
+        g.userData.piece = 'support'; add('metal', g); finir(A0, B0, .022); bras.push({ aile: A0.map((v) => +v.toFixed(3)), chassis: B0.map((v) => +v.toFixed(3)), arrime: !!q }); }
       return bras; };
     for (const a of anc.ailes) for (const zc of [a.avant ? fz : null, a.arriere ? -1 : null].filter((v) => v !== null)) {
       const rad = a.rayon, arc = Math.PI * a.arc, k = a.matiere || matiereDefaut || 'paint';
@@ -91,7 +96,7 @@
           for (let n = 0; n < 80 && dedans(x, y, z); n++) x -= sg * .01; p.setX(i, x); moved = true; }
         if (moved) { p.needsUpdate = true; g.computeBoundingBox(); g.computeBoundingSphere(); } COLLECTE.push({ k, g }); add0(k, g); }; }
     if (body === 'equilibre') { const re = root.WKEquilibrePrototype.construire(T, add, WD, cfg); raccordsGeneriques(T, add, COLLECTE, WD, re.ancrages, WD.w + .1, 'paint'); return re; }
-    const { V, place, boite: B, tube, cyl, panneau: P, livree, ailePleine } = root.WKEquilibrePrototype.outillage(T, add);
+    const { V, place, boite: B, tube, cyl, panneau: P, livree, ailePleine, aileDessinee, joncAile, AILE_AVANT } = root.WKEquilibrePrototype.outillage(T, add);
     const fz = AVANT[body], wide = LARGEUR[body] || 0, rw = .92 + wide + WD.w / 2 - .12;
     // #34 G0 — points d'assemblage nommés (mètres, repère du kart : +z avant, +y haut, x latéral), relevés pendant la construction.
     const anc = { version: 1, roues: { avant: fz, arriere: -1, voie: rw, rayon: WD.r, largeur: WD.w }, siege: { x: 0, y: .68, z: -.39 }, dossier: { y: 1.01, z: -.74 },
@@ -105,6 +110,8 @@
         // Retour du 5 nov. : aile pleine (secteur annulaire de 5 cm extrudé, arêtes arrondies), extrémités fermées, plus de tôle
         // ouverte aux bouts coupés net. Rayon intérieur et largeur inchangés : mêmes dégagements de roue.
         const arc = Math.PI * length, r = WD.r + .14, ep = .05, wf = WD.w + .14, bev = .022;
+        if (!AILE_AVANT) { /* #36.D7 : aile dessinée (bombée, bords roulés, bouts effilés et fermés) + jonc continu sombre au bord extérieur */
+          add(k, aileDessinee(r, ep, wf, arc, side * rw, WD.r, z)); add('plast', joncAile(r, ep, wf, arc, side * rw, WD.r, z, side, ep * .42)); continue; }
         add(k, ailePleine(r, ep, wf, arc, side * rw, WD.r, z));   // aile pleine légère, indexée (coût du 5 nov.)
         // Fiche V4 : lèvre de passage de roue en plastique sombre, désormais un jonc qui borde l'arête extérieure (posée à 6 cm du bord,
         // la bande coupait visuellement l'aile en deux et faisait croire à un rabat séparé).
