@@ -12,7 +12,7 @@
   // présenté avant toute diffusion, n'y est pas activé.
   if (/^test-comptes-/.test(String(window.WK_TEST || ''))) return;
   const { SAVE, store, statsFor, BODIES, WHEELS, GLIDERS, PILOTS, ACCS, FINISHES, DECOS, TRAILS, COLORS, SKINS, lockInfo, GS, refreshGarageKart, show, launchPrepared, UI, TRACKS, toast, AudioSys, ownedColors } = K;
-  const VERSION = 1, NB_MONTAGES = 3;
+  const VERSION = 1, NB_MONTAGES = 3, MAX_MONTAGES = 8;
   const CLES = ['body', 'wheels', 'glider', 'pilot', 'color', 'helmet', 'skin', 'acc', 'finish', 'deco', 'trail'];
   const NOMS_STATS = [['speed', 'Vitesse'], ['accel', 'Accélération'], ['handling', 'Maniabilité'], ['weight', 'Poids'], ['off', 'Tout-terrain'], ['air', 'Planeur']];
   // Familles : l'étiquette « conduite » est CALCULÉE (une pièce de la famille change réellement statsFor) ; sinon « apparence ».
@@ -46,7 +46,7 @@
   // État persistant : { v, montages: [ {nom, cfg} | null ] (≥ 3, extensible), brouillon: {cfg, slot, histo, redo, depart}, famille }
   function etat() {
     let A = SAVE.atelier; if (!A || A.v !== VERSION || !Array.isArray(A.montages)) A = { v: VERSION, montages: [], brouillon: null, famille: 'body' };
-    A.montages = A.montages.slice(0, 20).map((m) => (m && typeof m === 'object' && valide(m.cfg) ? { nom: String(m.nom || 'Montage').slice(0, 16), cfg: valide(m.cfg) } : null));
+    A.montages = A.montages.slice(0, MAX_MONTAGES).map((m) => (m && typeof m === 'object' && valide(m.cfg) ? { nom: String(m.nom || 'Montage').slice(0, 16), cfg: valide(m.cfg) } : null));
     while (A.montages.length < NB_MONTAGES) A.montages.push(null);
     if (!A.brouillon || !valide(A.brouillon.cfg)) A.brouillon = null; else { A.brouillon.cfg = valide(A.brouillon.cfg); A.brouillon.histo = (A.brouillon.histo || []).map(valide).filter(Boolean).slice(-30); A.brouillon.redo = (A.brouillon.redo || []).map(valide).filter(Boolean).slice(-30); A.brouillon.depart = valide(A.brouillon.depart) || A.brouillon.cfg; }
     if (!FAMILLES.some((f) => f.id === A.famille && f.type !== 'bientot')) A.famille = 'body';
@@ -79,11 +79,16 @@
     return launchPrepared(c.i, SAVE.cc);
   }
   function enregistrer(slot, nom) { const A = etat(), B = brouillon(); A.montages[slot] = { nom: String(nom || ('Montage ' + (slot + 1))).slice(0, 16), cfg: Object.assign({}, B.cfg) }; B.slot = slot; B.depart = Object.assign({}, B.cfg); sauver(); rendre(); try { toast('Montage « ' + A.montages[slot].nom + ' » enregistré.', 2200); } catch (e) { /* rien */ } }
+  function renommer(i, nom) { const A = etat(), m = A.montages[i]; ATL.renomme = null; nom = String(nom || '').replace(/\s+/g, ' ').trim().slice(0, 16);
+    if (m && nom) { m.nom = nom; sauver(); } rendre(); }
+  function ajouter() { const A = etat(); if (A.montages.length >= MAX_MONTAGES) return; A.montages.push(null); sauver(); rendre(); }
+  function supprimer(i) { const A = etat(), B = brouillon(); if (i >= NB_MONTAGES) A.montages.splice(i, 1); else A.montages[i] = null;
+    if (B.slot === i) B.slot = -1; else if (B.slot > i && i >= NB_MONTAGES) B.slot--; if (ATL.comparer === i) ATL.comparer = null; sauver(); rendre(); }
   function equiper() { const B = brouillon(); for (const k of CLES) SAVE[k] = B.cfg[k]; B.depart = Object.assign({}, B.cfg); sauver(); ATL.confirmer = false; apercu(); rendre(); try { toast('Kart équipé pour les courses.', 2200); } catch (e) { /* rien */ } }
   function chargerMontage(slot) { const m = etat().montages[slot]; if (!m) return; const B = brouillon(); B.histo.push(Object.assign({}, B.cfg)); B.cfg = Object.assign({}, m.cfg); B.slot = slot; B.depart = Object.assign({}, m.cfg); B.redo = []; sauver(); apercu(); rendre(); }
   function vue(v) { ATL.vue = v; const ang = { '3/4': -.6, 'Avant': 0, 'Profil': Math.PI / 2, 'Arrière': Math.PI }[v]; if (typeof GS !== 'undefined') { GS.rot = ang; GS.vit = 0; GS.touche = performance.now() + 864e5; } rendre(); }   // vue fixée jusqu'au prochain geste
   function rendre() {
-    const P = $a('#atl'); if (!P) return; if (!ATL.ouvert) { P.hidden = true; return; } P.hidden = false;
+    const P = $a('#atl'), gb = $a('#g-atelier'); if (gb) gb.hidden = ATL.ouvert; if (!P) return; if (!ATL.ouvert) { P.hidden = true; return; } P.hidden = false;
     const A = etat(), B = brouillon(), F = FAMILLES.find((f) => f.id === A.famille), cfg = B.cfg;
     let h = '<div class="atl-haut"><button class="atl-b ghost" id="atl-fermer"><span>← Choix rapide</span></button><b>Créer mon kart</b><span class="atl-mont">' + (B.slot >= 0 && A.montages[B.slot] ? 'Montage « ' + esc(A.montages[B.slot].nom) + ' »' : 'Brouillon') + (modifie() ? ' · modifié' : '') + '</span></div>';
     h += '<div class="atl-outils"><button class="atl-b" id="atl-undo"' + (B.histo.length ? '' : ' disabled') + '><span>↶ Annuler</span></button><button class="atl-b" id="atl-redo"' + (B.redo.length ? '' : ' disabled') + '><span>↷ Rétablir</span></button><button class="atl-b" id="atl-avant"><span>⟲ Pièce d\'avant</span></button>' +
@@ -105,7 +110,14 @@
     // Essai, montages, équipement
     const ce = circuitEssai(cfg);
     h += '<div class="atl-actions"><button class="atl-b" id="atl-essai"><span>Essayer 1 tour (' + esc(ce.nom) + ')</span></button>' + (ATL.confirmer ? '<button class="atl-b red" id="atl-equiper-ok"><span>Confirmer : équiper</span></button><button class="atl-b ghost" id="atl-equiper-non"><span>Non</span></button>' : '<button class="atl-b red" id="atl-equiper"><span>Équiper pour les courses</span></button>') + '</div>';
-    h += '<h4>Montages (' + A.montages.length + ')</h4><div class="atl-slots">' + A.montages.map((m, i) => '<div class="atl-slot' + (B.slot === i ? ' on' : '') + '"><b>' + (m ? esc(m.nom) : 'Vide') + '</b><small>' + (m ? esc(nomPiece(FAMILLES[0], m.cfg.body)) + ' · ' + esc(nomPiece(FAMILLES[1], m.cfg.wheels)) : '—') + '</small><button class="atl-b" data-save="' + i + '"><span>Enregistrer ici</span></button>' + (m ? '<button class="atl-b ghost" data-load="' + i + '"><span>Ouvrir</span></button><button class="atl-b ghost" data-cmp="' + i + '"><span>Comparer</span></button>' : '') + '</div>').join('') + '</div>';
+    // Montages : 3 par défaut, jusqu'à MAX_MONTAGES (ajout, nommage, suppression). Un nom saisi est affiché comme texte, jamais comme code.
+    h += '<h4>Montages (' + A.montages.length + ')</h4><div class="atl-slots">' + A.montages.map((m, i) => '<div class="atl-slot' + (B.slot === i ? ' on' : '') + '">' +
+      (ATL.renomme === i ? '<input id="atl-nom" maxlength="16" value="' + esc(m ? m.nom : 'Montage ' + (i + 1)) + '" aria-label="Nom du montage"><button class="atl-b red" data-nom-ok="' + i + '"><span>OK</span></button>'
+        : '<b>' + (m ? esc(m.nom) : 'Vide') + '</b>') +
+      '<small>' + (m ? esc(nomPiece(FAMILLES[0], m.cfg.body)) + ' · ' + esc(nomPiece(FAMILLES[1], m.cfg.wheels)) : '—') + '</small><button class="atl-b" data-save="' + i + '"><span>Enregistrer ici</span></button>' +
+      (m ? '<button class="atl-b ghost" data-load="' + i + '"><span>Ouvrir</span></button><button class="atl-b ghost" data-cmp="' + i + '"><span>Comparer</span></button><button class="atl-b ghost" data-renom="' + i + '"><span>Renommer</span></button>' : '') +
+      (m || i >= NB_MONTAGES ? '<button class="atl-b ghost" data-suppr="' + i + '"><span>' + (i >= NB_MONTAGES ? 'Retirer' : 'Vider') + '</span></button>' : '') + '</div>').join('') + '</div>' +
+      (A.montages.length < MAX_MONTAGES ? '<div class="atl-actions"><button class="atl-b" id="atl-ajout"><span>+ Ajouter un montage</span></button></div>' : '<p class="atl-note">' + MAX_MONTAGES + ' montages au plus.</p>');
     if (ATL.comparer != null && A.montages[ATL.comparer]) { const m = A.montages[ATL.comparer]; h += '<h4>Brouillon → « ' + esc(m.nom) + ' »</h4><div class="atl-cmp" id="atl-cmp2">' + barres(st(cfg), st(m.cfg)) + '</div>'; }
     P.innerHTML = h;
     // Événements
@@ -121,6 +133,11 @@
       if (F.type === 'conduite') { ATL.choix = e.dataset.val; rendre(); } else appliquer(F.id, e.dataset.val); }));
     P.querySelectorAll('[data-save]').forEach((e) => (e.onclick = () => { const i = +e.dataset.save, m = etat().montages[i]; enregistrer(i, m ? m.nom : 'Montage ' + (i + 1)); }));
     P.querySelectorAll('[data-load]').forEach((e) => (e.onclick = () => chargerMontage(+e.dataset.load)));
+    P.querySelectorAll('[data-renom]').forEach((e) => (e.onclick = () => { ATL.renomme = +e.dataset.renom; rendre(); const x = P.querySelector('#atl-nom'); if (x) { x.focus(); x.select(); } }));
+    P.querySelectorAll('[data-nom-ok]').forEach((e) => (e.onclick = () => { const i = +e.dataset.nomOk, x = P.querySelector('#atl-nom'); renommer(i, x ? x.value : ''); }));
+    { const x = P.querySelector('#atl-nom'); if (x) x.onkeydown = (ev) => { if (ev.key === 'Enter') renommer(ATL.renomme, x.value); if (ev.key === 'Escape') { ATL.renomme = null; rendre(); } }; }
+    P.querySelectorAll('[data-suppr]').forEach((e) => (e.onclick = () => supprimer(+e.dataset.suppr)));
+    on('#atl-ajout', ajouter);
     P.querySelectorAll('[data-cmp]').forEach((e) => (e.onclick = () => { ATL.comparer = ATL.comparer === +e.dataset.cmp ? null : +e.dataset.cmp; rendre(); }));
   }
   // Le panneau du choix rapide est rendu INVISIBLE (pas retiré) : le retirer faisait remonter la mise en page et glisser la scène
@@ -149,7 +166,7 @@
       '.atl-barre b{text-align:right}.atl-barre b.p{color:#2fa66a}.atl-barre b.m{color:#d9534f}.atl-barre b.z{opacity:.6}#atl h4{margin:10px 0 4px;font-size:13px}' +
       '.atl-slots{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.atl-slot{border:2px solid currentColor;border-radius:10px;padding:6px;font-size:12px;display:flex;flex-direction:column;gap:4px}.atl-slot.on{outline:3px solid #f5c518}.atl-slot small{opacity:.75}';
     st.textContent += '.atl-b{border:2px solid #1b1740;border-radius:9px;padding:4px 8px;background:#fff;color:#1b1740;font:inherit;font-size:12px;font-weight:800;cursor:pointer;line-height:1.2}.atl-b[disabled]{opacity:.4;cursor:default}.atl-b.red{background:#f5c518}.atl-b.ghost{background:transparent}.atl-b.on{background:#1b1740;color:#f5c518}' +
-      '.atl-slot .atl-b{width:100%}#g-atelier{font-size:13px}@media (orientation:landscape){#g-atelier{position:absolute;left:14px;bottom:14px;z-index:2;margin:0}}' +
+      '.atl-slot .atl-b{width:100%}#atl-nom{width:100%;font:inherit;font-size:13px;padding:3px 5px;border:2px solid #1b1740;border-radius:7px}#g-atelier{font-size:13px}@media (orientation:landscape){#g-atelier{position:absolute;left:14px;bottom:14px;z-index:2;margin:0}}' +
       '';
     document.head.appendChild(st);
     const P = document.createElement('div'); P.id = 'atl'; P.className = 'panel'; P.hidden = true; g.appendChild(P);
@@ -158,5 +175,5 @@
   // En quittant le garage, l'aperçu du brouillon est retiré (le garage rapide et la course montrent le kart équipé).
   document.addEventListener('click', (e) => { const t = e.target.closest && e.target.closest('#s-garage [data-go]'); if (t && ATL.ouvert) { ATL.ouvert = false; window.WK_APERCU = null; rapide(true); rendre(); } }, true);
   installer();
-  window.WKAtelier = { ouvrir, fermer, etat, brouillon, appliquer, annuler, retablir, pieceAvant, essayer, enregistrer, equiper, chargerMontage, vue, valide, FAMILLES, CLES, ATL, circuitEssai };
+  window.WKAtelier = { renommer, ajouter, supprimer, MAX_MONTAGES, ouvrir, fermer, etat, brouillon, appliquer, annuler, retablir, pieceAvant, essayer, enregistrer, equiper, chargerMontage, vue, valide, FAMILLES, CLES, ATL, circuitEssai };
 })();
