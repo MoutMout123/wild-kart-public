@@ -11,6 +11,7 @@
   // Client d'essai des comptes (test-comptes-…) : l'exception de publication ne couvre que l'essai des comptes ; le prototype G2,
   // présenté avant toute diffusion, n'y est pas activé.
   if (/^test-comptes-/.test(String(window.WK_TEST || ''))) return;
+  const kartMesh = K.kartMesh, THREE = window.THREE;
   const { SAVE, store, statsFor, BODIES, WHEELS, GLIDERS, PILOTS, ACCS, FINISHES, DECOS, TRAILS, COLORS, SKINS, lockInfo, GS, refreshGarageKart, show, launchPrepared, UI, TRACKS, toast, AudioSys, ownedColors } = K;
   const VERSION = 1, NB_MONTAGES = 3, MAX_MONTAGES = 8;
   const CLES = ['body', 'wheels', 'glider', 'pilot', 'color', 'helmet', 'skin', 'acc', 'finish', 'deco', 'trail'];
@@ -87,6 +88,41 @@
   function equiper() { const B = brouillon(); for (const k of CLES) SAVE[k] = B.cfg[k]; B.depart = Object.assign({}, B.cfg); sauver(); ATL.confirmer = false; apercu(); rendre(); try { toast('Kart équipé pour les courses.', 2200); } catch (e) { /* rien */ } }
   function chargerMontage(slot) { const m = etat().montages[slot]; if (!m) return; const B = brouillon(); B.histo.push(Object.assign({}, B.cfg)); B.cfg = Object.assign({}, m.cfg); B.slot = slot; B.depart = Object.assign({}, m.cfg); B.redo = []; sauver(); apercu(); rendre(); }
   function vue(v) { ATL.vue = v; const ang = { '3/4': -.6, 'Avant': 0, 'Profil': Math.PI / 2, 'Arrière': Math.PI }[v]; if (typeof GS !== 'undefined') { GS.rot = ang; GS.vit = 0; GS.touche = performance.now() + 864e5; } rendre(); }   // vue fixée jusqu'au prochain geste
+  // ---- Vignettes rendues des pièces (#34.G2) -------------------------------------------------------------------------------------
+  // Le kart du BROUILLON équipé de la pièce, rendu par le moteur du jeu dans une cible hors écran (pas de second contexte WebGL),
+  // une vignette à la fois (file d'attente, une par image), seulement pour la famille affichée ; cache en mémoire (pas de stockage).
+  // Familles sans image utile (couleurs, turbo, planeur replié) : nom seul.
+  const VIGN = { cache: new Map(), file: [], enCours: false, rt: null, scene: null, W: 168, H: 112 };
+  const AVEC_VIGNETTE = new Set(['body', 'wheels', 'pilot', 'acc', 'finish', 'deco']);
+  const cleVign = (fam, id, cfg) => fam + '|' + id + '|' + CLES.filter((k) => k !== fam).map((k) => cfg[k]).join(',');
+  function sceneVign() { if (VIGN.scene) return VIGN.scene; const sc = new THREE.Scene(); sc.background = new THREE.Color('#2a2560');
+    sc.add(new THREE.HemisphereLight('#ffffff', '#2a2560', 1.7)); const d = new THREE.DirectionalLight('#fff3e0', 2.6); d.position.set(5, 8, 6); sc.add(d);
+    const r = new THREE.DirectionalLight('#7c4dff', 1.2); r.position.set(-6, 3, -5); sc.add(r); VIGN.scene = sc; return sc; }
+  function rendreVign(fam, id, cfg) {
+    const R = K.renderer, sc = sceneVign(), k = kartMesh(Object.assign({}, cfg, { [fam]: id })), W = VIGN.W, H = VIGN.H;
+    if (k.rig && K.heroAnimate) K.heroAnimate(k.rig, { spin: 0, boost: 0, finished: false, place: 0, drift: 0, air: false }, 0, 1, performance.now() / 1000);
+    if (k.glider) k.glider.visible = false; sc.add(k.g); k.g.rotation.y = -.65;
+    const proche = fam === 'pilot' || fam === 'acc', roue = fam === 'wheels', cam = new THREE.PerspectiveCamera(proche ? 26 : 30, W / H, .1, 60);
+    if (proche) { cam.position.set(1.6, 3.0, 2.9); cam.lookAt(0, 1.75, 0); } else if (roue) { cam.position.set(2.6, 1.05, 2.5); cam.lookAt(1.0, .45, 1.05); } else { cam.position.set(3.7, 2.3, 4.4); cam.lookAt(0, .75, 0); }
+    if (!VIGN.rt) { VIGN.rt = new THREE.WebGLRenderTarget(W, H); if (THREE.SRGBColorSpace) VIGN.rt.texture.colorSpace = THREE.SRGBColorSpace; }   /* sRGB : sans cela, les couleurs lues restaient linéaires (vignettes sombres) */ const avant = R.getRenderTarget();
+    R.setRenderTarget(VIGN.rt); R.render(sc, cam); const px = new Uint8Array(W * H * 4); R.readRenderTargetPixels(VIGN.rt, 0, 0, W, H, px); R.setRenderTarget(avant);
+    sc.remove(k.g); k.g.traverse((o) => { if (o.geometry && !(o.geometry.userData && o.geometry.userData.keep)) o.geometry.dispose(); });
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H; const c2 = cv.getContext('2d'), im = c2.createImageData(W, H);
+    for (let y = 0; y < H; y++) im.data.set(px.subarray((H - 1 - y) * W * 4, (H - y) * W * 4), y * W * 4);   // l'image lue est retournée
+    c2.putImageData(im, 0, 0); return cv.toDataURL('image/jpeg', .82);
+  }
+  function demanderVignettes(fam) {
+    if (!AVEC_VIGNETTE.has(fam) || !kartMesh || !THREE) return; const F = FAMILLES.find((f) => f.id === fam), cfg = brouillon().cfg;
+    VIGN.file = Object.keys(F.table()).map((id) => ({ fam, id, cle: cleVign(fam, id, cfg), cfg: Object.assign({}, cfg) })).filter((x) => !VIGN.cache.has(x.cle));
+    if (!VIGN.enCours) suivanteVign();
+  }
+  function suivanteVign() {
+    const x = VIGN.file.shift(); if (!x || !ATL.ouvert) { VIGN.enCours = false; return; } VIGN.enCours = true;
+    requestAnimationFrame(() => { let url = ''; try { url = rendreVign(x.fam, x.id, x.cfg); } catch (e) { url = ''; }
+      if (url) { VIGN.cache.set(x.cle, url); if (VIGN.cache.size > 160) VIGN.cache.delete(VIGN.cache.keys().next().value);
+        const img = document.querySelector('#atl img[data-vign="' + x.cle.replace(/"/g, '') + '"]'); if (img) { img.src = url; img.classList.add('ok'); } }
+      setTimeout(suivanteVign, 30); });
+  }
   function rendre() {
     const P = $a('#atl'), gb = $a('#g-atelier'); if (gb) gb.hidden = ATL.ouvert; if (!P) return; if (!ATL.ouvert) { P.hidden = true; return; } P.hidden = false;
     const A = etat(), B = brouillon(), F = FAMILLES.find((f) => f.id === A.famille), cfg = B.cfg;
@@ -100,7 +136,7 @@
     // Pièces de la famille
     h += '<div class="atl-pieces">';
     if (F.couleurs) h += F.couleurs().map((c) => '<button class="atl-coul' + (cfg[F.id] === c ? ' on' : '') + '" data-val="' + c + '" style="background:' + c + '" aria-label="Couleur ' + c + '"></button>').join('');
-    else for (const id of Object.keys(F.table())) { const lk = typeof lockInfo === 'function' ? lockInfo(F.id, id) : null; h += '<button class="atl-piece' + (cfg[F.id] === id ? ' on' : '') + (ATL.choix === id ? ' vise' : '') + (lk ? ' lock' : '') + '" data-val="' + esc(id) + '"' + (lk ? ' data-lock="' + esc(lk) + '"' : '') + '>' + esc(nomPiece(F, id)) + (lk ? ' 🔒' : '') + '</button>'; }
+    else for (const id of Object.keys(F.table())) { const lk = typeof lockInfo === 'function' ? lockInfo(F.id, id) : null; { const cv = AVEC_VIGNETTE.has(F.id) ? cleVign(F.id, id, cfg) : '', url = cv && VIGN.cache.get(cv); h += '<button class="atl-piece' + (cv ? ' img' : '') + (cfg[F.id] === id ? ' on' : '') + (ATL.choix === id ? ' vise' : '') + (lk ? ' lock' : '') + '" data-val="' + esc(id) + '"' + (lk ? ' data-lock="' + esc(lk) + '"' : '') + '>' + (cv ? '<img alt="" data-vign="' + esc(cv.replace(/"/g, '')) + '"' + (url ? ' class="ok" src="' + url + '"' : '') + '>' : '') + '<span>' + esc(nomPiece(F, id)) + (lk ? ' 🔒' : '') + '</span></button>'; } }
     h += '</div>';
     // Comparateur : pièce visée → vrais deltas statsFor ; famille « Apparence » : dit clairement qu'il n'y a pas d'effet.
     if (F.type === 'conduite') { const cand = ATL.choix && ATL.choix !== cfg[F.id] ? Object.assign({}, cfg, { [F.id]: ATL.choix }) : null, a = st(cfg);
@@ -119,7 +155,7 @@
       (m || i >= NB_MONTAGES ? '<button class="atl-b ghost" data-suppr="' + i + '"><span>' + (i >= NB_MONTAGES ? 'Retirer' : 'Vider') + '</span></button>' : '') + '</div>').join('') + '</div>' +
       (A.montages.length < MAX_MONTAGES ? '<div class="atl-actions"><button class="atl-b" id="atl-ajout"><span>+ Ajouter un montage</span></button></div>' : '<p class="atl-note">' + MAX_MONTAGES + ' montages au plus.</p>');
     if (ATL.comparer != null && A.montages[ATL.comparer]) { const m = A.montages[ATL.comparer]; h += '<h4>Brouillon → « ' + esc(m.nom) + ' »</h4><div class="atl-cmp" id="atl-cmp2">' + barres(st(cfg), st(m.cfg)) + '</div>'; }
-    P.innerHTML = h;
+    P.innerHTML = h; demanderVignettes(F.id);
     // Événements
     const on = (sel, fn) => { const e = P.querySelector(sel); if (e) e.onclick = fn; };
     on('#atl-fermer', () => { if (modifie()) { ATL.quitter = true; rendre(); } else fermer(); });
@@ -161,6 +197,7 @@
       '.atl-t{display:inline-block;font-style:normal;font-size:10px;font-weight:800;border-radius:6px;padding:1px 5px;margin-left:6px}.atl-t.c{background:#dff3e8;color:#1d6b43}.atl-t.a{background:#ecebf7;color:#4a4870}.atl-t.b{background:#fff1c2;color:#7a5b00}' +
       '.atl-legende,.atl-note,.atl-essai{font-size:12px;opacity:.85;margin:6px 0}.atl-essai{background:#fff1c2;color:#4a3a00;border-radius:8px;padding:6px;opacity:1}.atl-alerte{background:#ffe1df;color:#5a1010;border-radius:10px;padding:8px;margin:6px 0}' +
       '.atl-pieces{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}.atl-piece{border:2px solid currentColor;border-radius:10px;padding:5px 9px;background:transparent;color:inherit;font:inherit;font-weight:700;cursor:pointer}.atl-piece.on{background:#1b1740;color:#f5c518}.atl-piece.vise{outline:3px solid #2fa66a}.atl-piece.lock{opacity:.45}' +
+      '.atl-piece.img{display:flex;flex-direction:column;align-items:center;padding:4px;width:96px}.atl-piece img{width:88px;height:59px;border-radius:7px;background:#3a347a;object-fit:cover;opacity:.35}.atl-piece img.ok{opacity:1}.atl-piece.img span{font-size:12px;margin-top:3px;text-align:center}' +
       '.atl-coul{width:30px;height:30px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 2px #1b1740;cursor:pointer}.atl-coul.on{box-shadow:0 0 0 3px #f5c518}' +
       '.atl-barre{display:grid;grid-template-columns:96px 1fr 40px;gap:6px;align-items:center;font-size:12px;margin:2px 0}.atl-jauge{height:9px;background:#e6e4f2;border-radius:6px;position:relative;overflow:hidden}.atl-jauge i{position:absolute;top:0;bottom:0}.atl-jauge .a{left:0;background:#9a97c0}.atl-jauge .n{background:#2fa66a}.atl-jauge .n.m{background:#d9534f}' +
       '.atl-barre b{text-align:right}.atl-barre b.p{color:#2fa66a}.atl-barre b.m{color:#d9534f}.atl-barre b.z{opacity:.6}#atl h4{margin:10px 0 4px;font-size:13px}' +
@@ -175,5 +212,5 @@
   // En quittant le garage, l'aperçu du brouillon est retiré (le garage rapide et la course montrent le kart équipé).
   document.addEventListener('click', (e) => { const t = e.target.closest && e.target.closest('#s-garage [data-go]'); if (t && ATL.ouvert) { ATL.ouvert = false; window.WK_APERCU = null; rapide(true); rendre(); } }, true);
   installer();
-  window.WKAtelier = { renommer, ajouter, supprimer, MAX_MONTAGES, ouvrir, fermer, etat, brouillon, appliquer, annuler, retablir, pieceAvant, essayer, enregistrer, equiper, chargerMontage, vue, valide, FAMILLES, CLES, ATL, circuitEssai };
+  window.WKAtelier = { VIGN, renommer, ajouter, supprimer, MAX_MONTAGES, ouvrir, fermer, etat, brouillon, appliquer, annuler, retablir, pieceAvant, essayer, enregistrer, equiper, chargerMontage, vue, valide, FAMILLES, CLES, ATL, circuitEssai };
 })();

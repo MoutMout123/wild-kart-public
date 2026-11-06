@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Palier mur frontal — prototype #32</title>
+<!-- #32.B1 — Prototype ISOLÉ de vraie conduite sur surface 3D (surface3d.js) : sol → mur droit devant (88°) → plateau → mur qui
+     redescend → sol. Kart SIMPLIFIÉ (boîte et roues), pas les modèles du jeu. Aucune carte du jeu n'est modifiée. -->
+<style>
+html,body{margin:0;height:100%;background:#141230;color:#fff;font-family:system-ui,sans-serif;overflow:hidden;touch-action:none}
+#hud{position:fixed;left:8px;top:8px;background:#0008;border-radius:10px;padding:6px 9px;font-size:12px;line-height:1.45;z-index:2}
+#hud b{color:#f5c518}#barre{position:fixed;right:8px;top:8px;display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end;max-width:62vw;z-index:2}
+button{font:inherit;font-size:12px;font-weight:700;border:2px solid #fff;background:#0007;color:#fff;border-radius:9px;padding:5px 8px}button.on{background:#f5c518;color:#141230;border-color:#f5c518}
+.pad{position:fixed;bottom:12px;z-index:2;display:flex;gap:10px}.pad button{width:68px;height:68px;font-size:20px;border-radius:50%}#gauche{left:12px}#droite{right:12px}
+#etiquette{position:fixed;left:50%;bottom:8px;transform:translateX(-50%);font-size:11px;opacity:.75;z-index:2;text-align:center}
+</style></head><body>
+<div id="hud"></div>
+<div id="barre"><button id="b-cam">Caméra : pilote</button><button id="b-horizon">Horizon 50 %</button><button id="b-traces" class="on">Traces</button><button id="b-auto">Pilote auto</button><button id="b-cc">150cc</button><button id="b-raz">↺ Départ</button></div>
+<div class="pad" id="gauche"><button id="t-g">◀</button><button id="t-d">▶</button></div>
+<div class="pad" id="droite"><button id="t-f">FREIN</button><button id="t-a" class="on">GAZ</button></div>
+<div id="etiquette">PROTOTYPE #32 — vraie surface 3D (palier mur frontal) · kart simplifié · non intégré aux circuits</div>
+<script src="three.min.js"></script>
+<script src="surface3d.js"></script>
+<script>
+(function () {
+  'use strict';
+  const T = window.THREE, S = window.WKSurface3D, surf = S.depuisProfil(S.profilMurFrontal());
+  const R = new T.WebGLRenderer({ antialias: true }); R.setPixelRatio(Math.min(2, devicePixelRatio || 1)); R.setSize(innerWidth, innerHeight); document.body.appendChild(R.domElement);
+  const sc = new T.Scene(); sc.background = new T.Color('#7ec8f0'); sc.fog = new T.Fog('#7ec8f0', 120, 420);
+  sc.add(new T.HemisphereLight('#ffffff', '#4a6a3a', 1.4)); const sol = new T.DirectionalLight('#fff4dd', 2.2); sol.position.set(40, 80, 30); sc.add(sol);
+  const cam = new T.PerspectiveCamera(62, innerWidth / innerHeight, .1, 900);
+  const v3 = (a) => new T.Vector3(a[0], a[1], a[2]);
+  // Chaussée : ruban le long des repères (bandes de couleur pour lire la vitesse et l'inclinaison), bordures, dessous.
+  { const pos = [], col = [], idx = [], pas = .5; let i = 0;
+    for (let s = 0; s <= surf.longueur; s += pas) { const f = surf.repere(s), w = f.largeur / 2, a = surf.sample(s, -w, 0), b = surf.sample(s, w, 0), bande = Math.floor(s / 4) % 2, am = surf.aimante(s);
+      pos.push(...a, ...b); const c = am ? (bande ? [.36, .3, .62] : [.3, .25, .55]) : (bande ? [.32, .32, .36] : [.27, .27, .3]); col.push(...c, ...c);
+      if (i) idx.push(2 * i - 2, 2 * i - 1, 2 * i, 2 * i - 1, 2 * i + 1, 2 * i); i++; }
+    const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new T.Float32BufferAttribute(col, 3)); g.setIndex(idx); g.computeVertexNormals();
+    sc.add(new T.Mesh(g, new T.MeshStandardMaterial({ vertexColors: true, roughness: .8, side: T.DoubleSide })));
+    for (const cote of [-1, 1]) { const p2 = [], i2 = []; let j = 0; for (let s = 0; s <= surf.longueur; s += pas) { const f = surf.repere(s), w = f.largeur / 2; p2.push(...surf.sample(s, cote * w, 0), ...surf.sample(s, cote * w, .8)); if (j) i2.push(2 * j - 2, 2 * j - 1, 2 * j, 2 * j - 1, 2 * j + 1, 2 * j); j++; }
+      const g2 = new T.BufferGeometry(); g2.setAttribute('position', new T.Float32BufferAttribute(p2, 3)); g2.setIndex(i2); g2.computeVertexNormals(); sc.add(new T.Mesh(g2, new T.MeshStandardMaterial({ color: cote < 0 ? '#f5c518' : '#ff6f3c', side: T.DoubleSide, roughness: .6 }))); }
+    const sol2 = new T.Mesh(new T.PlaneGeometry(900, 900), new T.MeshStandardMaterial({ color: '#5f9a4a', roughness: 1 })); sol2.rotation.x = -Math.PI / 2; sol2.position.y = -.05; sc.add(sol2); }
+  // Kart simplifié : caisse, siège, quatre roues (le « haut » du kart = normale de la chaussée).
+  const kartG = new T.Group(); { const caisse = new T.Mesh(new T.BoxGeometry(2.6, .45, 1.5), new T.MeshStandardMaterial({ color: '#e8453c', roughness: .4 })); caisse.position.y = .45; kartG.add(caisse);
+    const nez = new T.Mesh(new T.BoxGeometry(.8, .3, 1.1), new T.MeshStandardMaterial({ color: '#ffc531' })); nez.position.set(1.35, .4, 0); kartG.add(nez);
+    const tete = new T.Mesh(new T.SphereGeometry(.32, 16, 12), new T.MeshStandardMaterial({ color: '#ffc531' })); tete.position.set(-.3, 1.05, 0); kartG.add(tete);
+    for (const [x, z] of [[.9, .82], [.9, -.82], [-.9, .82], [-.9, -.82]]) { const r = new T.Mesh(new T.CylinderGeometry(.34, .34, .3, 16), new T.MeshStandardMaterial({ color: '#222' })); r.rotation.x = Math.PI / 2; r.position.set(x, .34, z); kartG.add(r); } }
+  sc.add(kartG);
+  // Traces : normale (vert), tangente (rouge), latéral (bleu), trajectoire.
+  const traces = new T.Group(); sc.add(traces);
+  const fleche = (c) => { const a = new T.ArrowHelper(new T.Vector3(1, 0, 0), new T.Vector3(), 3, c, .5, .3); traces.add(a); return a; }, fN = fleche(0x3ee08f), fT = fleche(0xff4f3a), fL = fleche(0x38b6ff);
+  const trajG = new T.BufferGeometry(), trajP = new Float32Array(3 * 2000); trajG.setAttribute('position', new T.BufferAttribute(trajP, 3)); trajG.setDrawRange(0, 0); traces.add(new T.Line(trajG, new T.LineBasicMaterial({ color: 0xffffff }))); let nTraj = 0;
+  // État et commandes
+  const CC = { '50cc': 44, '100cc': 54, '150cc': 64 }; let cc = '150cc', camMode = 'pilote', auto = false, k = null, horizon = .5; /* horizon : part de la verticale du monde gardée par la caméra pilote */ const E = { g: false, d: false, gaz: true, frein: false };
+  function depart() { k = S.creerKart(surf, { v: 0, vMax: CC[cc] }); nTraj = 0; trajG.setDrawRange(0, 0); }
+  depart();
+  const bascule = (id, fn) => { document.getElementById(id).onclick = fn; };
+  bascule('b-cam', () => { camMode = camMode === 'pilote' ? 'oblique' : 'pilote'; document.getElementById('b-cam').textContent = 'Caméra : ' + camMode; });
+  bascule('b-traces', (e) => { traces.visible = !traces.visible; e.currentTarget.classList.toggle('on', traces.visible); });
+  bascule('b-auto', (e) => { auto = !auto; e.currentTarget.classList.toggle('on', auto); });
+  bascule('b-cc', (e) => { cc = cc === '150cc' ? '50cc' : cc === '50cc' ? '100cc' : '150cc'; e.currentTarget.textContent = cc; depart(); });
+  bascule('b-raz', depart);
+  bascule('b-horizon', (e) => { horizon = horizon === .5 ? .8 : horizon === .8 ? .25 : .5; e.currentTarget.textContent = 'Horizon ' + Math.round(horizon * 100) + ' %'; });
+  const tient = (id, cle) => { const b = document.getElementById(id); const on = (v) => (ev) => { ev.preventDefault(); E[cle] = v; b.classList.toggle('on', v); }; b.addEventListener('pointerdown', on(true)); b.addEventListener('pointerup', on(false)); b.addEventListener('pointerleave', on(false)); };
+  tient('t-g', 'g'); tient('t-d', 'd'); tient('t-f', 'frein');
+  document.getElementById('t-a').onclick = (ev) => { E.gaz = !E.gaz; ev.currentTarget.classList.toggle('on', E.gaz); };
+  addEventListener('keydown', (e) => { if (e.key === 'ArrowLeft') E.g = true; if (e.key === 'ArrowRight') E.d = true; if (e.key === 'ArrowDown' || e.key === ' ') E.frein = true; if (e.key === 'ArrowUp') E.gaz = true; });
+  addEventListener('keyup', (e) => { if (e.key === 'ArrowLeft') E.g = false; if (e.key === 'ArrowRight') E.d = false; if (e.key === 'ArrowDown' || e.key === ' ') E.frein = false; });
+  addEventListener('resize', () => { R.setSize(innerWidth, innerHeight); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); });
+  // Boucle : physique à 120 Hz fixes, affichage à la cadence de l'écran.
+  let acc = 0, last = performance.now(); const DT = 1 / 120, camPos = new T.Vector3(-12, 6, 0), camHaut = new T.Vector3(0, 1, 0), capNiveau = new T.Vector3(1, 0, 0);
+  const etat = { images: 0 }; window.WKPalier = { surf, kart: () => k, etat, regler: (o) => { if (o.horizon != null) horizon = o.horizon; if (o.auto != null) auto = o.auto; if (o.cam) camMode = o.cam; if (o.cc) { cc = o.cc; depart(); } } };
+  function boucle(now) {
+    acc += Math.min(.1, (now - last) / 1000); last = now;
+    while (acc >= DT) { const brq = auto ? Math.max(-1, Math.min(1, k.d * .25 + Math.sin(k.cap) * 2)) : (E.d ? 1 : 0) - (E.g ? 1 : 0);
+      S.pas(k, DT, { gaz: auto || E.gaz ? 1 : 0, frein: E.frein ? 1 : 0, braquage: brq }); acc -= DT;
+      if (k.s >= surf.longueur - 1.5) { k.s = surf.longueur - 1.5; k.v = 0; } }
+    // Pose du kart : repère de surface (attaché) ou orientation de vol (détaché)
+    let p, t, n;
+    if (k.attache) { const f = surf.repere(k.s); p = v3(surf.sample(k.s, k.d, 0)); const dir = v3(S.V.add(S.V.mul(f.t, Math.cos(k.cap)), S.V.mul(f.l, Math.sin(k.cap)))); t = dir; n = v3(f.n); }
+    else { p = v3(k.vol.p); t = v3(k.vol.v).normalize(); n = new T.Vector3(0, 1, 0).sub(t.clone().multiplyScalar(t.y)).normalize(); }
+    const l = new T.Vector3().crossVectors(n, t).normalize(), m = new T.Matrix4().makeBasis(t, n, l.clone().negate()); kartG.position.copy(p); kartG.quaternion.setFromRotationMatrix(m);
+    fN.position.copy(p); fN.setDirection(n); fT.position.copy(p); fT.setDirection(t); fL.position.copy(p); fL.setDirection(l);
+    if (nTraj < 2000 && (nTraj === 0 || p.distanceTo(new T.Vector3(trajP[3 * nTraj - 3], trajP[3 * nTraj - 2], trajP[3 * nTraj - 1])) > .8)) { trajP.set([p.x, p.y + .05, p.z], 3 * nTraj); nTraj++; trajG.setDrawRange(0, nTraj); trajG.attributes.position.needsUpdate = true; }
+    // Caméra : pilote = derrière le kart dans son repère (le « haut » mêle la normale et la verticale du monde selon « horizon » : à 25 % le mur paraissait une route plate, comme signalé sur Aurores) ; oblique = vue extérieure fixe.
+    if (camMode === 'pilote') {
+      // Orientation de caméra = mélange (quaternions) entre le repère de la chaussée (t, n) et un repère À NIVEAU (cap horizontal, verticale
+      // du monde) selon « horizon ». En montée frontale, la caméra reste ainsi en retrait et plus bas : on voit le mur se dresser.
+      const th = new T.Vector3(t.x, 0, t.z); if (th.lengthSq() < 1e-4) th.copy(capNiveau); else { th.normalize(); capNiveau.copy(th); }
+      const base = (fw, up) => { const lt = new T.Vector3().crossVectors(up, fw).normalize(), u2 = new T.Vector3().crossVectors(fw, lt).normalize(); return new T.Quaternion().setFromRotationMatrix(new T.Matrix4().makeBasis(lt.clone().negate(), u2, fw.clone().negate())); };
+      const q = base(t, n).slerp(base(th, new T.Vector3(0, 1, 0)), horizon), fw = new T.Vector3(0, 0, -1).applyQuaternion(q), up = new T.Vector3(0, 1, 0).applyQuaternion(q);
+      const cible = p.clone().add(fw.clone().multiplyScalar(-7.5)).add(up.clone().multiplyScalar(2.8)); camPos.lerp(cible, .2); camHaut.lerp(up, .2);
+      cam.position.copy(camPos); cam.up.copy(camHaut); cam.lookAt(p.clone().add(fw.clone().multiplyScalar(6)).add(up.clone().multiplyScalar(.6))); }
+    else { cam.position.set(72, 30, 62); cam.up.set(0, 1, 0); cam.lookAt(p.x * .4 + 60 * .6, p.y * .5 + 15, 0); }
+    R.render(sc, cam); etat.images++;
+    const raide = k.raide != null ? k.raide : 0;
+    document.getElementById('hud').innerHTML = '<b>' + Math.round(Math.abs(k.v) * 3.6) + ' km/h</b> · ' + cc + '<br>chaussée : ' + raide.toFixed(0) + '° ' + (surf.aimante(k.s) ? '(aimantée)' : '') + '<br>' + (k.attache ? 'roues au contact' : 'EN VOL') +
+      ' · détachements ' + k.detachements + (k.remises ? ' · remises ' + k.remises : '') + '<br>s = ' + k.s.toFixed(0) + ' / ' + surf.longueur.toFixed(0) + ' m · écart ' + k.d.toFixed(1) + ' m';
+    requestAnimationFrame(boucle);
+  }
+  requestAnimationFrame(boucle);
+})();
+</script></body></html>
