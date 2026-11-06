@@ -23,7 +23,29 @@
   // ---- Surface ----------------------------------------------------------------------------------------------------------------------
   // Profil : [{ long (m), cap (°, + = gauche), tangage (°, + = monte), roulis (°, + = penche à droite), largeur? }], pas d'échantillonnage.
   // Les variations d'angle d'un segment sont réparties par une loi douce (dérivée nulle aux bouts) : raccords sans cassure.
+  /* #32.A3 — Validation des PARAMÈTRES d'un profil avant construction (refus clair d'une géométrie impossible). Unités : longueurs en m,
+     angles en degrés (répartis par la loi douce : rayon minimal = long / (angle en rad × 1,5)), adhérence en g. Champs inconnus refusés
+     (une faute de frappe ne doit pas être ignorée en silence). Retourne la liste des erreurs (vide = valide). */
+  const BORNES = { long: [.5, 2000], largeur: [6, 30], largeurFin: [6, 30], cap: [-720, 720], virage: [-720, 720], tangage: [-360, 360], roulis: [-360, 360], elevation: [-45, 45], looping: [6, 40], decalage: [0, 120], adherence: [0, Infinity] };
+  function validerProfil(profil, opts) {
+    const E = [], lDef = (opts && opts.largeur) || 14; if (!Array.isArray(profil) || !profil.length) return ['profil vide ou non tableau'];
+    profil.forEach((seg, i) => { const ou = 'segment ' + (i + 1) + ' : ';
+      if (!seg || typeof seg !== 'object') { E.push(ou + 'pas un objet'); return; }
+      for (const [k, v] of Object.entries(seg)) { if (k === 'aimante') { if (typeof v !== 'boolean') E.push(ou + 'aimante doit valoir vrai/faux'); continue; }
+        if (!(k in BORNES)) { E.push(ou + 'champ inconnu « ' + k + ' »'); continue; }
+        if (typeof v !== 'number' || Number.isNaN(v) || (!Number.isFinite(v) && !(k === 'adherence' && v === Infinity))) { E.push(ou + k + ' n\'est pas un nombre fini (' + v + ')'); continue; }
+        const [a, b] = BORNES[k]; if (v < a || v > b) E.push(ou + k + ' = ' + v + ' hors des bornes [' + a + ', ' + b + ']'); }
+      if (seg.looping != null) { const w = seg.largeur || lDef;
+        if (seg.long != null) E.push(ou + 'un looping n\'a pas de « long » (sa longueur découle du rayon)');
+        if (!(seg.decalage >= w)) E.push(ou + 'looping sans décalage suffisant (' + (seg.decalage || 0) + ' m < largeur ' + w + ' m) : la sortie recouperait l\'entrée'); }
+      else { if (seg.long == null) E.push(ou + '« long » manquant');
+        const rad = Math.max(...['cap', 'virage', 'tangage', 'roulis'].map((k) => Math.abs(seg[k] || 0))) * DEG;
+        if (seg.long > 0 && rad > 0) { const rmin = seg.long / (rad * 1.5); if (['cap', 'virage', 'tangage'].some((k) => Math.abs(seg[k] || 0) * DEG === rad) && rmin < 4) E.push(ou + 'courbure trop serrée (rayon minimal ' + rmin.toFixed(1) + ' m < 4 m)'); } }
+      if (seg.largeurFin != null && seg.largeur == null && !lDef) E.push(ou + 'largeurFin sans largeur'); });
+    return E;
+  }
   function depuisProfil(profil, opts) {
+    if (!(opts && opts.valider === false)) { const E = validerProfil(profil, opts); if (E.length) throw new Error('profil refusé : ' + E.join(' ; ')); }
     const pas = (opts && opts.pas) || .25, largeurDefaut = (opts && opts.largeur) || 14, P = [], T = [], N = [], W = [], S = [], A = [];
     /* depart : pose initiale { p, t, n } (B3 : plusieurs surfaces placées dans le même monde) ; défaut = origine, cap +X, normale +Y */
     const dep = (opts && opts.depart) || {}; let p = dep.p || [0, 0, 0], t = V.norm(dep.t || [1, 0, 0]), n = V.norm(dep.n || [0, 1, 0]), s = 0;
@@ -115,6 +137,7 @@
   function pas(k, dt, e) {
     const R = k.R, surf = k.surf, gW = [0, -R.g, 0];
     if (k.attache) {
+      if (k.etourdi > 0) e = { braquage: 0, gaz: 0 };   /* tête-à-queue (#32.C2) : ni gaz ni braquage pendant k.etourdi */
       const f = surf.repere(k.s), dir = V.add(V.mul(f.t, Math.cos(k.cap)), V.mul(f.l, Math.sin(k.cap)));   // direction de marche dans le plan
       // 1. vitesse : poussée, gravité le long de la marche, traînée et frottement
       const aG = V.dot(gW, dir);
@@ -333,6 +356,28 @@
     }
     throw new Error('scène inconnue : ' + nom);
   }
-  const API = { V, depuisProfil, profilParoi, profilLooping, reseau, sceneReseau, depuisEchantillons, creerKart, pas, position, contact, profilMurFrontal, REGLAGES };
+  /* #32.C2 — OBJETS sur surfaces 3D (prototype) : pièges fixes posés en (surface, s, d) et projectiles qui roulent SUR la chaussée comme un
+     kart (mêmes repères, parois, plafonds, enchaînements de réseau, vide et vol libre avec raccrochage), durée de vie bornée. Collisions :
+     piège ↔ kart seulement sur la MÊME surface (un piège sous un pont n'atteint pas le kart qui passe dessus) ; projectile ↔ kart par
+     distance monde (vaut aussi en vol). Effet d'un coup : tête-à-queue (vitesse × 0,35, 0,8 s sans contrôle) ; une protection l'absorbe.
+     Non couvert : réplication réseau, rendu des objets dans le jeu (indisponible dans ce prototype). */
+  function objets(R) {
+    const pieges = [], projectiles = [], journal = [];
+    const toucher = (k, par) => { if (k.toucheCd > 0) return; if (k.protection) { k.protection = false; journal.push({ t: 'protege', par }); k.toucheCd = .5; return; }
+      k.v *= .35; k.etourdi = .8; k.toucheCd = .8; k.coups = (k.coups || 0) + 1; journal.push({ t: 'touche', par, s: +k.s.toFixed(1), surface: R.id(k.surf), attache: k.attache }); };
+    function poser(id, s, d, nom) { pieges.push({ surf: R.surfaces[id], s, d, nom: nom || 'flaque', actif: true }); }
+    function lancer(k, o) { o = o || {}; const p = R.creer(R.id(k.surf), { s: k.s + 2.5, d: k.d, v: Math.max(o.v || 70, Math.abs(k.v) + 15), vMax: o.v || 70 }); p.cap = k.cap; p.vie = o.vie || 6; p.lanceur = k;
+      if (!k.attache) { p.attache = false; p.vol = { p: V.add(k.vol.p, V.mul(V.norm(k.vol.v), 2.5)), v: V.mul(V.norm(k.vol.v), Math.max(o.v || 70, V.len(k.vol.v) + 15)) }; p.tVol = 0; p.surf = k.surf; }
+      projectiles.push(p); return p; }
+    function pas(karts, dt) {
+      for (const k of karts) { k.toucheCd = Math.max(0, (k.toucheCd || 0) - dt); k.etourdi = Math.max(0, (k.etourdi || 0) - dt); }
+      for (const q of pieges) if (q.actif) for (const k of karts) if (k.attache && k.surf === q.surf && Math.abs(k.s - q.s) < 1.6 && Math.abs(k.d - q.d) < 1.4) { toucher(k, q.nom); q.actif = false; }
+      for (const p of projectiles) { if (p.fini) continue; p.vie -= dt; R.pas(p, dt, { gaz: 1 }); const pp = position(p);
+        if (p.vie <= 0 || !pp.every(Number.isFinite) || (p.remises || 0) > 0) { p.fini = true; journal.push({ t: 'projectile-fin', raison: p.vie <= 0 ? 'vie' : (p.remises ? 'tombé hors chaussée' : 'invalide') }); continue; }
+        for (const k of karts) if (k !== p.lanceur && V.len(V.sub(position(k), pp)) < 1.8) { toucher(k, 'projectile'); p.fini = true; break; } }
+    }
+    return { pieges, projectiles, journal, poser, lancer, pas, toucher };
+  }
+  const API = { V, depuisProfil, validerProfil, BORNES, profilParoi, profilLooping, reseau, sceneReseau, objets, depuisEchantillons, creerKart, pas, position, contact, profilMurFrontal, REGLAGES };
   if (typeof module !== 'undefined' && module.exports) module.exports = API; else racine.WKSurface3D = API;
 })(typeof window !== 'undefined' ? window : globalThis);

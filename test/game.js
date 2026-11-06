@@ -26,7 +26,7 @@ const BUILD = window.TK_BUILD || 'web';
 
 /* ================= Sauvegarde ================= */
 const KEY = 'tiltkart.v1';
-const DEFAULT_SAVE = { name: 'Toi', body: 'equilibre', wheels: 'standard', pilot: 'casque', acc: 'aucun', finish: 'brillant', deco: 'aucune', trail: 'feu', skin: '#e0b08a', color: '#ff4f3a', helmet: '#ffc531', control: isTouch ? 'stick' : 'tilt', glider: 'classique', fps: 0, throttle: 'auto', botLvl: 1, laps: 0, obst: true,
+const DEFAULT_SAVE = { name: 'Toi', body: 'equilibre', wheels: 'standard', engine: 'standard', pilot: 'casque', acc: 'aucun', finish: 'brillant', deco: 'aucune', trail: 'feu', skin: '#e0b08a', color: '#ff4f3a', helmet: '#ffc531', control: isTouch ? 'stick' : 'tilt', glider: 'classique', fps: 0, throttle: 'auto', botLvl: 1, laps: 0, obst: true,
   sens: 1, invert: false, calib: 0, calibrated: false, braquage: 'classique', sound: true, music: true, enhancedGraphics: true, quality: isTouch ? 'medium' : 'high', cc: 1, track: 0, records: {} };
 let SAVE = (() => { try { return Object.assign({}, DEFAULT_SAVE, JSON.parse(localStorage.getItem(KEY)) || {}); } catch (e) { return Object.assign({}, DEFAULT_SAVE); } })();
 // Qualité baissée automatiquement (adaptPerf) : temporaire, pour cette session seulement ; QAUTO.choix garde le choix du joueur,
@@ -62,20 +62,29 @@ const GLIDERS = {
   ombrelle: { name: 'Ombrelle', air: .08, shape: 'parapluie', col: { a: '#ff9ccf', b: '#ffffff' } }, origami: { name: 'Origami doré', air: .08, shape: 'avion', col: { paper: '#f2c94c', a: '#b8860b' } },
   dragon: { name: 'Dragon', air: .08, shape: 'chauvesouris', col: { a: '#c1121f', e: '#ff5a00' } }, arcenciel: { name: 'Arc-en-ciel', air: .08, shape: 'parapente', col: { a: '#ff4fd8', b: '#38b6ff' } },
 };
+// #34.G — Moteur & suspension (7 nov.) : famille « Conduite » indépendante de la carrosserie et des roues ; compromis équilibrés (la somme
+// des effets reste proche de zéro), appliqués par statsFor → makeKart (vitesse max, accélération, direction, poids, tout-terrain).
+const ENGINES = {
+  standard: { name: 'Standard', speed: 0, accel: 0, handling: 0, weight: 0, off: 0 },
+  sprint: { name: 'Sprint', speed: -.06, accel: .12, handling: 0, weight: -.03, off: 0 },
+  turbine: { name: 'Turbine', speed: .08, accel: -.1, handling: -.02, weight: .03, off: 0 },
+  couple: { name: 'Couple', speed: -.04, accel: .02, handling: -.03, weight: .06, off: .14 },
+  souple: { name: 'Suspension souple', speed: -.04, accel: 0, handling: .08, weight: -.02, off: .04 },
+};
 const SKINS = ['#f3d2b3', '#e0b08a', '#c68b5e', '#8d5a3b', '#5c3a25'];
 // #34.G2 : pendant l'ESSAI d'un brouillon de l'atelier (atelier.js), la course utilise ce brouillon sans l'équiper.
 function myCfg() { const c = myCfgEquipe(); return typeof window !== 'undefined' && window.WK_ESSAI && window.WK_ESSAI.cfg ? Object.assign(c, window.WK_ESSAI.cfg) : c; }
-function myCfgEquipe() { return { name: SAVE.name || 'Toi', color: SAVE.color, helmet: SAVE.helmet, body: SAVE.body, wheels: SAVE.wheels, pilot: SAVE.pilot, acc: SAVE.acc, finish: SAVE.finish, deco: SAVE.deco, trail: SAVE.trail, skin: SAVE.skin, glider: SAVE.glider, title: SAVE.title || '' }; }
+function myCfgEquipe() { return { name: SAVE.name || 'Toi', color: SAVE.color, helmet: SAVE.helmet, body: SAVE.body, wheels: SAVE.wheels, pilot: SAVE.pilot, acc: SAVE.acc, finish: SAVE.finish, deco: SAVE.deco, trail: SAVE.trail, skin: SAVE.skin, glider: SAVE.glider, engine: ENGINES[SAVE.engine] ? SAVE.engine : 'standard', title: SAVE.title || '' }; }   /* valeur inconnue (ancienne sauvegarde) → Standard */
 function cleanCfg(c) {
   c = c || {}; const ok = (v, o, d) => (Object.prototype.hasOwnProperty.call(o, v) ? v : d); const col = (v, d) => (/^#[0-9a-f]{6}$/i.test(v || '') ? v : d);
   return { name: String(c.name || 'Joueur').slice(0, 10), color: col(c.color, '#ff4f3a'), helmet: col(c.helmet, '#ffc531'), body: ok(c.body, BODIES, 'equilibre'), wheels: ok(c.wheels, WHEELS, 'standard'),
-    pilot: ok(c.pilot, PILOTS, 'casque'), acc: ok(c.acc, ACCS, 'aucun'), finish: ok(c.finish, FINISHES, 'brillant'), deco: ok(c.deco, DECOS, 'aucune'), trail: ok(c.trail, TRAILS, 'feu'), skin: col(c.skin, '#e0b08a'), glider: ok(c.glider, GLIDERS, 'classique'), title: typeof c.title === 'string' && typeof ACHS !== 'undefined' && ACHS.some((a) => a[4][0] === 'title' && a[4][1] === c.title) ? c.title : '' };
+    pilot: ok(c.pilot, PILOTS, 'casque'), acc: ok(c.acc, ACCS, 'aucun'), finish: ok(c.finish, FINISHES, 'brillant'), deco: ok(c.deco, DECOS, 'aucune'), trail: ok(c.trail, TRAILS, 'feu'), skin: col(c.skin, '#e0b08a'), engine: ok(c.engine, ENGINES, 'standard'), glider: ok(c.glider, GLIDERS, 'classique'), title: typeof c.title === 'string' && typeof ACHS !== 'undefined' && ACHS.some((a) => a[4][0] === 'title' && a[4][1] === c.title) ? c.title : '' };
 }
 const COLORS = ['#ff4f3a', '#ffc531', '#38b6ff', '#3ee08f', '#7c4dff', '#ff6fb5', '#f5f3ec', '#2b2b3a'];
-function statsFor(body, wheels, glider) {
-  const b = BODIES[body] || BODIES.equilibre, w = WHEELS[wheels] || WHEELS.standard, gl = GLIDERS[glider] || GLIDERS.classique;
-  return { speed: clamp(.5 + b.speed + w.speed, 0, 1), accel: clamp(.5 + b.accel + w.accel, 0, 1), handling: clamp(.5 + b.handling + w.handling, 0, 1),
-    weight: clamp(.5 + b.weight + w.weight, 0, 1), off: clamp(.3 + b.off + w.off, 0, 1), air: clamp(.35 + gl.air * 4, 0, 1) };
+function statsFor(body, wheels, glider, engine) {
+  const b = BODIES[body] || BODIES.equilibre, w = WHEELS[wheels] || WHEELS.standard, gl = GLIDERS[glider] || GLIDERS.classique, e = ENGINES[engine] || ENGINES.standard;
+  return { speed: clamp(.5 + b.speed + w.speed + e.speed, 0, 1), accel: clamp(.5 + b.accel + w.accel + e.accel, 0, 1), handling: clamp(.5 + b.handling + w.handling + e.handling, 0, 1),
+    weight: clamp(.5 + b.weight + w.weight + e.weight, 0, 1), off: clamp(.3 + b.off + w.off + e.off, 0, 1), air: clamp(.35 + gl.air * 4, 0, 1) };
 }
 const CC = [{ name: '50cc', v: 44, ai: .84 }, { name: '100cc', v: 54, ai: .92 }, { name: '150cc', v: 64, ai: .985 }];
 const RIVALS = [
@@ -4456,7 +4465,7 @@ const G = { W: null, race: null, karts: [], hazards: [], rockets: [], autopilot:
 const UI = { screen: 'title', mode: 'quick', track: (SAVE.track || 0) < TRACKS.length ? SAVE.track || 0 : 0, gp: null, afterCalib: null };
 
 function makeKart(cfg, isPlayer, ccIdx) {
-  const st = statsFor(cfg.body, cfg.wheels, cfg.glider), cc = CC[ccIdx];
+  const st = statsFor(cfg.body, cfg.wheels, cfg.glider, cfg.engine), cc = CC[ccIdx];
   const k = { cfg, isPlayer, name: cfg.name, st, maxSpeed: cc.v * (.9 + .2 * st.speed), accel: 15 + 22 * st.accel, turn: 1.8 + .9 * st.handling,
     weight: .6 + .8 * st.weight, offFactor: .46 + .42 * st.off, x: 0, z: 0, y: 0, h: 0, vh: 0, speed: 0, idx: 0, lap: 0, halfway: false, prog: 0, lat: 0, groundY: 0,
     drift: 0, driftT: 0, driftLock: false, boost: 0, spin: 0, spinAng: 0, shield: 0, star: 0, ghost: 0, item: null, roll: 0, hop: 0, bumpCd: 0, wallCd: 0, off: false,
@@ -10466,7 +10475,33 @@ document.addEventListener('click', (e) => {
 /* garage */
 const GS = { scene: null, kart: null, rot: 0, vit: 0, glisse: null, touche: 0 };
 const GARAGE_K = { spin: 0, boost: 0, finished: false, place: 0, drift: 0, air: false };   // kart à l'arrêt pour poser le pilote au garage
+/* #36 finition du garage (7 nov., retour « trop brut ») : studio de présentation — fond en dégradé, flaque de lumière et ombre de contact
+   au sol, plateau tournant biseauté à liseré encastré et lampes, éclairage trois points. Coût : ~10 maillages, trois textures 256 px.
+   WK_GARAGE_AVANT = ancien rendu (témoin). */
+function texDegrade(stops, radial) { const c = document.createElement('canvas'); c.width = c.height = 256; const x = c.getContext('2d');
+  const g = radial ? x.createRadialGradient(128, 128, 0, 128, 128, 128) : x.createLinearGradient(0, 0, 0, 256); for (const [o, col] of stops) g.addColorStop(o, col); x.fillStyle = g; x.fillRect(0, 0, 256, 256);
+  const t = new T.CanvasTexture(c); t.colorSpace = T.SRGBColorSpace; return t; }
+function buildGarageStudio(s) {
+  s.background = texDegrade([[0, '#6a5fd6'], [.45, '#3a3184'], [1, '#141033']]);
+  s.add(new T.HemisphereLight('#f4f0ff', '#2a2560', 1.1));
+  const cle = new T.DirectionalLight('#fff1dc', 2.8); cle.position.set(5, 9, 6); s.add(cle);           /* principale, chaude */
+  const rem = new T.DirectionalLight('#b9c7ff', .9); rem.position.set(-7, 4, 4); s.add(rem);              /* remplissage, froide */
+  const cj = new T.DirectionalLight('#9a7bff', 2.2); cj.position.set(-3, 5, -8); s.add(cj);                /* contre-jour : détache la silhouette */
+  const sol = new T.Mesh(new T.CircleGeometry(40, 48), new T.MeshStandardMaterial({ map: texDegrade([[0, '#4a42a0'], [.18, '#2c2668'], [.55, '#1a1642'], [1, '#100d2a']], true), roughness: .95 }));
+  sol.rotation.x = -Math.PI / 2; sol.position.y = -.36; s.add(sol);
+  /* plateau tournant : profil biseauté (tour), dessus légèrement bombé, liseré lumineux encastré, lampes sur le pourtour */
+  const prof = [[0, -.36], [3.95, -.36], [4.05, -.28], [3.92, -.06], [3.75, .0], [0, .02]].map(([x, y]) => new T.Vector2(x, y));
+  const plateau = new T.Mesh(new T.LatheGeometry(prof, 72), new T.MeshStandardMaterial({ color: '#1d1946', roughness: .35, metalness: .3 })); s.add(plateau);
+  const liseret = new T.Mesh(new T.TorusGeometry(3.62, .06, 8, 96), new T.MeshStandardMaterial({ color: '#ffc531', emissive: '#ffb000', emissiveIntensity: 1.2, roughness: .3 })); liseret.rotation.x = Math.PI / 2; liseret.position.y = .04; s.add(liseret);
+  const lampe = new T.InstancedMesh(new T.SphereGeometry(.06, 10, 8), new T.MeshBasicMaterial({ color: '#fff0c0' }), 24), m = new T.Matrix4();
+  for (let i = 0; i < 24; i++) { const a = i / 24 * TAU; m.makeTranslation(Math.cos(a) * 3.99, -.17, Math.sin(a) * 3.99); lampe.setMatrixAt(i, m); } s.add(lampe);
+  /* ombre de contact douce sous le kart (ancrage au sol, indépendante des ombres portées) */
+  const ombre = new T.Mesh(new T.PlaneGeometry(5.2, 6.4), new T.MeshBasicMaterial({ map: texDegrade([[0, 'rgba(0,0,0,.55)'], [.55, 'rgba(0,0,0,.25)'], [1, 'rgba(0,0,0,0)']], true), transparent: true, depthWrite: false }));
+  ombre.rotation.x = -Math.PI / 2; ombre.position.y = .03; s.add(ombre); GS.ombre = ombre;
+  GS.env = makeEnv('#6a5fd6', '#2a2560', '#17143a', 3.2); s.environment = GS.env.texture;
+}
 function buildGarageScene() {
+  if (!(typeof window !== 'undefined' && window.WK_GARAGE_AVANT)) { const s = new T.Scene(); buildGarageStudio(s); GS.scene = s; return; }
   const s = new T.Scene(); s.background = new T.Color('#2a2560');
   s.add(new T.HemisphereLight('#ffffff', '#2a2560', 1.6)); const d = new T.DirectionalLight('#fff3e0', 2.6); d.position.set(5, 8, 6); s.add(d);
   const r = new T.DirectionalLight('#7c4dff', 1.6); r.position.set(-6, 3, -5); s.add(r);
@@ -10644,7 +10679,7 @@ function refreshGarageKart() {
   if (GS.kart) { GS.scene.remove(GS.kart.g); GS.kart.g.traverse((o) => { if (o.geometry && !o.geometry.userData.keep) o.geometry.dispose(); }); }
   GS.kart = kartMesh(window.WK_APERCU ? Object.assign(myCfgEquipe(), window.WK_APERCU) : myCfg()); GS.kart.shadow = null; if (GS.kart.rig && !window.WK_GARAGE_SANS_POSE) heroAnimate(GS.kart.rig, GARAGE_K, 0, 1, performance.now() / 1000);   /* posé dès la création (pas d'attente de l'image suivante) */ /* WK_APERCU : brouillon de l'atelier (#34.G2) */ GS.scene.add(GS.kart.g); GS.fake = { air: GS.showGlider ? 'glide' : false, glOpen: 0, vy: 0, x: 0, h: 0, vh: 0 };
   $('#g-name').textContent = SAVE.name || 'Toi';
-  const st = statsFor(SAVE.body, SAVE.wheels, SAVE.glider); const box = $('#g-stats'); box.innerHTML = '';
+  const st = statsFor(SAVE.body, SAVE.wheels, SAVE.glider, SAVE.engine); const box = $('#g-stats'); box.innerHTML = '';
   [['Vitesse', st.speed], ['Accélération', st.accel], ['Maniabilité', st.handling], ['Poids', st.weight], ['Tout-terrain', st.off], ['Planeur', st.air]].forEach(([n, v]) => {
     const l = document.createElement('span'); l.textContent = n; const bar = document.createElement('div'); bar.className = 'bar'; const i = document.createElement('i'); i.style.width = Math.round(15 + v * 85) + '%'; bar.appendChild(i); box.append(l, bar);
   });
@@ -10668,7 +10703,7 @@ function renderGarage(dt) {
   { const repos = (performance.now() - GS.touche) / 1000;
     if (!GS.glisse) { GS.rot += GS.vit * dt; GS.vit *= Math.exp(-dt * 3.5); if (Math.abs(GS.vit) < .02) GS.vit = 0; }
     if (!GS.glisse && repos > 3) GS.rot += dt * .6 * Math.min(1, (repos - 3) / 1.5); }   // reprise douce de la rotation automatique
-  GS.kart.g.rotation.y = GS.rot;
+  GS.kart.g.rotation.y = GS.rot; if (GS.ombre) GS.ombre.rotation.z = GS.rot;   /* l'ombre de contact suit le kart */
   if (GS.fake) animateGlider(GS.fake, GS.kart, dt, performance.now() / 1000);
   // Pose du pilote au garage (et dans l'atelier) : heroAnimate n'était appelé qu'en course, si bien qu'au garage les bras restaient
   // non posés (segments à l'origine, mains à 1,22 m du volant, cachées dans le corps) — constaté le 6 nov., antérieur à la fusion #36.P1.
@@ -10830,7 +10865,7 @@ if (window.TK_TEST) (function testPanel() {
 })();
 
 // accès pour les tests automatisés
-window.__TK = { PILOTS, ACCS, FINISHES, DECOS, TRAILS, COLORS, SKINS, lockInfo, refreshGarageKart, launchPrepared, toast, ownedColors: typeof ownedColors === 'function' ? ownedColors : null, lobbyPlayers, heroAnimate, frAddFriend, frSend, buildWorldSteps, acctUpload, acctCall, ONGLET, GS, hostOnData, hostVerifTicket, clientOnData, netTicketEnvoi, disposeWorld, QAUTO, adaptPerf, PERF, setInstZone: (v) => { INST_ZONE = v; }, setDecorLeger: (v) => { DECOR_LEGER = !!v; delete DECOR.bush; }, startAttract, simStep, netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, updateItems, throwFwd, FRONT_TRAPS, onNetEvent, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, videoReady, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner, progOpen, weekDefs, updateObstacles, bridgeAvoid, brAt, raftsAvoid, playerEmote, kartEmote, aiControl, collideKarts, openStudio, toMenu, zoneEnv, studioSurfAt, obstacleHits };
+window.__TK = { ENGINES, PILOTS, ACCS, FINISHES, DECOS, TRAILS, COLORS, SKINS, lockInfo, refreshGarageKart, launchPrepared, toast, ownedColors: typeof ownedColors === 'function' ? ownedColors : null, lobbyPlayers, heroAnimate, frAddFriend, frSend, buildWorldSteps, acctUpload, acctCall, ONGLET, GS, hostOnData, hostVerifTicket, clientOnData, netTicketEnvoi, disposeWorld, QAUTO, adaptPerf, PERF, setInstZone: (v) => { INST_ZONE = v; }, setDecorLeger: (v) => { DECOR_LEGER = !!v; delete DECOR.bush; }, startAttract, simStep, netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, updateItems, throwFwd, FRONT_TRAPS, onNetEvent, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, videoReady, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner, progOpen, weekDefs, updateObstacles, bridgeAvoid, brAt, raftsAvoid, playerEmote, kartEmote, aiControl, collideKarts, openStudio, toMenu, zoneEnv, studioSurfAt, obstacleHits };
 Object.assign(window.__TK, { Graphics, adaptPerf, enhancedGraphics, gravPulse, gravExposed, gravSurf, gravAvail, aiUse13x, GCUT_T, ICONS, ITEM_FR, heroAnimate, QUIZ });
 })();
 

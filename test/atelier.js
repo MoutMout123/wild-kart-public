@@ -12,9 +12,9 @@
   // présenté avant toute diffusion, n'y est pas activé.
   if (/^test-comptes-/.test(String(window.WK_TEST || ''))) return;
   const kartMesh = K.kartMesh, THREE = window.THREE;
-  const { SAVE, store, statsFor, BODIES, WHEELS, GLIDERS, PILOTS, ACCS, FINISHES, DECOS, TRAILS, COLORS, SKINS, lockInfo, GS, refreshGarageKart, show, launchPrepared, UI, TRACKS, toast, AudioSys, ownedColors } = K;
+  const { SAVE, store, statsFor, BODIES, WHEELS, GLIDERS, ENGINES, PILOTS, ACCS, FINISHES, DECOS, TRAILS, COLORS, SKINS, lockInfo, GS, refreshGarageKart, show, launchPrepared, UI, TRACKS, toast, AudioSys, ownedColors } = K;
   const VERSION = 1, NB_MONTAGES = 3, MAX_MONTAGES = 8;
-  const CLES = ['body', 'wheels', 'glider', 'pilot', 'color', 'helmet', 'skin', 'acc', 'finish', 'deco', 'trail'];
+  const CLES = ['body', 'wheels', 'glider', 'engine', 'pilot', 'color', 'helmet', 'skin', 'acc', 'finish', 'deco', 'trail'];
   const NOMS_STATS = [['speed', 'Vitesse'], ['accel', 'Accélération'], ['handling', 'Maniabilité'], ['weight', 'Poids'], ['off', 'Tout-terrain'], ['air', 'Planeur']];
   // Familles : l'étiquette « conduite » est CALCULÉE (une pièce de la famille change réellement statsFor) ; sinon « apparence ».
   // Constat du 6 nov. : les 12 planeurs ont le même effet (choix de conception du jeu) → Planeur = Apparence.
@@ -29,11 +29,11 @@
     { id: 'deco', nom: 'Déco', type: 'apparence', table: () => DECOS },
     { id: 'acc', nom: 'Accessoire', type: 'apparence', table: () => ACCS },
     { id: 'trail', nom: 'Turbo', type: 'apparence', table: () => TRAILS },
-    { id: 'moteur', nom: 'Moteur & suspension', type: 'bientot', aide: 'à développer : « Conduite » seulement si l\'effet est démontré' },
+    { id: 'engine', nom: 'Moteur & suspension', type: 'auto', table: () => ENGINES, nb: () => Object.keys(ENGINES).length },   /* #34.G (7 nov.) : effet réel par statsFor */
     { id: 'pieces', nom: 'Ailes, aileron, échappements', type: 'bientot', aide: 'pièces indépendantes à séparer (raccords G0 prêts)' }
   ];
-  for (const f of FAMILLES) if (f.type === 'auto') { const base = { body: 'equilibre', wheels: 'standard', glider: 'classique' }, ref = JSON.stringify(statsFor(base.body, base.wheels, base.glider));
-    f.type = Object.keys(f.table()).some((v) => { const c = Object.assign({}, base, { [f.id]: v }); return JSON.stringify(statsFor(c.body, c.wheels, c.glider)) !== ref; }) ? 'conduite' : 'apparence'; }
+  for (const f of FAMILLES) if (f.type === 'auto') { const base = { body: 'equilibre', wheels: 'standard', glider: 'classique', engine: 'standard' }, ref = JSON.stringify(statsFor(base.body, base.wheels, base.glider, base.engine));
+    f.type = Object.keys(f.table()).some((v) => { const c = Object.assign({}, base, { [f.id]: v }); return JSON.stringify(statsFor(c.body, c.wheels, c.glider, c.engine)) !== ref; }) ? 'conduite' : 'apparence'; }
   const $a = (s) => document.querySelector(s), esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const equipe = () => { const o = {}; for (const k of CLES) o[k] = SAVE[k]; return o; };
   // Validation d'une configuration (montage relu, brouillon restauré) : uniquement des clés et des valeurs connues.
@@ -62,7 +62,7 @@
   function annuler() { const B = brouillon(); if (!B.histo.length) return; B.redo.push(Object.assign({}, B.cfg)); B.cfg = B.histo.pop(); sauver(); apercu(); rendre(); }
   function retablir() { const B = brouillon(); if (!B.redo.length) return; B.histo.push(Object.assign({}, B.cfg)); B.cfg = B.redo.pop(); sauver(); apercu(); rendre(); }
   function pieceAvant() { const B = brouillon(), f = etat().famille; appliquer(f, B.depart[f]); }
-  const st = (c) => statsFor(c.body, c.wheels, c.glider);
+  const st = (c) => statsFor(c.body, c.wheels, c.glider, c.engine);
   function barres(a, n) { return NOMS_STATS.map(([k, nom]) => { const va = a[k], vn = n[k], d = Math.round((vn - va) * 100), lo = Math.min(va, vn), hi = Math.max(va, vn);
     return '<div class="atl-barre"><span>' + nom + '</span><div class="atl-jauge"><i class="a" style="width:' + (lo * 100).toFixed(1) + '%"></i><i class="n' + (d < 0 ? ' m' : '') + '" style="left:' + (lo * 100).toFixed(1) + '%;width:' + ((hi - lo) * 100).toFixed(1) + '%"></i></div><b class="' + (d > 0 ? 'p' : d < 0 ? 'm' : 'z') + '">' + (d > 0 ? '+' : '') + d + '</b></div>'; }).join(''); }
   function seul(v) { return NOMS_STATS.map(([k, nom]) => '<div class="atl-barre"><span>' + nom + '</span><div class="atl-jauge"><i class="n" style="left:0;width:' + (v[k] * 100).toFixed(1) + '%"></i></div><b class="z">' + Math.round(v[k] * 100) + '</b></div>').join(''); }
@@ -132,7 +132,7 @@
     if (ATL.messageEssai) h += '<p class="atl-essai">' + esc(ATL.messageEssai) + '</p>';
     if (ATL.quitter) h += '<div class="atl-alerte"><p>Tu as des changements non enregistrés.</p><button class="atl-b" id="atl-q-garder"><span>Garder le brouillon</span></button><button class="atl-b ghost" id="atl-q-jeter"><span>Jeter</span></button><button class="atl-b red" id="atl-q-annuler"><span>Rester</span></button></div>';
     h += '<div class="atl-fams">' + FAMILLES.map((f) => '<button class="atl-fam' + (f.id === A.famille ? ' on' : '') + (f.type === 'bientot' ? ' off' : '') + '" data-fam="' + f.id + '"' + (f.type === 'bientot' ? ' aria-disabled="true"' : '') + '><b>' + esc(f.nom) + '</b>' + etiquette(f.type) + '</button>').join('') + '</div>';
-    h += '<p class="atl-legende"><b>Conduite</b> : change le vrai calcul de conduite. <b>Apparence</b> : ne change que le look.</p>';
+    h += '<p class="atl-legende"><b>Conduite</b> : change le vrai calcul de conduite. <b>Apparence</b> : ne change que le look.</p>'; if (A.famille === 'engine') h += '<p class="atl-aide"><strong>Réglages de conduite</strong> : pas encore de pièce visible sur le kart (moteurs et suspensions personnalisables séparément : à venir).</p>';   /* #34.G : famille non terminée */
     // Pièces de la famille
     h += '<div class="atl-pieces">';
     if (F.couleurs) h += F.couleurs().map((c) => '<button class="atl-coul' + (cfg[F.id] === c ? ' on' : '') + '" data-val="' + c + '" style="background:' + c + '" aria-label="Couleur ' + c + '"></button>').join('');

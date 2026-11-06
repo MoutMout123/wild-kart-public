@@ -8,13 +8,15 @@ html,body{margin:0;height:100%;background:#141230;color:#fff;font-family:system-
 #hud{position:fixed;left:8px;top:8px;background:#0008;border-radius:10px;padding:6px 9px;font-size:12px;line-height:1.45;z-index:2}
 #hud b{color:#f5c518}#barre{position:fixed;right:8px;top:8px;display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end;max-width:62vw;z-index:2}
 button{font:inherit;font-size:12px;font-weight:700;border:2px solid #fff;background:#0007;color:#fff;border-radius:9px;padding:5px 8px}button.on{background:#f5c518;color:#141230;border-color:#f5c518}
-.pad{position:fixed;bottom:12px;z-index:2;display:flex;gap:10px}.pad button{width:68px;height:68px;font-size:20px;border-radius:50%}#gauche{left:12px}#droite{right:12px}
+.pad{position:fixed;bottom:12px;z-index:2;display:flex;gap:10px}.pad button{width:68px;height:68px;font-size:20px;border-radius:50%}#gauche{left:12px}#droite{right:12px}#t-o{font-size:13px}
+#stick{position:fixed;left:14px;bottom:14px;width:150px;height:150px;border-radius:50%;background:#fff2;border:2px solid #fff6;z-index:2;display:none;touch-action:none}#stick-b{position:absolute;left:50%;top:50%;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;background:#f5c518}
 #etiquette{position:fixed;left:50%;bottom:8px;transform:translateX(-50%);font-size:11px;opacity:.75;z-index:2;text-align:center}
 </style></head><body>
 <div id="hud"></div>
-<div id="barre"><button id="b-profil">Mur frontal</button><button id="b-cam">Caméra : pilote</button><button id="b-horizon">Horizon 50 %</button><button id="b-traces" class="on">Traces</button><button id="b-auto">Pilote auto</button><button id="b-cc">150cc</button><button id="b-raz">↺ Départ</button></div>
+<div id="barre"><button id="b-profil">Mur frontal</button><button id="b-cam">Caméra : pilote</button><button id="b-horizon">Horizon 50 %</button><button id="b-traces" class="on">Traces</button><button id="b-auto">Pilote auto</button><button id="b-cc">150cc</button><button id="b-raz">↺ Départ</button><button id="b-cmd">Commandes : boutons</button><button id="b-obj">Objets : non</button></div>
 <div class="pad" id="gauche"><button id="t-g">◀</button><button id="t-d">▶</button></div>
-<div class="pad" id="droite"><button id="t-f">FREIN</button><button id="t-a" class="on">GAZ</button></div>
+<div id="stick"><div id="stick-b"></div></div>
+<div class="pad" id="droite"><button id="t-o">LANCER</button><button id="t-f">FREIN</button><button id="t-a" class="on">GAZ</button></div>
 <div id="etiquette">PROTOTYPE #32 — vraie surface 3D (palier mur frontal, virages sur paroi, étages, parcours composé) · kart simplifié · non intégré aux circuits</div>
 <script src="three.min.js"></script>
 <script src="surface3d.js"></script>
@@ -66,13 +68,24 @@ button{font:inherit;font-size:12px;font-weight:700;border:2px solid #fff;backgro
     const tete = new T.Mesh(new T.SphereGeometry(.32, 16, 12), new T.MeshStandardMaterial({ color: '#ffc531' })); tete.position.set(-.3, 1.05, 0); kartG.add(tete);
     for (const [x, z] of [[.9, .82], [.9, -.82], [-.9, .82], [-.9, -.82]]) { const r = new T.Mesh(new T.CylinderGeometry(.34, .34, .3, 16), new T.MeshStandardMaterial({ color: '#222' })); r.rotation.x = Math.PI / 2; r.position.set(x, .34, z); kartG.add(r); } }
   sc.add(kartG);
+  /* #32.C2 — objets jouables : rival (cible), flaques posées sur la chaussée, projectiles lancés par le joueur (bouton LANCER / touche Entrée) */
+  const rivalG = kartG.clone(true); rivalG.traverse((o) => { if (o.isMesh && o.material && o.material.color && o.material.color.getHexString() === 'e8453c') { o.material = o.material.clone(); o.material.color.set('#38b6ff'); } }); sc.add(rivalG);
+  const objG = new T.Group(); sc.add(objG); const projM = new T.MeshStandardMaterial({ color: '#3ee08f', emissive: '#1a6b40' }), flaqueM = new T.MeshStandardMaterial({ color: '#7c4dff', roughness: .2, transparent: true, opacity: .85 });
+  let O = null, rival = null, recharge = 0, objetsActifs = false; const projMesh = new Map();   /* objets désactivés par défaut (bouton « Objets ») */
   // Traces : normale (vert), tangente (rouge), latéral (bleu), trajectoire.
   const traces = new T.Group(); sc.add(traces);
   const fleche = (c) => { const a = new T.ArrowHelper(new T.Vector3(1, 0, 0), new T.Vector3(), 3, c, .5, .3); traces.add(a); return a; }, fN = fleche(0x3ee08f), fT = fleche(0xff4f3a), fL = fleche(0x38b6ff);
   const trajG = new T.BufferGeometry(), trajP = new Float32Array(3 * 2000); trajG.setAttribute('position', new T.BufferAttribute(trajP, 3)); trajG.setDrawRange(0, 0); traces.add(new T.Line(trajG, new T.LineBasicMaterial({ color: 0xffffff }))); let nTraj = 0;
   // État et commandes
   const CC = { '50cc': 44, '100cc': 54, '150cc': 64 }; let cc = '150cc', camMode = 'pilote', auto = false, k = null, horizon = .5; /* horizon : part de la verticale du monde gardée par la caméra pilote */ const E = { g: false, d: false, gaz: true, frein: false };
-  function depart() { k = RS.creer(SC.depart, Object.assign({ v: SC.fourche ? 20 : 0, vMax: CC[cc] }, SC.reglages || {})); choix = -choix; nTraj = 0; trajG.setDrawRange(0, 0); }
+  function depart() { k = RS.creer(SC.depart, Object.assign({ v: SC.fourche ? 20 : 0, vMax: CC[cc] }, SC.reglages || {})); choix = -choix; nTraj = 0; trajG.setDrawRange(0, 0);
+    rival = null; O = null; projMesh.clear(); for (const o of objG.children.slice()) objG.remove(o); rivalG.visible = objetsActifs; document.getElementById('t-o').style.display = objetsActifs ? '' : 'none'; if (!objetsActifs) return;
+    rival = RS.creer(SC.depart, Object.assign({ s: 30, v: 10, vMax: CC[cc] * .8, d: 2 }, SC.reglages || {})); O = S.objets(RS); projMesh.clear(); for (const o of objG.children.slice()) objG.remove(o);
+    const L = SC.surfaces[SC.depart].longueur; [.3, .55, .8].forEach((f, i) => { O.poser(SC.depart, L * f, [0, 3, -3][i], 'flaque ' + (i + 1)); const q = O.pieges[O.pieges.length - 1], m = new T.Mesh(new T.CylinderGeometry(1.3, 1.3, .06, 20), flaqueM), fr = q.surf.repere(q.s);
+      m.position.copy(v3(q.surf.sample(q.s, q.d, .03))); m.quaternion.setFromUnitVectors(new T.Vector3(0, 1, 0), v3(fr.n)); m.userData.piege = q; objG.add(m); }); }
+  function lancerObjet() { if (!O || recharge > 0) return; recharge = 1; const pr = O.lancer(k); const m = new T.Mesh(new T.SphereGeometry(.45, 14, 10), projM); objG.add(m); projMesh.set(pr, m); }
+  document.getElementById('b-obj').onclick = (e) => { objetsActifs = !objetsActifs; e.currentTarget.textContent = 'Objets : ' + (objetsActifs ? 'oui' : 'non'); e.currentTarget.classList.toggle('on', objetsActifs); depart(); };   /* (bascule() n'est pas encore définie ici) */
+  document.getElementById('t-o').onclick = (ev) => { ev.preventDefault(); lancerObjet(); }; addEventListener('keydown', (e) => { if (e.key === 'Enter') lancerObjet(); });
   depart();
   const bascule = (id, fn) => { document.getElementById(id).onclick = fn; };
   bascule('b-cam', () => { camMode = camMode === 'pilote' ? 'oblique' : 'pilote'; document.getElementById('b-cam').textContent = 'Caméra : ' + camMode; });
@@ -80,6 +93,19 @@ button{font:inherit;font-size:12px;font-weight:700;border:2px solid #fff;backgro
   bascule('b-auto', (e) => { auto = !auto; e.currentTarget.classList.toggle('on', auto); });
   bascule('b-cc', (e) => { cc = cc === '150cc' ? '50cc' : cc === '50cc' ? '100cc' : '150cc'; e.currentTarget.textContent = cc; depart(); });
   bascule('b-raz', depart);
+  /* #32.C1 — Commandes : boutons tactiles, joystick (analogique, zone morte 8 %), inclinaison (calibrée à l'activation, selon l'orientation
+     de l'écran) ; le clavier reste toujours actif. E.an = braquage analogique (−1 gauche … +1 droite) ou null. */
+  const MODES = ['boutons', 'joystick', 'inclinaison']; let mode = 'boutons', zeroTilt = null; E.an = null;
+  function changerMode(m) { mode = m; E.an = null; zeroTilt = null; document.getElementById('b-cmd').textContent = 'Commandes : ' + m; document.getElementById('gauche').style.display = m === 'boutons' ? 'flex' : 'none'; document.getElementById('stick').style.display = m === 'joystick' ? 'block' : 'none';
+    if (m === 'inclinaison' && typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission) DeviceOrientationEvent.requestPermission().catch(() => {}); }
+  bascule('b-cmd', () => changerMode(MODES[(MODES.indexOf(mode) + 1) % MODES.length]));
+  { const z = document.getElementById('stick'), bo = document.getElementById('stick-b'); let id = null;
+    const lire = (ev) => { const r0 = z.getBoundingClientRect(), dx = (ev.clientX - (r0.left + r0.width / 2)) / (r0.width / 2), v = Math.max(-1, Math.min(1, dx)); E.an = Math.abs(v) < .08 ? 0 : v; bo.style.transform = 'translateX(' + v * 47 + 'px)'; };
+    z.addEventListener('pointerdown', (ev) => { ev.preventDefault(); id = ev.pointerId; z.setPointerCapture && z.setPointerCapture(id); lire(ev); });
+    z.addEventListener('pointermove', (ev) => { if (ev.pointerId === id) lire(ev); });
+    const lacher = (ev) => { if (ev.pointerId !== id) return; id = null; E.an = 0; bo.style.transform = ''; }; z.addEventListener('pointerup', lacher); z.addEventListener('pointercancel', lacher); }
+  addEventListener('deviceorientation', (ev) => { if (mode !== 'inclinaison') return; const a = (screen.orientation && screen.orientation.angle) || window.orientation || 0, brut = a === 90 ? ev.beta : a === -90 || a === 270 ? -ev.beta : ev.gamma;
+    if (brut == null) return; if (zeroTilt == null) zeroTilt = brut; const v = Math.max(-1, Math.min(1, (brut - zeroTilt) / 25)); E.an = Math.abs(v) < .06 ? 0 : v; });   /* 25° d'inclinaison = braquage plein */
   function changerProfil(nom) { profil = nom; SC = scene(nom); RS = reseauDe(SC); surf = SC.surfaces[SC.depart]; construirePiste(); depart(); document.getElementById('b-profil').textContent = NOMS[nom]; }
   bascule('b-profil', () => { const l = Object.keys(PROFILS); changerProfil(l[(l.indexOf(profil) + 1) % l.length]); });
   bascule('b-horizon', (e) => { horizon = horizon === .5 ? .8 : horizon === .8 ? .25 : .5; e.currentTarget.textContent = 'Horizon ' + Math.round(horizon * 100) + ' %'; });
@@ -91,19 +117,26 @@ button{font:inherit;font-size:12px;font-weight:700;border:2px solid #fff;backgro
   addEventListener('resize', () => { R.setSize(innerWidth, innerHeight); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); });
   // Boucle : physique à 120 Hz fixes, affichage à la cadence de l'écran.
   let acc = 0, last = performance.now(); const DT = 1 / 120, camPos = new T.Vector3(-12, 6, 0), camHaut = new T.Vector3(0, 1, 0), capNiveau = new T.Vector3(1, 0, 0);
-  const etat = { images: 0 }; window.WKPalier = { get surf() { return k ? k.surf : surf; }, get profil() { return profil; }, get surfaceId() { return k ? RS.id(k.surf) : null; }, get choix() { return choix; }, get points() { return k ? k.point || 0 : 0; }, reseau: () => RS, fini: () => !!k && k.attache && RS.terminus(k.surf) && k.s >= k.surf.longueur - 2, PROFILS: Object.keys(PROFILS), kart: () => k, etat, regler: (o) => { if (o.profil && o.profil in PROFILS) changerProfil(o.profil); if (o.horizon != null) horizon = o.horizon; if (o.auto != null) auto = o.auto; if (o.cam) { camMode = o.cam; document.getElementById('b-cam').textContent = 'Caméra : ' + camMode; } if (o.cc) { cc = o.cc; depart(); } } };
+  const etat = { images: 0 }; window.WKPalier = { objets: () => ({ O, rival }), lancer: lancerObjet, get mode() { return mode; }, get braquage() { return E.brq || 0; }, changerMode, get surf() { return k ? k.surf : surf; }, get profil() { return profil; }, get surfaceId() { return k ? RS.id(k.surf) : null; }, get choix() { return choix; }, get points() { return k ? k.point || 0 : 0; }, reseau: () => RS, fini: () => !!k && k.attache && RS.terminus(k.surf) && k.s >= k.surf.longueur - 2, PROFILS: Object.keys(PROFILS), kart: () => k, etat, regler: (o) => { if (o.objets != null) { objetsActifs = !!o.objets; const bo = document.getElementById('b-obj'); bo.textContent = 'Objets : ' + (objetsActifs ? 'oui' : 'non'); bo.classList.toggle('on', objetsActifs); depart(); } if (o.mode) changerMode(o.mode); if (o.profil && o.profil in PROFILS) changerProfil(o.profil); if (o.horizon != null) horizon = o.horizon; if (o.auto != null) auto = o.auto; if (o.cam) { camMode = o.cam; document.getElementById('b-cam').textContent = 'Caméra : ' + camMode; } if (o.cc) { cc = o.cc; depart(); } } };
   function boucle(now) {
     acc += Math.min(.1, (now - last) / 1000); last = now;
     while (acc >= DT) { const F = SC.fourche, cible = F ? (k.surf === SC.surfaces[F.surface] && k.s > F.depuis ? F.decal * choix : 0) : RS.cibleIA(k, choix > 0 ? 'court' : 'long');   /* le pilote auto vise sa branche avant la fourche */
       /* en vol (ENVOL, contrôle aérien) : le pilote auto vise la réception gauche ou droite selon « choix » */
-      const brq = auto ? (!k.attache && SC.reglages ? (choix > 0 ? -1 : 1) : Math.max(-1, Math.min(1, (k.d - cible) * .25 + Math.sin(k.cap) * 2))) : (E.d ? 1 : 0) - (E.g ? 1 : 0);
+      const clavier = (E.d ? 1 : 0) - (E.g ? 1 : 0), brq = auto ? (!k.attache && SC.reglages ? (choix > 0 ? -1 : 1) : Math.max(-1, Math.min(1, (k.d - cible) * .25 + Math.sin(k.cap) * 2))) : (clavier || (mode !== 'boutons' && E.an != null ? E.an : 0));   /* clavier prioritaire, sinon joystick/inclinaison */ E.brq = brq;
       RS.pas(k, DT, { gaz: auto || E.gaz ? 1 : 0, frein: E.frein ? 1 : 0, braquage: brq }); acc -= DT;
-      if (k.attache && RS.terminus(k.surf) && k.s >= k.surf.longueur - 1.5) { k.s = k.surf.longueur - 1.5; k.v = 0; } }
+      if (k.attache && RS.terminus(k.surf) && k.s >= k.surf.longueur - 1.5) { k.s = k.surf.longueur - 1.5; k.v = 0; }
+      if (rival && !(rival.attache && RS.terminus(rival.surf) && rival.s >= rival.surf.longueur - 1.5)) RS.pas(rival, DT, { gaz: 1, braquage: rival.attache ? Math.max(-1, Math.min(1, (rival.d - 2) * .25 + Math.sin(rival.cap) * 2)) : 0 });
+      if (O) O.pas([k, rival], DT); recharge = Math.max(0, recharge - DT); }
+    /* pose d'un kart (repère de surface ou orientation de vol) */
+    const poser = (G2, kk) => { let pp, tt, nn; if (kk.attache) { const f = kk.surf.repere(kk.s); pp = v3(kk.surf.sample(kk.s, kk.d, 0)); tt = v3(S.V.add(S.V.mul(f.t, Math.cos(kk.cap)), S.V.mul(f.l, Math.sin(kk.cap)))); nn = v3(f.n); } else { pp = v3(kk.vol.p); tt = v3(kk.vol.v).normalize(); nn = new T.Vector3(0, 1, 0).sub(tt.clone().multiplyScalar(tt.y)).normalize(); }
+      const ll = new T.Vector3().crossVectors(nn, tt).normalize(); G2.position.copy(pp); G2.quaternion.setFromRotationMatrix(new T.Matrix4().makeBasis(tt, nn, ll.clone().negate())); if (kk.etourdi > 0) G2.rotateY(kk.etourdi * 12); };
+    if (rival) poser(rivalG, rival);
+    if (O) { for (const m of objG.children) if (m.userData.piege) m.visible = m.userData.piege.actif; for (const [pr, m] of projMesh) { if (pr.fini) { objG.remove(m); projMesh.delete(pr); continue; } m.position.copy(v3(S.position(pr))); if (pr.attache) m.position.add(v3(pr.surf.repere(pr.s).n).multiplyScalar(.45)); } }
     // Pose du kart : repère de surface (attaché) ou orientation de vol (détaché)
     let p, t, n;
     if (k.attache) { const f = k.surf.repere(k.s); p = v3(k.surf.sample(k.s, k.d, 0)); const dir = v3(S.V.add(S.V.mul(f.t, Math.cos(k.cap)), S.V.mul(f.l, Math.sin(k.cap)))); t = dir; n = v3(f.n); }
     else { p = v3(k.vol.p); t = v3(k.vol.v).normalize(); n = new T.Vector3(0, 1, 0).sub(t.clone().multiplyScalar(t.y)).normalize(); }
-    const l = new T.Vector3().crossVectors(n, t).normalize(), m = new T.Matrix4().makeBasis(t, n, l.clone().negate()); kartG.position.copy(p); kartG.quaternion.setFromRotationMatrix(m);
+    const l = new T.Vector3().crossVectors(n, t).normalize(), m = new T.Matrix4().makeBasis(t, n, l.clone().negate()); kartG.position.copy(p); kartG.quaternion.setFromRotationMatrix(m); if (k.etourdi > 0) kartG.rotateY(k.etourdi * 12);   /* tête-à-queue visible */
     fN.position.copy(p); fN.setDirection(n); fT.position.copy(p); fT.setDirection(t); fL.position.copy(p); fL.setDirection(l);
     if (nTraj < 2000 && (nTraj === 0 || p.distanceTo(new T.Vector3(trajP[3 * nTraj - 3], trajP[3 * nTraj - 2], trajP[3 * nTraj - 1])) > .8)) { trajP.set([p.x, p.y + .05, p.z], 3 * nTraj); nTraj++; trajG.setDrawRange(0, nTraj); trajG.attributes.position.needsUpdate = true; }
     // Caméra : pilote = derrière le kart dans son repère (le « haut » mêle la normale et la verticale du monde selon « horizon » : à 25 % le mur paraissait une route plate, comme signalé sur Aurores) ; oblique = vue extérieure fixe.
@@ -123,7 +156,7 @@ button{font:inherit;font-size:12px;font-weight:700;border:2px solid #fff;backgro
     R.render(sc, cam); etat.images++;
     const raide = k.raide != null ? k.raide : 0;
     document.getElementById('hud').innerHTML = '<b>' + Math.round(Math.abs(k.v) * 3.6) + ' km/h</b> · ' + cc + '<br>chaussée : ' + raide.toFixed(0) + '° ' + (k.surf.aimante(k.s) ? '(aimantée)' : '') + (RESEAUX.includes(profil) ? ' · surface ' + RS.id(k.surf) : '') + (SC.fourche || SC.reglages ? ' · vise ' + (choix > 0 ? 'gauche' : 'droite') : '') + (SC.points ? '<br>points de passage ' + (k.point || 0) + '/' + SC.points.length + ' · IA : branche ' + (choix > 0 ? 'courte' : 'longue') + ' · progression ' + RS.progression(k).toFixed(0) + ' m' : '') + '<br>' + (k.attache ? 'roues au contact' : 'EN VOL') +
-      ' · détachements ' + k.detachements + (k.remises ? ' · remises ' + k.remises : '') + '<br>s = ' + k.s.toFixed(0) + ' / ' + k.surf.longueur.toFixed(0) + ' m · écart ' + k.d.toFixed(1) + ' m';
+      ' · détachements ' + k.detachements + ' · coups reçus ' + (k.coups || 0) + ' · rival touché ' + ((rival && rival.coups) || 0) + (k.remises ? ' · remises ' + k.remises : '') + '<br>s = ' + k.s.toFixed(0) + ' / ' + k.surf.longueur.toFixed(0) + ' m · écart ' + k.d.toFixed(1) + ' m';
     requestAnimationFrame(boucle);
   }
   requestAnimationFrame(boucle);
