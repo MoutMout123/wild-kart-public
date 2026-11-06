@@ -12,31 +12,48 @@ button{font:inherit;font-size:12px;font-weight:700;border:2px solid #fff;backgro
 #etiquette{position:fixed;left:50%;bottom:8px;transform:translateX(-50%);font-size:11px;opacity:.75;z-index:2;text-align:center}
 </style></head><body>
 <div id="hud"></div>
-<div id="barre"><button id="b-cam">Caméra : pilote</button><button id="b-horizon">Horizon 50 %</button><button id="b-traces" class="on">Traces</button><button id="b-auto">Pilote auto</button><button id="b-cc">150cc</button><button id="b-raz">↺ Départ</button></div>
+<div id="barre"><button id="b-profil">Mur frontal</button><button id="b-cam">Caméra : pilote</button><button id="b-horizon">Horizon 50 %</button><button id="b-traces" class="on">Traces</button><button id="b-auto">Pilote auto</button><button id="b-cc">150cc</button><button id="b-raz">↺ Départ</button></div>
 <div class="pad" id="gauche"><button id="t-g">◀</button><button id="t-d">▶</button></div>
 <div class="pad" id="droite"><button id="t-f">FREIN</button><button id="t-a" class="on">GAZ</button></div>
-<div id="etiquette">PROTOTYPE #32 — vraie surface 3D (palier mur frontal) · kart simplifié · non intégré aux circuits</div>
+<div id="etiquette">PROTOTYPE #32 — vraie surface 3D (palier mur frontal, virages sur paroi, étages) · kart simplifié · non intégré aux circuits</div>
 <script src="three.min.js"></script>
 <script src="surface3d.js"></script>
 <script>
 (function () {
   'use strict';
-  const T = window.THREE, S = window.WKSurface3D, surf = S.depuisProfil(S.profilMurFrontal());
+  const T = window.THREE, S = window.WKSurface3D;
+  /* Profils jouables : palier mur frontal (B1) et virages sur paroi (B2). */
+  const PROFILS = { mur: () => S.profilMurFrontal(), gauche: () => S.profilParoi('gauche'), droite: () => S.profilParoi('droite'), s: () => S.profilParoi('s'), epingle: () => S.profilParoi('epingle'), spirale: () => S.profilParoi('spirale') };
+  const NOMS = { mur: 'Mur frontal', gauche: 'Paroi gauche', droite: 'Paroi droite', s: 'S sur paroi', epingle: 'Épingle', spirale: 'Spirale' };
+  /* #32.B3 : scènes à PLUSIEURS surfaces (réseau) — croisement par pont, saut d'un étage à l'autre, bifurcation et réunion */
+  const RESEAUX = ['croisement', 'etage', 'bifurcation']; for (const r of RESEAUX) PROFILS[r] = null;
+  Object.assign(NOMS, { croisement: 'Pont (croisement)', etage: 'Étages', bifurcation: 'Bifurcation' });
+  const scene = (nom) => RESEAUX.includes(nom) ? S.sceneReseau(nom) : { surfaces: { piste: S.depuisProfil(PROFILS[nom]()) }, liens: {}, vide: {}, depart: 'piste' };
+  let profil = 'mur', SC = scene('mur'), RS = S.reseau(SC.surfaces, SC.liens, SC.vide), surf = SC.surfaces[SC.depart], choix = 1;   /* choix : branche visée par le pilote auto (+1 gauche, −1 droite), alternée à chaque départ */
   const R = new T.WebGLRenderer({ antialias: true }); R.setPixelRatio(Math.min(2, devicePixelRatio || 1)); R.setSize(innerWidth, innerHeight); document.body.appendChild(R.domElement);
   const sc = new T.Scene(); sc.background = new T.Color('#7ec8f0'); sc.fog = new T.Fog('#7ec8f0', 120, 420);
   sc.add(new T.HemisphereLight('#ffffff', '#4a6a3a', 1.4)); const sol = new T.DirectionalLight('#fff4dd', 2.2); sol.position.set(40, 80, 30); sc.add(sol);
   const cam = new T.PerspectiveCamera(62, innerWidth / innerHeight, .1, 900);
   const v3 = (a) => new T.Vector3(a[0], a[1], a[2]);
   // Chaussée : ruban le long des repères (bandes de couleur pour lire la vitesse et l'inclinaison), bordures, dessous.
-  { const pos = [], col = [], idx = [], pas = .5; let i = 0;
+  const piste = new T.Group(); sc.add(piste);
+  function construirePiste() { for (const o of piste.children.slice()) { piste.remove(o); o.geometry.dispose(); o.material.dispose(); }
+    for (const surf of Object.values(SC.surfaces)) {
+    const pos = [], col = [], idx = [], pas = .5; let i = 0;
     for (let s = 0; s <= surf.longueur; s += pas) { const f = surf.repere(s), w = f.largeur / 2, a = surf.sample(s, -w, 0), b = surf.sample(s, w, 0), bande = Math.floor(s / 4) % 2, am = surf.aimante(s);
       pos.push(...a, ...b); const c = am ? (bande ? [.36, .3, .62] : [.3, .25, .55]) : (bande ? [.32, .32, .36] : [.27, .27, .3]); col.push(...c, ...c);
       if (i) idx.push(2 * i - 2, 2 * i - 1, 2 * i, 2 * i - 1, 2 * i + 1, 2 * i); i++; }
     const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new T.Float32BufferAttribute(col, 3)); g.setIndex(idx); g.computeVertexNormals();
-    sc.add(new T.Mesh(g, new T.MeshStandardMaterial({ vertexColors: true, roughness: .8, side: T.DoubleSide })));
+    piste.add(new T.Mesh(g, new T.MeshStandardMaterial({ vertexColors: true, roughness: .8, side: T.DoubleSide })));
     for (const cote of [-1, 1]) { const p2 = [], i2 = []; let j = 0; for (let s = 0; s <= surf.longueur; s += pas) { const f = surf.repere(s), w = f.largeur / 2; p2.push(...surf.sample(s, cote * w, 0), ...surf.sample(s, cote * w, .8)); if (j) i2.push(2 * j - 2, 2 * j - 1, 2 * j, 2 * j - 1, 2 * j + 1, 2 * j); j++; }
-      const g2 = new T.BufferGeometry(); g2.setAttribute('position', new T.Float32BufferAttribute(p2, 3)); g2.setIndex(i2); g2.computeVertexNormals(); sc.add(new T.Mesh(g2, new T.MeshStandardMaterial({ color: cote < 0 ? '#f5c518' : '#ff6f3c', side: T.DoubleSide, roughness: .6 }))); }
-    const sol2 = new T.Mesh(new T.PlaneGeometry(900, 900), new T.MeshStandardMaterial({ color: '#5f9a4a', roughness: 1 })); sol2.rotation.x = -Math.PI / 2; sol2.position.y = -.05; sc.add(sol2); }
+      const g2 = new T.BufferGeometry(); g2.setAttribute('position', new T.Float32BufferAttribute(p2, 3)); g2.setIndex(i2); g2.computeVertexNormals(); piste.add(new T.Mesh(g2, new T.MeshStandardMaterial({ color: cote < 0 ? '#f5c518' : '#ff6f3c', side: T.DoubleSide, roughness: .6 }))); }
+    /* piliers sous les tronçons en hauteur (lecture des étages) */
+    for (let s2 = 10; s2 < surf.longueur; s2 += 20) { const f = surf.repere(s2); if (f.p[1] < 2.5 || f.n[1] < .9) continue; const hP = f.p[1] - .3;
+      const pil = new T.Mesh(new T.BoxGeometry(1.2, hP, 1.2), new T.MeshStandardMaterial({ color: '#b9b3a6', roughness: .9 })); pil.position.set(f.p[0], hP / 2, f.p[2]); piste.add(pil); }
+    }
+  }
+  construirePiste();
+  { const sol2 = new T.Mesh(new T.PlaneGeometry(900, 900), new T.MeshStandardMaterial({ color: '#5f9a4a', roughness: 1 })); sol2.rotation.x = -Math.PI / 2; sol2.position.y = -.05; sc.add(sol2); }
   // Kart simplifié : caisse, siège, quatre roues (le « haut » du kart = normale de la chaussée).
   const kartG = new T.Group(); { const caisse = new T.Mesh(new T.BoxGeometry(2.6, .45, 1.5), new T.MeshStandardMaterial({ color: '#e8453c', roughness: .4 })); caisse.position.y = .45; kartG.add(caisse);
     const nez = new T.Mesh(new T.BoxGeometry(.8, .3, 1.1), new T.MeshStandardMaterial({ color: '#ffc531' })); nez.position.set(1.35, .4, 0); kartG.add(nez);
@@ -49,7 +66,7 @@ button{font:inherit;font-size:12px;font-weight:700;border:2px solid #fff;backgro
   const trajG = new T.BufferGeometry(), trajP = new Float32Array(3 * 2000); trajG.setAttribute('position', new T.BufferAttribute(trajP, 3)); trajG.setDrawRange(0, 0); traces.add(new T.Line(trajG, new T.LineBasicMaterial({ color: 0xffffff }))); let nTraj = 0;
   // État et commandes
   const CC = { '50cc': 44, '100cc': 54, '150cc': 64 }; let cc = '150cc', camMode = 'pilote', auto = false, k = null, horizon = .5; /* horizon : part de la verticale du monde gardée par la caméra pilote */ const E = { g: false, d: false, gaz: true, frein: false };
-  function depart() { k = S.creerKart(surf, { v: 0, vMax: CC[cc] }); nTraj = 0; trajG.setDrawRange(0, 0); }
+  function depart() { k = RS.creer(SC.depart, { v: SC.fourche ? 20 : 0, vMax: CC[cc] }); choix = -choix; nTraj = 0; trajG.setDrawRange(0, 0); }
   depart();
   const bascule = (id, fn) => { document.getElementById(id).onclick = fn; };
   bascule('b-cam', () => { camMode = camMode === 'pilote' ? 'oblique' : 'pilote'; document.getElementById('b-cam').textContent = 'Caméra : ' + camMode; });
@@ -57,6 +74,8 @@ button{font:inherit;font-size:12px;font-weight:700;border:2px solid #fff;backgro
   bascule('b-auto', (e) => { auto = !auto; e.currentTarget.classList.toggle('on', auto); });
   bascule('b-cc', (e) => { cc = cc === '150cc' ? '50cc' : cc === '50cc' ? '100cc' : '150cc'; e.currentTarget.textContent = cc; depart(); });
   bascule('b-raz', depart);
+  function changerProfil(nom) { profil = nom; SC = scene(nom); RS = S.reseau(SC.surfaces, SC.liens, SC.vide); surf = SC.surfaces[SC.depart]; construirePiste(); depart(); document.getElementById('b-profil').textContent = NOMS[nom]; }
+  bascule('b-profil', () => { const l = Object.keys(PROFILS); changerProfil(l[(l.indexOf(profil) + 1) % l.length]); });
   bascule('b-horizon', (e) => { horizon = horizon === .5 ? .8 : horizon === .8 ? .25 : .5; e.currentTarget.textContent = 'Horizon ' + Math.round(horizon * 100) + ' %'; });
   const tient = (id, cle) => { const b = document.getElementById(id); const on = (v) => (ev) => { ev.preventDefault(); E[cle] = v; b.classList.toggle('on', v); }; b.addEventListener('pointerdown', on(true)); b.addEventListener('pointerup', on(false)); b.addEventListener('pointerleave', on(false)); };
   tient('t-g', 'g'); tient('t-d', 'd'); tient('t-f', 'frein');
@@ -66,15 +85,16 @@ button{font:inherit;font-size:12px;font-weight:700;border:2px solid #fff;backgro
   addEventListener('resize', () => { R.setSize(innerWidth, innerHeight); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); });
   // Boucle : physique à 120 Hz fixes, affichage à la cadence de l'écran.
   let acc = 0, last = performance.now(); const DT = 1 / 120, camPos = new T.Vector3(-12, 6, 0), camHaut = new T.Vector3(0, 1, 0), capNiveau = new T.Vector3(1, 0, 0);
-  const etat = { images: 0 }; window.WKPalier = { surf, kart: () => k, etat, regler: (o) => { if (o.horizon != null) horizon = o.horizon; if (o.auto != null) auto = o.auto; if (o.cam) camMode = o.cam; if (o.cc) { cc = o.cc; depart(); } } };
+  const etat = { images: 0 }; window.WKPalier = { get surf() { return k ? k.surf : surf; }, get profil() { return profil; }, get surfaceId() { return k ? RS.id(k.surf) : null; }, get choix() { return choix; }, fini: () => !!k && k.attache && RS.terminus(k.surf) && k.s >= k.surf.longueur - 2, PROFILS: Object.keys(PROFILS), kart: () => k, etat, regler: (o) => { if (o.profil && o.profil in PROFILS) changerProfil(o.profil); if (o.horizon != null) horizon = o.horizon; if (o.auto != null) auto = o.auto; if (o.cam) { camMode = o.cam; document.getElementById('b-cam').textContent = 'Caméra : ' + camMode; } if (o.cc) { cc = o.cc; depart(); } } };
   function boucle(now) {
     acc += Math.min(.1, (now - last) / 1000); last = now;
-    while (acc >= DT) { const brq = auto ? Math.max(-1, Math.min(1, k.d * .25 + Math.sin(k.cap) * 2)) : (E.d ? 1 : 0) - (E.g ? 1 : 0);
-      S.pas(k, DT, { gaz: auto || E.gaz ? 1 : 0, frein: E.frein ? 1 : 0, braquage: brq }); acc -= DT;
-      if (k.s >= surf.longueur - 1.5) { k.s = surf.longueur - 1.5; k.v = 0; } }
+    while (acc >= DT) { const F = SC.fourche, cible = F && k.surf === SC.surfaces[F.surface] && k.s > F.depuis ? F.decal * choix : 0;   /* le pilote auto vise sa branche avant la fourche */
+      const brq = auto ? Math.max(-1, Math.min(1, (k.d - cible) * .25 + Math.sin(k.cap) * 2)) : (E.d ? 1 : 0) - (E.g ? 1 : 0);
+      RS.pas(k, DT, { gaz: auto || E.gaz ? 1 : 0, frein: E.frein ? 1 : 0, braquage: brq }); acc -= DT;
+      if (k.attache && RS.terminus(k.surf) && k.s >= k.surf.longueur - 1.5) { k.s = k.surf.longueur - 1.5; k.v = 0; } }
     // Pose du kart : repère de surface (attaché) ou orientation de vol (détaché)
     let p, t, n;
-    if (k.attache) { const f = surf.repere(k.s); p = v3(surf.sample(k.s, k.d, 0)); const dir = v3(S.V.add(S.V.mul(f.t, Math.cos(k.cap)), S.V.mul(f.l, Math.sin(k.cap)))); t = dir; n = v3(f.n); }
+    if (k.attache) { const f = k.surf.repere(k.s); p = v3(k.surf.sample(k.s, k.d, 0)); const dir = v3(S.V.add(S.V.mul(f.t, Math.cos(k.cap)), S.V.mul(f.l, Math.sin(k.cap)))); t = dir; n = v3(f.n); }
     else { p = v3(k.vol.p); t = v3(k.vol.v).normalize(); n = new T.Vector3(0, 1, 0).sub(t.clone().multiplyScalar(t.y)).normalize(); }
     const l = new T.Vector3().crossVectors(n, t).normalize(), m = new T.Matrix4().makeBasis(t, n, l.clone().negate()); kartG.position.copy(p); kartG.quaternion.setFromRotationMatrix(m);
     fN.position.copy(p); fN.setDirection(n); fT.position.copy(p); fT.setDirection(t); fL.position.copy(p); fL.setDirection(l);
@@ -88,11 +108,15 @@ button{font:inherit;font-size:12px;font-weight:700;border:2px solid #fff;backgro
       const q = base(t, n).slerp(base(th, new T.Vector3(0, 1, 0)), horizon), fw = new T.Vector3(0, 0, -1).applyQuaternion(q), up = new T.Vector3(0, 1, 0).applyQuaternion(q);
       const cible = p.clone().add(fw.clone().multiplyScalar(-7.5)).add(up.clone().multiplyScalar(2.8)); camPos.lerp(cible, .2); camHaut.lerp(up, .2);
       cam.position.copy(camPos); cam.up.copy(camHaut); cam.lookAt(p.clone().add(fw.clone().multiplyScalar(6)).add(up.clone().multiplyScalar(.6))); }
-    else { cam.position.set(72, 30, 62); cam.up.set(0, 1, 0); cam.lookAt(p.x * .4 + 60 * .6, p.y * .5 + 15, 0); }
+    else if (profil === 'mur') { cam.position.set(72, 30, 62); cam.up.set(0, 1, 0); cam.lookAt(p.x * .4 + 60 * .6, p.y * .5 + 15, 0); }
+    else if (RESEAUX.includes(profil)) { /* étages : vue de côté, basse (9 m), qui suit le kart — les hauteurs se lisent */
+      const th = new T.Vector3(t.x, 0, t.z); if (th.lengthSq() < 1e-4) th.copy(capNiveau); else th.normalize(); const cote = new T.Vector3(-th.z, 0, th.x);
+      cam.position.copy(p).addScaledVector(th, -14).addScaledVector(cote, 26).setY(p.y + 9); cam.up.set(0, 1, 0); cam.lookAt(p.x + th.x * 10, p.y, p.z + th.z * 10); }
+    else { cam.position.set(p.x + 30, p.y + 38, p.z + 30); cam.up.set(0, 1, 0); cam.lookAt(p); } /* virages : vue plongeante qui suit le kart */
     R.render(sc, cam); etat.images++;
     const raide = k.raide != null ? k.raide : 0;
-    document.getElementById('hud').innerHTML = '<b>' + Math.round(Math.abs(k.v) * 3.6) + ' km/h</b> · ' + cc + '<br>chaussée : ' + raide.toFixed(0) + '° ' + (surf.aimante(k.s) ? '(aimantée)' : '') + '<br>' + (k.attache ? 'roues au contact' : 'EN VOL') +
-      ' · détachements ' + k.detachements + (k.remises ? ' · remises ' + k.remises : '') + '<br>s = ' + k.s.toFixed(0) + ' / ' + surf.longueur.toFixed(0) + ' m · écart ' + k.d.toFixed(1) + ' m';
+    document.getElementById('hud').innerHTML = '<b>' + Math.round(Math.abs(k.v) * 3.6) + ' km/h</b> · ' + cc + '<br>chaussée : ' + raide.toFixed(0) + '° ' + (k.surf.aimante(k.s) ? '(aimantée)' : '') + (RESEAUX.includes(profil) ? ' · surface ' + RS.id(k.surf) : '') + (SC.fourche ? ' · vise ' + (choix > 0 ? 'gauche' : 'droite') : '') + '<br>' + (k.attache ? 'roues au contact' : 'EN VOL') +
+      ' · détachements ' + k.detachements + (k.remises ? ' · remises ' + k.remises : '') + '<br>s = ' + k.s.toFixed(0) + ' / ' + k.surf.longueur.toFixed(0) + ' m · écart ' + k.d.toFixed(1) + ' m';
     requestAnimationFrame(boucle);
   }
   requestAnimationFrame(boucle);
