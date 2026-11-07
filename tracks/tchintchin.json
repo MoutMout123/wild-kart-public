@@ -273,8 +273,10 @@
       {
         "type": "loop",
         "r": 17,
-        "from": 0.1223,
-        "to": 0.1825
+        "from": 0.0988,
+        "to": 0.206,
+        "shift": 42,
+        "allonge": "2026-11-03 : +25 échantillons de chaque côté (déviation entrée/sortie 32-36° → 0-6°)"
       }
     ]
   },

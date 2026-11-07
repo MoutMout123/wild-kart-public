@@ -412,6 +412,28 @@
       "ai": 0.35,
       "open": true,
       "role": "risque"
+    },
+    {
+      "from": 0.08,
+      "to": 0.32,
+      "mid": [
+        [
+          324.9,
+          112.3,
+          28.7
+        ],
+        [
+          366.4,
+          431.9,
+          7.5
+        ]
+      ],
+      "width": 16,
+      "side": 1,
+      "label": "ENVOL",
+      "ai": 0.45,
+      "envol": true,
+      "role": "envol"
     }
   ],
   "checkpoints": [

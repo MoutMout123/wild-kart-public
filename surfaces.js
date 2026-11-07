@@ -1,4 +1,5 @@
-/* Matériaux PBR partagés : cartes CC0 locales, métrique constante et projection sur les falaises. */
+/* Matériaux PBR partagés : cartes CC0 locales, métrique constante et projection sur les falaises.
+   Garde-fous de normales (Claude 2, ticket #27, surfaces noires sur Mali) : normale nulle ou non finie → normale géométrique. */
 (function(root){
   'use strict';
   const T=root.THREE,cache=new Map(),pending=[],errors=[];
@@ -42,7 +43,8 @@
       shader.fragmentShader=`varying vec3 wkWorld; varying vec3 wkNWorld; varying vec2 wkUV; varying vec2 wkPaint;
         ${world?'':'varying float wkPaintAlpha;'}
         ${noise}
-        ${world?`vec3 wkWeights(){vec3 w=pow(abs(normalize(wkNWorld)),vec3(4.0));return w/(w.x+w.y+w.z);}
+        ${world?`vec3 wkNw(){return dot(wkNWorld,wkNWorld)>1e-12?normalize(wkNWorld):vec3(0.0,1.0,0.0);}
+        vec3 wkWeights(){vec3 w=pow(abs(wkNw()),vec3(4.0));return w/max(w.x+w.y+w.z,1e-6);}
         vec4 wkTri(sampler2D tex){vec3 w=wkWeights();vec3 p=wkWorld*.16;
           return texture2D(tex,p.zy)*w.x+texture2D(tex,p.xz)*w.y+texture2D(tex,p.xy)*w.z;}`:''}
       `+shader.fragmentShader;
@@ -64,15 +66,15 @@
       `);
       shader.fragmentShader=shader.fragmentShader.replace('#include <roughnessmap_fragment>',world?'float roughnessFactor=roughness*clamp(wkTri(roughnessMap).g,.65,1.0);':'float roughnessFactor=roughness*clamp(wkSample(roughnessMap,wkUV).g,.65,1.0);');
       const normals=world?`
-        vec3 w=wkWeights(),p=wkWorld*.16,baseN=normalize(wkNWorld);
+        vec3 w=wkWeights(),p=wkWorld*.16,baseN=wkNw();
         vec3 nx=texture2D(normalMap,p.zy).xyz*2.0-1.0,ny=texture2D(normalMap,p.xz).xyz*2.0-1.0,nz=texture2D(normalMap,p.xy).xyz*2.0-1.0;
         nx.xy*=.48;ny.xy*=.48;nz.xy*=.48;
-        vec3 mapped=normalize(vec3(nx.z*sign(baseN.x),nx.y,nx.x)*w.x+vec3(ny.x,ny.z*sign(baseN.y),ny.y)*w.y+vec3(nz.x,nz.y,nz.z*sign(baseN.z))*w.z);
-        normal=normalize(mix(normal,normalize(mat3(viewMatrix)*mapped)*faceDirection,.6));
-      `:`vec3 mapN=wkSample(normalMap,wkUV).xyz*2.0-1.0;mapN.xy*=normalScale;normal=normalize(tbn*mapN);`;
+        vec3 mapped=vec3(nx.z*sign(baseN.x),nx.y,nx.x)*w.x+vec3(ny.x,ny.z*sign(baseN.y),ny.y)*w.y+vec3(nz.x,nz.y,nz.z*sign(baseN.z))*w.z;
+        if(dot(mapped,mapped)>1e-12){vec3 wkM=mix(normal,normalize(mat3(viewMatrix)*mapped)*faceDirection,.6);if(dot(wkM,wkM)>1e-12)normal=normalize(wkM);}
+      `:`vec3 mapN=wkSample(normalMap,wkUV).xyz*2.0-1.0;mapN.xy*=normalScale;{vec3 wkNm=tbn*mapN;float wkL=dot(wkNm,wkNm);normal=(wkL>1e-12&&wkL<1e12)?normalize(wkNm):normal;}`;
       shader.fragmentShader=shader.fragmentShader.replace('#include <normal_fragment_maps>',`\n#ifdef USE_NORMALMAP_TANGENTSPACE\n${normals}\n#endif\n`);
     };
-    m.customProgramCacheKey=()=>world?'wk-pbr-triplanar-r158-v2-'+kind:'wk-pbr-road-r158-v2';return m;
+    m.customProgramCacheKey=()=>world?'wk-pbr-triplanar-r158-v3-'+kind:'wk-pbr-road-r158-v3';return m;
   }
   root.WKSurfaces={configure,make,ready:()=>Promise.all(pending),errors,stats:()=>({textures:cache.size,bytesEstimate:[...cache.values()].reduce((n,t)=>n+(t.image?.width||0)*(t.image?.height||0)*4*4/3,0)})};
 })(window);

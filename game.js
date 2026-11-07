@@ -3,6 +3,14 @@
 'use strict';
 const T = window.THREE;
 const Graphics = window.WKGraphics;
+// Surfaces noires sur Mali (signalement Samsung, ticket #27) : une normale nulle ou non finie (repère de relief dégénéré, normale
+// interpolée qui s'annule) donne NaN dans l'éclairage, donc un pixel noir. Garde-fou : on retombe sur la normale géométrique (ou
+// face à la caméra). Sans effet visible quand la normale est valide (même résultat qu'avant sur PC).
+(function gardeNormales(C) { if (!C) return;
+  const rep = (k, a, b) => { if (C[k] && C[k].includes(a)) C[k] = C[k].split(a).join(b); };
+  rep('normal_fragment_begin', 'vec3 normal = normalize( vNormal );', 'vec3 normal = dot( vNormal, vNormal ) > 1e-12 ? normalize( vNormal ) : vec3( 0.0, 0.0, 1.0 );');
+  rep('normal_fragment_maps', 'normal = normalize( tbn * mapN );', '{ vec3 wkNm = tbn * mapN; float wkL = dot( wkNm, wkNm ); normal = ( wkL > 1e-12 && wkL < 1e12 ) ? normalize( wkNm ) : normal; }');
+})(T.ShaderChunk);
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -18,10 +26,13 @@ const BUILD = window.TK_BUILD || 'web';
 
 /* ================= Sauvegarde ================= */
 const KEY = 'tiltkart.v1';
-const DEFAULT_SAVE = { name: 'Toi', body: 'equilibre', wheels: 'standard', pilot: 'casque', acc: 'aucun', finish: 'brillant', deco: 'aucune', trail: 'feu', skin: '#e0b08a', color: '#ff4f3a', helmet: '#ffc531', control: isTouch ? 'stick' : 'tilt', glider: 'classique', fps: 0, throttle: 'auto', botLvl: 1, laps: 0, obst: true,
+const DEFAULT_SAVE = { name: 'Toi', body: 'equilibre', wheels: 'standard', engine: 'standard', pilot: 'casque', acc: 'aucun', finish: 'brillant', deco: 'aucune', trail: 'feu', skin: '#e0b08a', color: '#ff4f3a', helmet: '#ffc531', control: isTouch ? 'stick' : 'tilt', glider: 'classique', fps: 0, throttle: 'auto', botLvl: 1, laps: 0, obst: true,
   sens: 1, invert: false, calib: 0, calibrated: false, braquage: 'classique', sound: true, music: true, enhancedGraphics: true, quality: isTouch ? 'medium' : 'high', cc: 1, track: 0, records: {} };
 let SAVE = (() => { try { return Object.assign({}, DEFAULT_SAVE, JSON.parse(localStorage.getItem(KEY)) || {}); } catch (e) { return Object.assign({}, DEFAULT_SAVE); } })();
-function store() { try { acctTrack(); } catch (e) { /* pas encore prêt */ } try { localStorage.setItem(KEY, JSON.stringify(SAVE)); } catch (e) { /* stockage indisponible */ } try { acctDirty(); } catch (e) { /* pas encore prêt */ } }
+// Qualité baissée automatiquement (adaptPerf) : temporaire, pour cette session seulement ; QAUTO.choix garde le choix du joueur,
+// qui est le seul enregistré (C2-19 : avant, la baisse automatique était enregistrée et écrasait le réglage du joueur).
+const QAUTO = { choix: null };
+function store() { try { acctTrack(); } catch (e) { /* pas encore prêt */ } try { const out = QAUTO.choix ? Object.assign({}, SAVE, { quality: QAUTO.choix }) : SAVE; localStorage.setItem(KEY, JSON.stringify(out)); } catch (e) { /* stockage indisponible */ } try { acctDirty(); } catch (e) { /* pas encore prêt */ } }
 
 /* ================= Données ================= */
 const BODIES = {
@@ -37,7 +48,7 @@ const WHEELS = {
   offroad: { name: 'Tout-terrain', speed: -.06, accel: .07, handling: .02, weight: .05, off: .4 },
   neon: { name: 'Néon', speed: .03, accel: .03, handling: .03, weight: -.05, off: -.05 },
 };
-const PILOTS = { casque: { name: 'Casque' }, casquette: { name: 'Casquette' }, capuche: { name: 'Capuche' }, robot: { name: 'Robot' } };
+const PILOTS = { casque: { name: 'Casque' }, casquette: { name: 'Casquette' }, capuche: { name: 'Capuche' }, robot: { name: 'Robot' }, heros: { name: 'Héros' } };
 const ACCS = { aucun: { name: 'Aucun' }, antenne: { name: 'Antenne' }, crete: { name: 'Crête' }, couronne: { name: 'Couronne' }, cornes: { name: 'Cornes' }, aileron: { name: 'Aileron' } };
 const FINISHES = { brillant: { name: 'Brillant', r: .26, m: .35 }, mat: { name: 'Mat', r: .78, m: .04 }, chrome: { name: 'Chromé', r: .1, m: .95 } };
 const DECOS = { aucune: { name: 'Aucune' }, bande: { name: 'Bandes' }, damier: { name: 'Damier' } };
@@ -51,18 +62,92 @@ const GLIDERS = {
   ombrelle: { name: 'Ombrelle', air: .08, shape: 'parapluie', col: { a: '#ff9ccf', b: '#ffffff' } }, origami: { name: 'Origami doré', air: .08, shape: 'avion', col: { paper: '#f2c94c', a: '#b8860b' } },
   dragon: { name: 'Dragon', air: .08, shape: 'chauvesouris', col: { a: '#c1121f', e: '#ff5a00' } }, arcenciel: { name: 'Arc-en-ciel', air: .08, shape: 'parapente', col: { a: '#ff4fd8', b: '#38b6ff' } },
 };
+// #34.G15/G16 — Pièces de conduite SÉPARÉES (7 nov., soir) : moteur, suspension, transmission, freinage, direction, jantes (les pneus
+// sont la famille historique WHEELS). Chaque pièce porte des écarts de statistiques (même échelle que BODIES, compromis : la somme reste
+// proche de zéro) et, si besoin, des RÉGLAGES PHYSIQUES lus par kartPhysics :
+//   brakeK freinage · driftK vitesse de charge du dérapage · boostK durée des turbos de dérapage et de figure · gripK adhérence (le kart
+//   suit son cap plus vite) · landK vitesse gardée à une réception dure · recep turbo (s) à la réception d'un vrai saut (≥ 0,6 s en l'air).
+// Réglages VISUELS (sans effet de conduite) : roll roulis de la caisse, h garde au sol de la caisse (m), amort amortisseurs visibles.
+// L'ancien moteur « souple » (Suspension souple, avant la séparation) est migré vers la suspension Souple (migrerPieces).
+const ENGINES = {
+  standard: { name: 'Standard', speed: 0, accel: 0, handling: 0, weight: 0, off: 0 },
+  sprint: { name: 'Sprint', speed: -.06, accel: .12, handling: 0, weight: -.03, off: 0 },
+  turbine: { name: 'Turbine', speed: .08, accel: -.1, handling: -.02, weight: .03, off: 0 },
+  couple: { name: 'Couple', speed: -.04, accel: .02, handling: -.03, weight: .06, off: .14 },
+  electrique: { name: 'Électrique', speed: -.03, accel: .09, handling: .02, weight: .05, off: -.08 },
+};
+const SUSPS = {
+  standard: { name: 'Standard' },
+  souple: { name: 'Souple', speed: -.04, handling: .08, weight: -.02, off: .04, recep: .25, roll: 1.7, h: .04 },
+  ferme: { name: 'Ferme', speed: .04, handling: .06, off: -.1, landK: .9, roll: .4 },
+  rallye: { name: 'Rallye', speed: -.06, handling: -.04, weight: .04, off: .18, recep: .4, roll: 1.3, h: .12, amort: true },
+};
+const TRANS = {
+  standard: { name: 'Standard' },
+  courte: { name: 'Courte', speed: -.06, accel: .11 },
+  longue: { name: 'Longue', speed: .07, accel: -.09 },
+  sequentielle: { name: 'Séquentielle', speed: -.02, accel: -.03, boostK: 1.22 },
+};
+const FREINS = {
+  standard: { name: 'Standard' },
+  renforces: { name: 'Renforcés', speed: -.02, weight: .05, brakeK: 1.4 },
+  ceramique: { name: 'Céramique', weight: -.03, off: -.06, brakeK: 1.2 },
+  legers: { name: 'Légers', accel: .04, weight: -.05, brakeK: .75 },
+};
+const DIRS = {
+  standard: { name: 'Standard' },
+  directe: { name: 'Directe', handling: .1, driftK: .85 },
+  derive: { name: 'Dérive', handling: -.04, driftK: 1.2, gripK: .9 },
+  assistee: { name: 'Assistée', speed: -.03, handling: .04, gripK: 1.2 },
+};
+const RIMS = {
+  serie: { name: 'De série' },
+  alliage: { name: 'Alliage', accel: .03, weight: -.03 },
+  acier: { name: 'Acier', accel: -.02, weight: .05, off: .04 },
+  carbone: { name: 'Carbone', accel: .04, weight: -.05, off: -.04 },
+  doree: { name: 'Dorées' },
+};
+// Pièces d'apparence posées sur les ancrages de la carrosserie (aucun effet de conduite).
+const AILERONS = { serie: { name: 'De série' }, bas: { name: 'Bas' }, haut: { name: 'Haut' }, double: { name: 'Double' } };
+const ECHAPS = { serie: { name: 'De série' }, chrome: { name: 'Chromés' }, double: { name: 'Doubles' }, megaphone: { name: 'Mégaphone' } };
+// Clés de pièces : [clé de sauvegarde, table, valeur par défaut]. CONDUITE = lues par statsFor ; APPARENCE = kartMesh seulement.
+const PIECES_CONDUITE = [['engine', ENGINES, 'standard'], ['susp', SUSPS, 'standard'], ['trans', TRANS, 'standard'], ['frein', FREINS, 'standard'], ['dir', DIRS, 'standard'], ['rims', RIMS, 'serie']];
+// #34 (8 nov.) : ailes et pare-chocs AJOUTÉS sur la caisse (les ailes et pare-chocs d'origine restent fondus dans chaque carrosserie ; leur
+// séparation complète reste à faire). Contrat G0 : supports qui touchent la caisse, rien dans les pneus (avant braqués ±0,45) ni le pilote.
+const AILES = { serie: { name: 'De série' }, elargisseurs: { name: 'Élargisseurs' }, bavettes: { name: 'Bavettes' } };
+const PARECHOCS = { serie: { name: 'De série' }, buffle: { name: 'Pare-buffle' }, lame: { name: 'Lame avant' }, tubes: { name: 'Tubes arrière' } };
+const PIECES_APPARENCE = [['aileron', AILERONS, 'serie'], ['echap', ECHAPS, 'serie'], ['ailes', AILES, 'serie'], ['parechocs', PARECHOCS, 'serie']];
+const PIECES = PIECES_CONDUITE.concat(PIECES_APPARENCE);
+const REGLAGES = ['brakeK', 'driftK', 'boostK', 'gripK', 'landK'];
+// Une pièce a-t-elle un effet de conduite ? (écart de stat ou réglage physique ≠ 1, ou turbo de réception)
+const pieceEffet = (p) => !!p && (['speed', 'accel', 'handling', 'weight', 'off'].some((s) => p[s]) || REGLAGES.some((r) => p[r] != null && p[r] !== 1) || !!p.recep);
+// Migration des anciennes sauvegardes / montages / clients : moteur « souple » → suspension Souple (même effet), moteur Standard.
+function migrerPieces(o) { if (o && o.engine === 'souple') { o.engine = 'standard'; if (!o.susp || o.susp === 'standard') o.susp = 'souple'; } return o; }
 const SKINS = ['#f3d2b3', '#e0b08a', '#c68b5e', '#8d5a3b', '#5c3a25'];
-function myCfg() { return { name: SAVE.name || 'Toi', color: SAVE.color, helmet: SAVE.helmet, body: SAVE.body, wheels: SAVE.wheels, pilot: SAVE.pilot, acc: SAVE.acc, finish: SAVE.finish, deco: SAVE.deco, trail: SAVE.trail, skin: SAVE.skin, glider: SAVE.glider, title: SAVE.title || '' }; }
+// #34.G2 : pendant l'ESSAI d'un brouillon de l'atelier (atelier.js), la course utilise ce brouillon sans l'équiper.
+function myCfg() { const c = myCfgEquipe(); return typeof window !== 'undefined' && window.WK_ESSAI && window.WK_ESSAI.cfg ? Object.assign(c, window.WK_ESSAI.cfg) : c; }
+function myCfgEquipe() { return { name: SAVE.name || 'Toi', color: SAVE.color, helmet: SAVE.helmet, body: SAVE.body, wheels: SAVE.wheels, pilot: SAVE.pilot, acc: SAVE.acc, finish: SAVE.finish, deco: SAVE.deco, trail: SAVE.trail, skin: SAVE.skin, glider: SAVE.glider, engine: ENGINES[SAVE.engine] ? SAVE.engine : 'standard', title: SAVE.title || '', ...piecesDe(migrerPieces(SAVE)) }; }   /* valeur inconnue (ancienne sauvegarde) → Standard */
+// Pièces séparées validées (valeur inconnue → défaut) ; l'objet source n'est pas modifié sauf migration explicite.
+function piecesDe(c) { const o = {}; for (const [k, t, d] of PIECES) o[k] = c && typeof c[k] === 'string' && Object.prototype.hasOwnProperty.call(t, c[k]) ? c[k] : d; if (c && c.engine === 'souple' && o.susp === 'standard') o.susp = 'souple'; return o; }
 function cleanCfg(c) {
   c = c || {}; const ok = (v, o, d) => (Object.prototype.hasOwnProperty.call(o, v) ? v : d); const col = (v, d) => (/^#[0-9a-f]{6}$/i.test(v || '') ? v : d);
   return { name: String(c.name || 'Joueur').slice(0, 10), color: col(c.color, '#ff4f3a'), helmet: col(c.helmet, '#ffc531'), body: ok(c.body, BODIES, 'equilibre'), wheels: ok(c.wheels, WHEELS, 'standard'),
-    pilot: ok(c.pilot, PILOTS, 'casque'), acc: ok(c.acc, ACCS, 'aucun'), finish: ok(c.finish, FINISHES, 'brillant'), deco: ok(c.deco, DECOS, 'aucune'), trail: ok(c.trail, TRAILS, 'feu'), skin: col(c.skin, '#e0b08a'), glider: ok(c.glider, GLIDERS, 'classique'), title: typeof c.title === 'string' && typeof ACHS !== 'undefined' && ACHS.some((a) => a[4][0] === 'title' && a[4][1] === c.title) ? c.title : '' };
+    pilot: ok(c.pilot, PILOTS, 'casque'), acc: ok(c.acc, ACCS, 'aucun'), finish: ok(c.finish, FINISHES, 'brillant'), deco: ok(c.deco, DECOS, 'aucune'), trail: ok(c.trail, TRAILS, 'feu'), skin: col(c.skin, '#e0b08a'), engine: ok(c.engine, ENGINES, 'standard'), glider: ok(c.glider, GLIDERS, 'classique'), title: typeof c.title === 'string' && typeof ACHS !== 'undefined' && ACHS.some((a) => a[4][0] === 'title' && a[4][1] === c.title) ? c.title : '', ...piecesDe(c) };
 }
 const COLORS = ['#ff4f3a', '#ffc531', '#38b6ff', '#3ee08f', '#7c4dff', '#ff6fb5', '#f5f3ec', '#2b2b3a'];
-function statsFor(body, wheels, glider) {
-  const b = BODIES[body] || BODIES.equilibre, w = WHEELS[wheels] || WHEELS.standard, gl = GLIDERS[glider] || GLIDERS.classique;
-  return { speed: clamp(.5 + b.speed + w.speed, 0, 1), accel: clamp(.5 + b.accel + w.accel, 0, 1), handling: clamp(.5 + b.handling + w.handling, 0, 1),
-    weight: clamp(.5 + b.weight + w.weight, 0, 1), off: clamp(.3 + b.off + w.off, 0, 1), air: clamp(.35 + gl.air * 4, 0, 1) };
+// Statistiques et réglages d'un kart. Signature historique (carrosserie, roues, planeur, moteur) conservée ; le 5e argument facultatif
+// est la configuration complète (pièces séparées). Les réglages physiques valent 1 (ou 0) pour les pièces standard : un kart de série
+// conduit exactement comme avant la séparation.
+function statsFor(body, wheels, glider, engine, cfg) {
+  const b = BODIES[body] || BODIES.equilibre, w = WHEELS[wheels] || WHEELS.standard, gl = GLIDERS[glider] || GLIDERS.classique, e = ENGINES[engine === 'souple' ? 'standard' : engine] || ENGINES.standard;
+  const pc = cfg ? piecesDe(cfg) : (engine === 'souple' ? { susp: 'souple' } : {}), ps = [b, w, e];
+  for (const [k, t, d] of PIECES_CONDUITE) if (k !== 'engine') ps.push(t[pc[k] || d] || t[d]);
+  const sum = (s) => ps.reduce((a, p) => a + (p[s] || 0), 0), mul = (r) => ps.reduce((a, p) => a * (p[r] != null ? p[r] : 1), 1);
+  const su = SUSPS[pc.susp] || SUSPS.standard;
+  return { speed: clamp(.5 + sum('speed'), 0, 1), accel: clamp(.5 + sum('accel'), 0, 1), handling: clamp(.5 + sum('handling'), 0, 1),
+    weight: clamp(.5 + sum('weight'), 0, 1), off: clamp(.3 + sum('off'), 0, 1), air: clamp(.35 + gl.air * 4, 0, 1),
+    brakeK: +mul('brakeK').toFixed(3), driftK: +mul('driftK').toFixed(3), boostK: +mul('boostK').toFixed(3), gripK: +mul('gripK').toFixed(3), landK: +mul('landK').toFixed(3), recep: sum('recep'),
+    roll: su.roll || 1, h: su.h || 0, amort: !!su.amort };
 }
 const CC = [{ name: '50cc', v: 44, ai: .84 }, { name: '100cc', v: 54, ai: .92 }, { name: '150cc', v: 64, ai: .985 }];
 const RIVALS = [
@@ -686,10 +771,14 @@ for (const t of TRACKS) {
   }
 }
 if (window.WKProduction && window.WKTrackData) window.WKProduction.install(TRACKS, window.WKTrackData);
+// Prototypes du concepteur (WEB TEST seulement : window.WKTrackPrototypes n'existe que dans l'export test, avec le consentement du
+// propriétaire). Ajoutés APRÈS les 26 circuits, marqués « prototype » : hors Grand Prix, hasard, défi du jour et succès.
+if (window.WKProduction && Array.isArray(window.WKTrackPrototypes)) for (const c of window.WKTrackPrototypes) { try { if (TRACKS.some((t) => t.id === c.id)) continue; const d = window.WKProduction.definition(c); d.prototype = true; if (c.apercuSrc) d.apercuSrc = c.apercuSrc; d.desc = 'PROTOTYPE — À ESSAYER. ' + (c.prototypeDesc || d.desc || ''); TRACKS.push(d); } catch (e) { console.warn('prototype ignoré', c && c.id, e); } }
+const nOff = () => TRACKS.filter((t) => !t.prototype).length;
 const fmtClock = (s) => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
 const arenaIdx = () => TRACKS.findIndex((t) => t.arena);
 // au hasard : le petit circuit seulement en Patate chaude (une fois sur deux), jamais sinon
-function pickTrack13(bomb) { const L = TRACKS.map((t, i) => i).filter((i) => !TRACKS[i].arena); if (bomb && arenaIdx() >= 0 && Math.random() < .5) return arenaIdx(); return L[Math.floor(Math.random() * L.length)]; }
+function pickTrack13(bomb) { const L = TRACKS.map((t, i) => i).filter((i) => !TRACKS[i].arena && !TRACKS[i].prototype); if (bomb && arenaIdx() >= 0 && Math.random() < .5) return arenaIdx(); return L[Math.floor(Math.random() * L.length)]; }
 
 
 
@@ -761,13 +850,24 @@ function fbm(base, oct, seed) { const ns = []; for (let o = 0; o < oct; o++) ns.
 const rgb = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
 const mix3 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 const mulc = (c, k) => [c[0] * k, c[1] * k, c[2] * k];
+// Textures procédurales. Pendant une construction par tranches (démarrage), le calcul des pixels est différé en tâches découpées par
+// lots de 16 lignes (PIXEL_JOBS, vidées aux étapes de buildWorldSteps) ; ailleurs il est immédiat, comme avant. texReady(t) termine
+// une texture encore en cours avant d'y dessiner.
+let PIXEL_JOBS = null;
 function pixelTex(w, h, fn, post, repeat = true) {
-  const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d');
-  const img = x.createImageData(w, h), d = img.data; let i = 0;
-  for (let py = 0; py < h; py++) for (let px = 0; px < w; px++) { const col = fn(px / w, py / h); d[i++] = col[0]; d[i++] = col[1]; d[i++] = col[2]; d[i++] = col.length > 3 ? col[3] : 255; }
-  x.putImageData(img, 0, 0); if (post) post(x, w, h);
-  const t = new T.CanvasTexture(c); t.colorSpace = T.SRGBColorSpace; if (repeat) t.wrapS = t.wrapT = T.RepeatWrapping; t.anisotropy = Math.min(8, MAX_ANISO); return t;
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const t = new T.CanvasTexture(c); t.colorSpace = T.SRGBColorSpace; if (repeat) t.wrapS = t.wrapT = T.RepeatWrapping; t.anisotropy = Math.min(8, MAX_ANISO);
+  const job = pixelTexFill(c, w, h, fn, post, t);
+  if (PIXEL_JOBS) { t.userData.wkFill = job; PIXEL_JOBS.push(job); } else while (!job.next().done);
+  return t;
 }
+function* pixelTexFill(c, w, h, fn, post, t) {
+  const x = c.getContext('2d'), img = x.createImageData(w, h), d = img.data; let i = 0;
+  for (let py = 0; py < h; py++) { for (let px = 0; px < w; px++) { const col = fn(px / w, py / h); d[i++] = col[0]; d[i++] = col[1]; d[i++] = col[2]; d[i++] = col.length > 3 ? col[3] : 255; } if ((py & 15) === 15) yield; }
+  x.putImageData(img, 0, 0); if (post) post(x, w, h); t.needsUpdate = true; t.userData.wkFill = null;
+}
+function texReady(t) { const j = t && t.userData && t.userData.wkFill; if (j) while (!j.next().done); return t; }
+function* drainPixelJobs() { while (PIXEL_JOBS && PIXEL_JOBS.length) { const j = PIXEL_JOBS.shift(); for (;;) { const r = j.next(); if (r.done) break; yield; } } }
 function wrapDraw(w, h, px, py, m, fn) { for (const ox of [0, -w, w]) for (const oy of [0, -h, h]) { const X = px + ox, Y = py + oy; if (X < -m || X > w + m || Y < -m || Y > h + m) continue; fn(X, Y); } }
 
 function groundTex(kind) {
@@ -919,14 +1019,23 @@ function buildSamples(def) {
   for (let i = 0; i < N; i++) S.curv[i] = angDiff(S.hd[(i - 3 + N) % N], S.hd[(i + 3) % N]) / 6;
   S.glide = new Uint8Array(N); S.glideT = new Float32Array(N);
   for (const [a, b] of def.glide || []) { const i0 = Math.floor(a * N), i1 = Math.floor(b * N); for (let i = i0; i <= i1; i++) { S.glide[i % N] = 1; S.glideT[i % N] = (i - i0) / Math.max(1, i1 - i0); } }
+  // Plafond « saut » (demande du propriétaire, 3 novembre) : la route à l'envers finit sur une lèvre ; à la place du retournement,
+  // un vide (pas de chaussée) que le kart franchit en l'air pendant que son repère revient à l'endroit, puis il se pose sur la route
+  // à l'endroit. Même portion que le retournement de sortie (twist, ≥ 50 m). S.glideKind = 2 : saut (pas de planeur).
+  for (const z of def.warp || []) if (z.type === 'plafond' && z.saut) { const i0 = Math.floor(z.from * N), i1 = Math.floor(z.to * N), n = Math.max(2, i1 - i0), tw = twistPlafond(z, n, seg), g0 = i1 - Math.round(tw * n * .9);
+    S.glideKind = S.glideKind || new Uint8Array(N); for (let i = g0; i <= i1 - 2; i++) { S.glide[i % N] = 1; S.glideT[i % N] = (i - g0) / Math.max(1, i1 - 2 - g0); S.glideKind[i % N] = 2; } }
   S.closed = true; S.id = -1;
   return S;
 }
 
+/* Portion de retournement d'un plafond (fraction de la zone) : ≥ 50 m par défaut. #32.B5 (7 nov.) : z.vide (m, plafond « saut ») fixe la
+   longueur du vide franchi (variante « réception proche ») ; même valeur pour la physique (S.glide) et l'affichage (buildWarp). Sans
+   z.vide, calcul inchangé : aucune des 26 cartes n'utilise ce paramètre. */
+function twistPlafond(z, n, seg) { if (z.saut && z.vide) return Math.min(.4, Math.max(12 / (n * seg), z.vide / (.9 * n * seg))); return Math.min(.4, Math.max(z.twist || .18, 50 / (n * seg))); }
 /* ---- géométrie utilitaire ---- */
 function bandGeo(S, cols, opts = {}) {
   // bande le long du circuit : chaque colonne = {o: décalage latéral (nombre, ou fonction de l'échantillon), y: hauteur, abs: hauteur absolue, u}
-  if (S.heightAt && opts.world && cols.length > 1 && cols.every(c => Math.abs(c.y - cols[0].y) < .001 && typeof c.o === 'number')) {
+  if (S.heightAt && opts.world && !S.hAct && cols.length > 1 && cols.every(c => Math.abs(c.y - cols[0].y) < .001 && typeof c.o === 'number')) {
     const dense = [];
     for (let j = 0; j < cols.length - 1; j++) {
       const a = cols[j], b = cols[j + 1], steps = Math.max(1, Math.ceil(Math.abs(b.o - a.o)));
@@ -973,7 +1082,10 @@ function tubeAlong(S, lat, y, r, seg = 8, step = 2, skip) {
 function quadAt(S, i, lat, halfW, halfL, y) {
   const fx = S.fx[i], fz = S.fz[i], rx = S.rx[i], rz = S.rz[i];
   const cx = S.px[i] + rx * lat, cz = S.pz[i] + rz * lat, cy = S.py[i] + y;
-  const P = (sx, sl) => [cx + rx * sx + fx * sl, cy, cz + rz * sx + fz * sl];
+  // Plaque inclinée comme la route (pente locale) : posée à plat sur une rampe raide (RAMPE de Flipper, ≈ 45 %), son bord dépassait
+  // d'environ 1 m au-dessus de la chaussée (contrôle caméra du concepteur).
+  const N = S.N, a = S.closed === false ? Math.max(0, i - 1) : (i - 1 + N) % N, b = S.closed === false ? Math.min(N - 1, i + 1) : (i + 1) % N, pente = (S.py[b] - S.py[a]) / (Math.hypot(S.px[b] - S.px[a], S.pz[b] - S.pz[a]) || 1);
+  const P = (sx, sl) => [cx + rx * sx + fx * sl, cy + pente * sl, cz + rz * sx + fz * sl];
   const pos = [...P(-halfW, -halfL), ...P(halfW, -halfL), ...P(-halfW, halfL), ...P(halfW, halfL)];
   const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3));
   g.setAttribute('uv', new T.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 1, 1], 2)); g.setIndex([0, 1, 2, 1, 3, 2]); g.computeVertexNormals(); return g;
@@ -1013,6 +1125,34 @@ function roundRectShape(w, h, r) {
   s.moveTo(x + r, y); s.lineTo(x + w - r, y); s.quadraticCurveTo(x + w, y, x + w, y + r); s.lineTo(x + w, y + h - r); s.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
   s.lineTo(x + r, y + h); s.quadraticCurveTo(x, y + h, x, y + h - r); s.lineTo(x, y + r); s.quadraticCurveTo(x, y, x + r, y); return s;
 }
+/* #36.E1 — Visage sculpté : la tête est une SURFACE RADIALE r(direction) = ellipsoïde × (1 + reliefs doux) : joues pleines, menton
+   affiné, front légèrement aplati, arête et bout du nez en relief continu (pas de boule collée). z(x, y) donne la surface avant en
+   (x, y) : yeux, sourcils, joues, bouche y sont posés au lieu de flotter. */
+function formeVisage(style) {
+  const R = style === 'heros' ? .325 : .295, P = { heros: { nez: .05, joue: .05, menton: .2, carre: 0, nezY: .2 }, casque: { nez: .045, joue: .03, menton: .08, carre: .07, nezY: .2 }, casquette: { nez: .055, joue: .06, menton: .16, carre: 0, nezY: .2 }, capuche: { nez: .06, joue: .055, menton: .22, carre: 0, nezY: .14 } }[style] || { nez: .045, joue: .05, menton: .2, carre: 0, nezY: .2 };   /* carre : mâchoire large (Casque) ; nezY : hauteur du bout du nez (Capuche : retroussé) */
+  const gauss = (a, b, w) => Math.exp(-(a * a + b * b) / (w * w));
+  function rayon(dx, dy, dz) {   /* direction unitaire → rayon */
+    let r = R / Math.sqrt(dx * dx + (dy / .95) ** 2 + (dz / .94) ** 2);
+    const av = Math.max(0, dz);
+    r *= 1 + P.joue * av * gauss(Math.abs(dx) - .5, dy + .3, .32);                    /* joues */
+    r *= 1 - P.menton * av * Math.max(0, -dy - .35) ** 2 * (1 + 2 * dx * dx);          /* menton plus étroit, mâchoire adoucie */
+    r *= 1 - .03 * av * gauss(dx, dy - .45, .35);                                       /* front légèrement aplati */
+    r *= 1 + P.carre * av * gauss(dx * .8, dy + .72, .3);                                /* menton carré intégré (plus de bloc rapporté) */
+    r *= 1 + P.nez * av ** 6 * gauss(dx * 1.6, dy + P.nezY, .2) + P.nez * .35 * av ** 6 * gauss(dx * 2.5, dy + .02, .14);   /* bout puis arête du nez */
+    return r;
+  }
+  function z(x, y) { let lo = 0, hi = R * 1.4; for (let i = 0; i < 30; i++) { const m = (lo + hi) / 2, l = Math.hypot(x, y, m); if (l < rayon(x / l, y / l, m / l)) lo = m; else hi = m; } return lo; }
+  return { R, rayon, z };
+}
+function teteSculptee(T, F) {
+  const g = new T.SphereGeometry(1, 48, 36), p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), zz = p.getZ(i), r = F.rayon(x, y, zz); p.setXYZ(i, x * r, y * r, zz * r); }
+  g.computeVertexNormals();
+  /* couture de la sphère : moyenne des normales des sommets confondus (pas de ligne d'ombrage) */
+  const n = g.attributes.normal, M = new Map(); for (let i = 0; i < p.count; i++) { const k = p.getX(i).toFixed(5) + ',' + p.getY(i).toFixed(5) + ',' + p.getZ(i).toFixed(5); if (!M.has(k)) M.set(k, []); M.get(k).push(i); }
+  for (const l of M.values()) if (l.length > 1) { let a = 0, b = 0, c = 0; for (const i of l) { a += n.getX(i); b += n.getY(i); c += n.getZ(i); } const L = Math.hypot(a, b, c) || 1; for (const i of l) n.setXYZ(i, a / L, b / L, c / L); }
+  return g;
+}
 function rbox(w, h, d, r) {
   r = Math.min(r, w / 2 - .002, h / 2 - .002, d / 2 - .002);
   const g = new T.ExtrudeGeometry(roundRectShape(w - 2 * r, h - 2 * r, r * .9), { depth: Math.max(.002, d - 2 * r), bevelEnabled: true, bevelThickness: r, bevelSize: r, bevelSegments: 3, curveSegments: 5 });
@@ -1027,16 +1167,24 @@ function instanced(scene, parts, places) {
   const m = new T.Matrix4(), q = new T.Quaternion(), s = new T.Vector3(), p = new T.Vector3(), c = new T.Color(), e = new T.Euler();
   for (const part of parts) {
     if (part.geo.attributes.color && part.mat && !part.mat.vertexColors) { part.mat = part.mat.clone(); part.mat.vertexColors = true; }
-    const im = new T.InstancedMesh(part.geo, part.mat, places.length);
-    places.forEach((pl, k) => {
+    // Découpage par zones (INST_ZONE m) : un seul groupe pour toute la carte était dessiné en entier dès qu'une copie était visible
+    // (jusqu'à 1,3 M triangles de décor par image sur les cartes chargées, C2-3) ; une zone hors champ n'est plus dessinée.
+    // Même ordre de placement et même tirage des couleurs : décor identique.
+    const zone = INST_ZONE && places.length >= 24 ? (pl) => Math.floor(pl.x / INST_ZONE) + ',' + Math.floor(pl.z / INST_ZONE) : () => '';
+    const groups = new Map(); places.forEach((pl, k) => { const z = zone(pl); if (!groups.has(z)) groups.set(z, []); groups.get(z).push(k); });
+    const mesh = new Map(), local = new Int32Array(places.length);
+    for (const [z, ks] of groups) { mesh.set(z, new T.InstancedMesh(part.geo, part.mat, ks.length)); ks.forEach((k, j) => { local[k] = j; }); }
+    places.forEach((pl, k) => { const im = mesh.get(zone(pl)), j = local[k];
       e.set(0, pl.r || 0, 0); q.setFromEuler(e); s.set(pl.sx || pl.s, pl.sy || pl.s, pl.sz || pl.s); p.set(pl.x, pl.y + (pl.g && CUR_HAT ? CUR_HAT(pl.x, pl.z) : 0), pl.z);
-      m.compose(p, q, s); if (part.off) m.multiply(part.off); im.setMatrixAt(k, m);
-      if (part.colors) { c.set(part.colors[(k * 7 + 3) % part.colors.length]); c.offsetHSL(rand(-.01, .01), 0, rand(-.04, .04)); im.setColorAt(k, c); }
+      m.compose(p, q, s); if (part.off) m.multiply(part.off); im.setMatrixAt(j, m);
+      if (part.colors) { c.set(part.colors[(k * 7 + 3) % part.colors.length]); c.offsetHSL(rand(-.01, .01), 0, rand(-.04, .04)); im.setColorAt(j, c); }
     });
-    im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true;
-    scene.add(im);
+    for (const im of mesh.values()) {
+    im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; if (mesh.size > 1 && im.computeBoundingSphere) im.computeBoundingSphere();
+    scene.add(im); }
   }
 }
+let INST_ZONE = 0; // zones de décor instancié (m) ; 0 = un groupe par décor (comportement d'origine). Mesures C2-3 : 200 m → −14 à −26 % de triangles mais +80 à +950 appels ; 400 m → −14 à −21 %, +1 à +370 appels. Désactivé en attendant Claude 1 (décor)
 const lam = (color, extra = {}) => new T.MeshLambertMaterial(Object.assign({ color }, extra));
 
 /* ---- environnement (reflets) ---- */
@@ -1060,14 +1208,18 @@ function makeEnv(top, bottom, ground, sun = 3.2) {
 // T10 : étendu aux cartes sans sortie, sans piège et sans écart de conduite avec murs réels (docs/audit/murs/reels, conduite comparée).
 // Piège = essai bloqué contre un mur dont le kart ne se dégage pas en braquant de l'autre côté (wall-scrape, « blocages ») ; un contact
 // frontal contre un nez ou l'angle d'un embranchement en T, dont il repart, est compté à part (« contacts dégagés »).
-// Restent sur l'ancienne règle, cause identifiée (AUDIT-DIRECTIVE A12) :
-// cascade (bouche contiguë au planeur), soldes (abords de la branche surélevée ouverte), rondpoint (arène).
+// Groupe 6 (A12 terminé) : soldes (sorties de TOITS EXPRESS = chutes voulues depuis la rampe ouverte ; éjection de la porte BOUTIQUE
+// corrigée, gateJump), cascade (nez raccordé au bord de la trouée du planeur), rondpoint (bouts de mur cherchés depuis la bouche).
 const REAL_WALLS = new Set(['piquenique', 'pinacolada', 'barbapapa', 'gravitezero', 'flipper', 'bellemere', 'ruban', 'tonton', 'croisiere', 'plongeon', 'tirebouchon',
   'neonafter', 'trainfou', 'glissade', 'safaribouchon', 'cameleon', 'deuxroutes', 'coupsoleil', 'sieste', 'festival',
-  'tchintchin', 'barbecue']); // T13 : branche « RISQUÉ » à 45° prise en 150cc avec une ligne serrée (le pilote de test sans dérapage la manque)
+  'tchintchin', 'barbecue', 'soldes', 'cascade', 'rondpoint']); // T13 : branche « RISQUÉ » à 45° prise en 150cc avec une ligne serrée (le pilote de test sans dérapage la manque)
 // Essais seulement : window.WK_REAL_WALLS (liste d'identifiants, ou '*') active les murs réels sur d'autres cartes sans modifier la liste.
 const realWalls = (def) => !!def.production || REAL_WALLS.has(def.id) || (Array.isArray(window.WK_REAL_WALLS) && (window.WK_REAL_WALLS.includes('*') || window.WK_REAL_WALLS.includes(def.id)));
-function buildWorld(ti) {
+/* Construction d'un circuit en étapes : buildWorldSteps cède la main (yield <avancement>) entre les grandes étapes. buildWorld l'exécute
+   d'une traite (comportement historique, tous les appelants) ; au démarrage, runSliced l'exécute par tranches pour laisser l'animation
+   de chargement afficher ses images (sinon une seule tâche de 1,4 s, 5,7 s sur un téléphone modeste, gelait l'animation). */
+function buildWorld(ti) { const g = buildWorldSteps(ti); for (;;) { const r = g.next(); if (r.done) return r.value; } }
+function* buildWorldSteps(ti) {
   const def = TRACKS[ti], th = def.theme, S = buildSamples(def);
   const scene = new T.Scene();
   const hw = def.width / 2, curbW = 1.6, run = 5.5, wallD = hw + curbW + run;
@@ -1095,15 +1247,20 @@ function buildWorld(ti) {
     } }
   const sun = new T.DirectionalLight(th.sun, th.sunI); sun.position.set(220, 320, 120); scene.add(sun); scene.add(sun.target); W.sun = sun;
   if (qual().shadows) { sun.castShadow = true; sun.shadow.mapSize.set(isTouch ? 1024 : 2048, isTouch ? 1024 : 2048); const sc = sun.shadow.camera; sc.left = -60; sc.right = 60; sc.top = 60; sc.bottom = -60; sc.near = 20; sc.far = 500; sun.shadow.bias = -.0005; sun.shadow.normalBias = .04; }
-  if (window.WKSurfaces) window.WKSurfaces.configure(SAVE.quality === 'low', renderer.capabilities.getMaxAnisotropy());
+  // Cartes PBR 512 px (jeu « mobile ») sur écran tactile ou en qualité basse : 4 fois moins de pixels à décoder et envoyer qu'en
+  // 1024 px (ticket #27 : démarrage du Samsung) et moins de mémoire ; 1024 px gardé sur ordinateur.
+  if (window.WKSurfaces) window.WKSurfaces.configure(SAVE.quality === 'low' || isTouch, renderer.capabilities.getMaxAnisotropy());
   buildBranches(W); computeGore(W); computeWallBlock(W); planBumps(W); planKickers(W); buildWarp(S, def, hw);
   if (def.production) window.WKProduction.installJunctions(W);
   if (def.production) window.WKProduction.applyFrames(S, def);
   buildEdges(S, def); computeBridges(W); W.env = envFor(def);
+  yield* drainPixelJobs(); yield 0.15;
   { let a = Infinity, b = -Infinity, e = Infinity, f = -Infinity; const acc = (P) => { for (let i = 0; i < P.N; i++) { a = Math.min(a, P.px[i]); b = Math.max(b, P.px[i]); e = Math.min(e, P.pz[i]); f = Math.max(f, P.pz[i]); } }; acc(S); W.branches.forEach(acc);
     W.bb = { cx: (a + b) / 2, cz: (e + f) / 2, ext: Math.max(b - a, f - e) / 2 }; }
   W.nearAll = nearAllFn(W);
+  temoinLieu(W); if (grandeCascadeActive(W)) W.lieux = grandeCascadeLieux;   // #37 Grande Cascade : relief des lieux posé d'abord
   if (th.terrain) buildTerrain(W, W.bb.ext, W.bb.cx, W.bb.cz);
+  yield* drainPixelJobs(); yield 0.25;
   CUR_HAT = W.hAt || null;
   const openAt = (i, sg) => W.branches.some((B) => B.side === sg && (inWin(i, B.winA) || inWin(i, B.winB)));
   const gap = (i) => (S.glide[i] && S.glide[(i + 1) % S.N]) || (!def.production && !!(S.wz && (S.wz[i] || S.wz[(i + 1) % S.N])));
@@ -1111,6 +1268,7 @@ function buildWorld(ti) {
 
   // sol
   const gtex = groundTex(th.ground); gtex.repeat.set(100, 100);
+  yield* drainPixelJobs(); yield 0.32;
   const groundMat = gfxDetail(new T.MeshLambertMaterial({ map: gtex, polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 2 }), 'ground'); W.groundMat = groundMat;
   const ground = new T.Mesh(new T.PlaneGeometry(4000, 4000), groundMat); ground.rotation.x = -Math.PI / 2; ground.position.y = th.groundY != null ? th.groundY : -.08; if (th.terrain || th.noGround) { ground.geometry.dispose(); groundMat.dispose(); } else scene.add(ground);
   const stex = gtex.clone(); stex.repeat.set(1, 1); stex.needsUpdate = true;
@@ -1143,21 +1301,28 @@ function buildWorld(ti) {
   for (const sgn of [-1, 1]) {
     const d = sgn * wallD;
     const nwS = (i) => !!(S.nowall && (S.nowall[i] & (sgn < 0 ? 1 : 2)));
-    const sk = (i) => gap(i) || openAt(i, sgn) || nwS(i) || wBlk(S, i, sgn) || warpIn(i), skW = (i) => gapR(i) || openAt(i, sgn) || nwS(i) || wBlk(S, i, sgn) || wBlk(S, i + 1, sgn);
-    scene.add(new T.Mesh(bandGeo(S, [{ o: d, y: .06 }, { o: d, y: 1.12 }], { vScale: 8, skip: skW, collision: realWalls(def) }), wallMat));
-    scene.add(new T.Mesh(tubeAlong(S, d, 1.2, .14, 8, 2, (i) => S.glide[i] || S.glide[(i + 2) % S.N] || openAt(i, sgn) || openAt(i + 2, sgn) || nwS(i) || nwS((i + 2) % S.N) || wBlk(S, i, sgn) || wBlk(S, i + 2, sgn)), railMat));
+    const sk = (i) => gap(i) || openAt(i, sgn) || nwS(i) || wBlk(S, i, sgn) || warpIn(i); (W.skirtSkip = W.skirtSkip || {})[sgn] = sk; const skW = (i) => gapR(i) || openAt(i, sgn) || nwS(i) || wBlk(S, i, sgn) || wBlk(S, i + 1, sgn);
+    /* #37 Grande Cascade P1-b : au droit du bassin, le muret VISIBLE et son rail laissent place à un parapet de pierre à claire-voie (decors.js) ;
+       la barrière physique reste la même : un muret invisible de même géométrie porte la collision (procédé de la limite de vol). */
+    const p1b = grandeCascadeActive(W) ? gcParapetAt(W, sgn) : null;
+    scene.add(new T.Mesh(bandGeo(S, [{ o: d, y: .06 }, { o: d, y: 1.12 }], { vScale: 8, skip: p1b ? (i) => skW(i) || p1b(i) : skW, collision: realWalls(def) }), wallMat));
+    if (p1b) { const inv = new T.Mesh(bandGeo(S, [{ o: d, y: .06 }, { o: d, y: 1.12 }], { vScale: 8, skip: (i) => skW(i) || !p1b(i), collision: realWalls(def) }), wallMat); inv.visible = false; inv.name = 'Muret du bassin (collision ; parapet visible)'; scene.add(inv); W.p1bMuret = inv; }
+    scene.add(new T.Mesh(tubeAlong(S, d, 1.2, .14, 8, 2, (i) => S.glide[i] || S.glide[(i + 2) % S.N] || openAt(i, sgn) || openAt(i + 2, sgn) || nwS(i) || nwS((i + 2) % S.N) || wBlk(S, i, sgn) || wBlk(S, i + 2, sgn) || (p1b && (p1b(i) || p1b((i + 2) % S.N)))), railMat));
     if (S.nowall) scene.add(new T.Mesh(bandGeo(S, sgn > 0 ? [{ o: hw + curbW, y: .085 }, { o: hw + curbW, y: -2.4 }] : [{ o: -hw - curbW, y: -2.4 }, { o: -hw - curbW, y: .085 }], { vScale: 10, skip: (i) => !nwS(i) || !nwS((i + 1) % S.N) }), skirtMat));
     if (S.ag) {
-      const glow = new T.Mesh(bandGeo(S, [{ o: d, y: 1.12 }, { o: d, y: def.production ? 1.28 : 2.6 }], { vScale: 8, skip: (i) => !S.ag[i] || !S.ag[(i + 1) % S.N] }), new T.MeshBasicMaterial({ color: '#5ff2ff', transparent: true, opacity: def.production ? .9 : .22, side: T.DoubleSide, depthWrite: false }));
+      const glow = new T.Mesh(bandGeo(S, [{ o: d, y: 1.12 }, { o: d, y: def.production ? 1.28 : 2.6 }], { vScale: 8, skip: (i) => !S.ag[i] || !S.ag[(i + 1) % S.N] || gapR(i) }), new T.MeshBasicMaterial({ color: '#5ff2ff', transparent: true, opacity: def.production ? .9 : .22, side: T.DoubleSide, depthWrite: false }));
       glow.name = 'Signal lumineux anti-gravité'; scene.add(glow);
     }
-    if (th.terrain) scene.add(new T.Mesh(sgn > 0 ? bandGeo(S, [{ o: d, y: .06 }, { o: d + 7, y: -5 }], { world: true, skip: sk }) : bandGeo(S, [{ o: d - 7, y: -5 }, { o: d, y: .06 }], { world: true, skip: sk }), shoulderMat));
+    if (th.terrain) { const skT = p1b ? (i) => sk(i) || (p1b(i) && p1b((i + 1) % S.N)) : sk;   // P1-b : pas de talus devant le bassin (ses gradins descendent au sol)
+      scene.add(new T.Mesh(sgn > 0 ? bandGeo(S, [{ o: d, y: .06 }, { o: d + 7, y: -5 }], { world: true, skip: skT }) : bandGeo(S, [{ o: d - 7, y: -5 }, { o: d, y: .06 }], { world: true, skip: skT }), shoulderMat)); }
     else scene.add(new T.Mesh(bandGeo(S, [th.skirtDepth ? { o: d, y: -th.skirtDepth } : { o: d, y: th.groundY != null ? th.groundY : -1, abs: true }, { o: d, y: .06 }], { vScale: 10, skip: sk }), skirtMat));
   }
 
+  if (!def.production) buildUndersides(W, gap, warpIn);
+  yield* drainPixelJobs(); yield 0.45;
   if (S.wz && !def.production) {
     // Coque de structure (style sections anti-gravité) : flancs qui masquent le dos des barrières, fond fermé, liserés lumineux.
-    const hull = new T.MeshStandardMaterial({ color: '#56607a', roughness: .38, metalness: .6, envMapIntensity: .9, side: T.DoubleSide }), skipOut = (i) => !warpIn(i);
+    const hull = new T.MeshStandardMaterial({ color: '#56607a', roughness: .38, metalness: .6, envMapIntensity: .9, side: T.DoubleSide }), skipOut = (i) => !warpIn(i) || gapR(i);   // pas de coque dans le vide d'un saut de plafond
     const shell = new T.Mesh(bandGeo(S, [{ o: -wallD, y: 1.12 }, { o: -wallD - .45, y: .5 }, { o: -wallD - .45, y: -1.0 }, { o: -wallD + 1.2, y: -1.7 }, { o: wallD - 1.2, y: -1.7 }, { o: wallD + .45, y: -1.0 }, { o: wallD + .45, y: .5 }, { o: wallD, y: 1.12 }], { vScale: 10, skip: skipOut }), hull);
     shell.name = 'Coque des sections spéciales'; scene.add(shell);
     const lit = new T.MeshBasicMaterial({ color: '#7ff4ff', side: T.DoubleSide });
@@ -1193,9 +1358,10 @@ function buildWorld(ti) {
   const bmats = { shoulder: shoulderMat, road: roadMat, curb: curbMat, wall: wallMat, rail: railMat, skirt: skirtMat, pad: padMat, dirt: new T.MeshLambertMaterial({ map: stex, color: '#d8c0a0', polygonOffset: true, polygonOffsetFactor: -1 }), fence: new T.MeshLambertMaterial({ color: '#8a6a48', side: T.DoubleSide }), fenceRail: lam('#6b4a2b') };
   bmats.path = new T.MeshStandardMaterial({ map: DIRT_TEX, roughness: .95, envMapIntensity: .2, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
   for (const B of W.branches) buildBranchGeo2(W, B, bmats);
+  yield* drainPixelJobs(); yield 0.52;
   buildGores(W, bmats);
   planGates(W); buildGates(W);
-  W.clock = 0; if (RACE_OPTS.obst) planObstacles(W); else { W.obst = []; W.ramps = []; } buildObstacleMeshes(W);
+  W.clock = 0; if (RACE_OPTS.obst) planObstacles(W); else { W.obst = []; W.ramps = []; } temoinPlan(W); buildObstacleMeshes(W);
   if (W.bumps && W.bumps.length) {
     const bt = BUMP_TEX.clone(); bt.needsUpdate = true; bt.repeat.set(Math.max(2, Math.round(hw / 2.2)), 1);
     const bmat = new T.MeshStandardMaterial({ map: bt, roughness: .7, envMapIntensity: .3, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }); W.bumpMat = bmat;
@@ -1211,6 +1377,7 @@ function buildWorld(ti) {
   planWeather(W); buildBridges(W); if (W.def.fortress) buildFortress(W); buildZones(W); if (W.def.railway) buildRailway(W); planChameleon(W);
   if (!def.production) buildDetails(W); else W.noDecor = []; warpNoDecor(W); buildWarpGlow(W); buildKickers(W);
   if (!def.production) { buildDecor(W); buildGrass9(W); }
+  yield* drainPixelJobs(); yield 0.62;
   W.parts = new Particles(scene, 420, true); W.dust = new Particles(scene, 200, false);
   if (th.decor === 'snow') W.snow = makeSnow(scene);
   buildGlideBits(W);
@@ -1219,20 +1386,29 @@ function buildWorld(ti) {
   buildTunnels(W);
   if (Graphics && def.pilot && !def.production) Graphics.pilotWorld(W);
   if (def.production) window.WKScenery.build(W, SAVE.quality);
+  yield* drainPixelJobs(); yield 0.68;
   CUR_HAT = null;
-  W.roles = new Map([[roadMat, 'road'], [curbMat, 'curb'], [shoulderMat, 'shoulder'], [padMat, 'road'], [bmats.dirt, 'road'], [bmats.path, 'road'], [bmats.fence, 'wall'], [skirtMat, 'skirt'], [wallMat, 'wall'], [W.bumpMat, 'road'], [W.hullMat, 'structure']]); if (W.terrain) W.roles.set(W.terrain.material, 'terrain');
+  W.roles = new Map([[roadMat, 'road'], [curbMat, 'curb'], [shoulderMat, 'shoulder'], [padMat, 'road'], [bmats.dirt, 'road'], [bmats.path, 'road'], [bmats.fence, 'wall'], [skirtMat, 'skirt'], [wallMat, 'wall'], [W.bumpMat, 'road'], [W.hullMat, 'structure'], [W.underMat, 'structure'], [W.underBackMat, 'structure']]); if (W.terrain) W.roles.set(W.terrain.material, 'terrain');
   if (realWalls(def)) { W.realWalls = true; if (!def.production) { closeJunctionWalls(W, wallMat, railMat); glideEnvelope(W, wallMat); } window.WKProduction.installBarriers(W); }
   scene.traverse((o) => { if (o.isMesh && !o.isInstancedMesh && !o.material.transparent) o.receiveShadow = true; });
   if (def.production) { W.roles.set(W.mudMat, 'mud'); W.roles.set(railMat, 'rail'); window.WKScenery.mergeRoad(W); window.WKScenery.buildDecks(W); }
   if (!def.production) clearWarpCorridor(W);
+  buildPlafondCage(W);
+  buildWarpSupports(W);
+  buildVivants(W);
   // Kit Nature : terrain PBR, végétation modélisée et horizon des circuits naturels (aucun effet sur les collisions).
-  if (window.WKNature && window.WKNature.handles(W)) window.WKNature.build(W, SAVE.quality, renderer);
+  temoinBuild(W);   // scène témoin #36/#37 (Cascades) : avant la Nature, qui évite ses zones (W.noDecor)
+  lieuxEauxBuild(W);   // plans d'eau des lieux (specials.eaux, concepteur « paysage ») : avant la Nature, qui évite leur emprise
+  if (window.WKNature && window.WKNature.handles(W)) { if (window.WKNature.buildSteps) yield* window.WKNature.buildSteps(W, SAVE.quality, renderer); else window.WKNature.build(W, SAVE.quality, renderer); }
+  yield* drainPixelJobs(); yield 0.85;
   // Plan lointain à la taille du monde : la couronne de montagnes (brouillard atténué) était tranchée jusqu'à 66 % du champ
   // quand on roulait près d'un bord (scripts/bac-a-sable.cjs --horizon). La précision de profondeur dépend surtout du plan proche.
   camera.far = Math.max(1900, W.farNeed || 0); camera.updateProjectionMatrix();
   // Décors vivants : spectateurs animés, drapeaux, montgolfières (visuel seulement, hors enveloppe roulable).
   if (window.WKVivant) window.WKVivant.build(W, SAVE.quality);
+  yield* drainPixelJobs(); yield 0.92;
   if (Graphics) Graphics.prepare(W, enhancedGraphics(), SAVE.quality, renderer);
+  yield* drainPixelJobs();
   if (def.production) window.WKProduction.colliders(W, (P, i) => P === S ? (W.branches.find(B => inWin(i, B.winA) || inWin(i, B.winB)) || {}).side || 0 : (i < P.jA || i > P.jB ? -P.side : 0));
   return W;
 }
@@ -1250,6 +1426,12 @@ function nearTrackFn(S, cell = 24) {
 
 // géométries de décor (créées une fois, partagées entre circuits)
 const DECOR = {};
+// Essai C2-3 (ticket #27, désactivé par défaut, décor de Claude 1) : géométries allégées pour les décors copiés par milliers
+// (palmes : capsule 340 → ~50 triangles ; buissons : icosaèdre détail 2 → 1). Mesuré par scripts/perf-decor.cjs --leger.
+let DECOR_LEGER = false;
+// Palme allégée par défaut (#37 §4, proposition de Claude 2 « palmes allégées ») : 3 491 palmes sur Croisière = 1,19 M triangles ;
+// la palme est aplatie (×0,22) : 6 segments suffisent, apparence identique aux captures de jeu (docs/audit/decors/leger), −45 % de triangles.
+const frondGeo = () => new T.CapsuleGeometry(.3, 3, 1, 6);
 const SHADE_GEO = { hill: [.8, 1.08], crown: [.6, 1.14], crown2: [.64, 1.12], bush: [.68, 1.1], pine1: [.58, 1.1], pine2: [.6, 1.1], pine3: [.64, 1.12], rock: [.7, 1.08], drybush: [.74, 1.08], cactus: [.78, 1.06] };
 function shadeGeo(g, lo, hi) {
   // dégradé sombre en bas, clair en haut + petites variations : donne du volume aux arbres et rochers
@@ -1267,7 +1449,7 @@ function decorGeoBase(name) {
     case 'crown': g = smooth(wobble(new T.IcosahedronGeometry(3.2, 2), .14, .9, 3), 80); break;
     case 'crown2': g = smooth(wobble(new T.IcosahedronGeometry(2.2, 2), .14, 1.2, 7), 80); break;
     case 'trunk': g = new T.CylinderGeometry(.38, .6, 4.4, 10); break;
-    case 'bush': g = smooth(wobble(new T.IcosahedronGeometry(1.6, 2), .16, 1.6, 5), 80); g.scale(1, .72, 1); break;
+    case 'bush': g = smooth(wobble(new T.IcosahedronGeometry(1.6, DECOR_LEGER ? 1 : 2), .16, 1.6, 5), 80); g.scale(1, .72, 1); break;
     case 'flower': g = new T.SphereGeometry(.32, 10, 8); break;
     case 'rock': g = smooth(wobble(new T.DodecahedronGeometry(1.6, 1), .2, 1.3, 9), 70); g.scale(1, .7, 1); break;
     case 'hill': g = new T.SphereGeometry(1, 28, 12, 0, TAU, 0, Math.PI / 2); break;
@@ -1560,11 +1742,11 @@ function buildBeach(W, ext, cx, cz, scatter, ring, q) {
   // palmiers
   const trunkM = lam('#9a6b43'), leafM = lam('#ffffff', { side: T.DoubleSide }); const leafC = ['#2f9a46', '#3bb055', '#268a3e'];
   const parts = [];
-  for (let s = 0; s < 6; s++) { const gseg = new T.CylinderGeometry(.3 - s * .025, .36 - s * .025, 1.55, 9); parts.push({ geo: gseg, mat: trunkM, off: trs(s * s * .045, .78 + s * 1.45, 0, 0, 0, -s * .05) }); }
+  for (let s = 0; s < 6; s++) { const gseg = new T.CylinderGeometry(.3 - s * .025, .36 - s * .025, 1.55, 9); gseg.userData.wkDecorName = 'beachPalm'; parts.push({ geo: gseg, mat: trunkM, off: trs(s * s * .045, .78 + s * 1.45, 0, 0, 0, -s * .05) }); }
   const topX = 1.6, topY = 8.8;
-  const frond = new T.CapsuleGeometry(.3, 3, 4, 10); frond.scale(1, 1, .22); frond.rotateZ(-Math.PI / 2); frond.translate(1.7, 0, 0); frond.rotateZ(-.42);
+  const frond = frondGeo(); frond.scale(1, 1, .22); frond.rotateZ(-Math.PI / 2); frond.translate(1.7, 0, 0); frond.rotateZ(-.42); frond.userData.wkDecorName = 'beachPalm';
   for (let f = 0; f < 7; f++) parts.push({ geo: frond, mat: leafM, off: trs(topX, topY, 0, 0, f / 7 * TAU + .3, 0), colors: leafC });
-  const nut = new T.SphereGeometry(.22, 10, 8); for (let f = 0; f < 3; f++) parts.push({ geo: nut, mat: lam('#6b4a2b'), off: tr(topX + Math.cos(f * 2.1) * .3, topY - .3, Math.sin(f * 2.1) * .3) });
+  const nut = new T.SphereGeometry(.22, 10, 8); nut.userData.wkDecorName = 'beachPalm'; for (let f = 0; f < 3; f++) parts.push({ geo: nut, mat: lam('#6b4a2b'), off: tr(topX + Math.cos(f * 2.1) * .3, topY - .3, Math.sin(f * 2.1) * .3) });
   instanced(scene, parts, scatter(110 * q, 6, 240, .8, 1.25));
   // parasols, serviettes, rochers
   const near = scatter(260 * q, 4, 400, .9, 1.2).filter((p) => p.x > wx - 45).slice(0, 26);
@@ -1572,7 +1754,7 @@ function buildBeach(W, ext, cx, cz, scatter, ring, q) {
     { geo: new T.BoxGeometry(1.1, .05, 2.1), mat: lam('#ffffff'), off: tr(1.6, .02, .4), colors: ['#7c4dff', '#ff6fb5', '#38b6ff', '#ffc531'] }], near);
   instanced(scene, [{ geo: decorGeo('rock'), mat: lam('#ffffff'), off: tr(0, .5, 0), colors: ['#c9a27a', '#b38a62', '#d8b48a'] }], scatter(60 * q, 3, 220, .6, 1.8));
   const isl = []; for (let k = 0; k < 7; k++) { const r = rand(40, 90); isl.push({ x: wx + rand(260, 700), z: cz + rand(-700, 700), y: -2, sx: r, sy: rand(14, 34), sz: r * rand(.7, 1.2), r: 0 }); }
-  instanced(scene, [{ geo: decorGeo('hill'), mat: lam('#ffffff'), colors: ['#4f9a42', '#69b452', '#d9b47a'] }], isl);
+  instanced(scene, [{ geo: decorGeoBase('hill'), mat: lam('#ffffff'), colors: ['#4f9a42', '#69b452', '#d9b47a'] }], isl); // îles en mer : jamais remplacées par le kit Nature
   addClouds(W, ext, cx, cz, 10);
 }
 
@@ -1614,7 +1796,8 @@ function buildSprings(W) {
     g.position.set(S.px[i] + S.rx[i] * lat, S.py[i], S.pz[i] + S.rz[i] * lat); g.rotation.y = S.hd[i]; W.scene.add(g); W.springs.push({ i, lat, g, t: 0 }); n++; } }
 function springLaunch(k, W) { if (!W.springs || !W.springs.length || (k.air && (k.airH || 0) > 1) || k.air === 'glide' || (k.P && k.P !== W.S) || k.speed < 12) return; const N = W.S.N;
   for (const q of W.springs) { const di = ((k.idx - q.i) % N + N) % N; if (di > 1 || Math.abs(k.lat - q.lat) > 2.7) continue;
-    k.air = 'jump'; k.vy = 14; k.airH = Math.max(k.airH || 0, .3); k.trickOK = true; k.trick = false; k.boost = Math.max(k.boost, .5); if (k.drift) endDrift(k, true); q.t = .35;
+    // Relance en plein vol (ressort franchi bas) : une figure déjà faite reste due à la réception ; nouvelle fenêtre de figure.
+    const enVol = !!k.air; k.air = 'jump'; k.vy = 14; k.airH = Math.max(k.airH || 0, .3); k.trickOK = true; if (!enVol) k.trick = false; k.airT = 0; k.boost = Math.max(k.boost, .5); if (k.drift) endDrift(k, true); q.t = .35;
     if (k.isPlayer) { AudioSys.sfx('spring'); vibrate(25); banner('Super-tremplin ! DRIFT = figure', 1.2); } else if (Math.random() < .7) k.aiTrickAt = rand(.15, .5); break; } }
 function mudAt(W, k) { if (!W.mud || !W.mud.length || (k.P && k.P !== W.S)) return false; const N = W.S.N;
   for (const m of W.mud) if (Math.abs(((k.idx - m.i) % N + N + N / 2) % N - N / 2) <= m.hl && Math.abs(k.lat - m.lat) < m.hw) return true; return false; }
@@ -1628,7 +1811,37 @@ const STONE_WALL_TEX = (() => { let seed = 4111; const rnd = () => ((seed = (Mat
       y += rh + 2; }
     const gr = x.createLinearGradient(0, 0, 0, 22); gr.addColorStop(0, '#4f8f34'); gr.addColorStop(1, 'rgba(79,143,52,0)'); x.fillStyle = gr; x.fillRect(0, 0, w, 22); });
   SHARED.add(t); return t; })();
-function buildGlideBits(W) {
+function buildGlideBits(W) { buildEnvolBits(W); buildGlideBitsMain(W); }
+/* Envol de branche : falaises aux deux bords du vide (même habillage que les trouées de la route), plaque turbo avant la lèvre et
+   à la réception, anneaux lumineux qui jalonnent la ligne de vol (visuels seulement, aucune collision). */
+function buildEnvolBits(W) {
+  const { scene, th } = W; let rings = null;
+  for (const B of W.branches) {
+    if (B.glideA == null) continue;
+    const skirtM = new T.MeshLambertMaterial({ map: skirtTex(th.skirt), side: T.DoubleSide }), padM = new T.MeshBasicMaterial({ map: BOOST_TEX, color: '#8fd8ff', transparent: true, opacity: .97 });
+    // Cartes à relief : face de l'envol et de la réception arrêtée au terrain (−1 m) et habillée de la roche du décor. Avant : mur de
+    // 30 m à texture de jupe sombre, visible en plein vol comme une grande dalle noire (réception de l'ENVOL de Cascades, retour Samsung).
+    for (const [j, facing] of [[B.glideA, 1], [B.glideB, -1]]) { if (!W.hAt || !th.terrain) { scene.add(new T.Mesh(cliffQuad(B, j, th, B.wallD, facing), skirtM)); continue; }
+      let low = Infinity; for (const f of [-1, -.5, 0, .5, 1]) low = Math.min(low, W.hAt(B.px[j] + B.rx[j] * B.wallD * f, B.pz[j] + B.rz[j] * B.wallD * f)); const haut = B.py[j] + .06 - (low - 1); if (haut < .3) continue;
+      const g = cliffQuad(B, j, Object.assign({}, th, { terrain: { drop: haut - 4.06 } }), B.wallD, facing), uv = g.attributes.uv; for (let q = 0; q < 4; q++) uv.setXY(q, uv.getX(q) / 4 * (2 * B.wallD / 8), uv.getY(q) * haut / 8);
+      const rock = Graphics && Graphics.material ? Graphics.material('rock', TERRAIN_ROCK[th.ground] || '#9a9488') : skirtM; rock.side = T.DoubleSide; scene.add(new T.Mesh(g, rock)); }
+    for (const j of [B.glideA - 6, Math.min(B.N - 8, B.glideB + 10)]) { scene.add(new T.Mesh(quadAt(B, j, 0, B.hw * .9, 3.2, .15), padM)); W.pads.push({ i: j, lat: 0, P: B }); }
+    rings = rings || new T.MeshBasicMaterial({ color: '#7ff4ff', transparent: true, opacity: .75, depthWrite: false });
+    // Anneaux turbo placés par le concepteur (B.def.anneaux : [fraction de la branche, hauteur au-dessus de la ligne, écart latéral]) : sur la vraie
+    // trajectoire de vol, à intervalles de temps égaux (scripts/concepteur-anneaux.cjs). Couleurs alternées ; chaque anneau traversé
+    // donne un petit turbo, une fois par tour, à tous les karts (bots compris).
+    if (Array.isArray(B.def.anneaux) && B.def.anneaux.length) {
+      const cols = [new T.MeshBasicMaterial({ color: '#7ff4ff', transparent: true, opacity: .85, depthWrite: false }), new T.MeshBasicMaterial({ color: '#ffd23f', transparent: true, opacity: .85, depthWrite: false })], R = Math.max(5.5, B.hw * .9);
+      B.def.anneaux.forEach(([f, h, l = 0], q) => { const j = clamp(Math.round(f * (B.N - 1)), 0, B.N - 1), r = new T.Mesh(new T.TorusGeometry(R, .5, 8, 40), cols[q % 2]);
+        r.position.set(B.px[j] + B.rx[j] * l, B.py[j] + h, B.pz[j] + B.rz[j] * l); r.rotation.y = B.hd[j]; r.name = 'Anneau turbo de l\'envol'; scene.add(r); (W.anneaux = W.anneaux || []).push({ P: B, j, y: B.py[j] + h, lat: l, r: R, q }); });
+      continue;
+    }
+    const n = Math.max(2, Math.round((B.glideB - B.glideA) * B.seg / 70));
+    for (let q = 1; q <= n; q++) { const j = Math.round(B.glideA + (B.glideB - B.glideA) * q / (n + 1)), r = new T.Mesh(new T.TorusGeometry(B.hw * .9, .35, 8, 40), rings);
+      r.position.set(B.px[j], B.py[j] + 5, B.pz[j]); r.rotation.y = B.hd[j]; r.name = 'Anneau guide de l\'envol'; scene.add(r); }
+  }
+}
+function buildGlideBitsMain(W) {
   const { S, scene, th, def, wallD, hw } = W; if (!def.glide) return;
   // Étang : berges en muret de pierres sèches (le pan de terre brune générique faisait grossier au bord de l'eau).
   const skirtM = def.pond ? new T.MeshStandardMaterial({ map: STONE_WALL_TEX, roughness: .9, metalness: 0, side: T.DoubleSide }) : new T.MeshLambertMaterial({ map: skirtTex(th.skirt), side: T.DoubleSide });
@@ -1756,7 +1969,7 @@ function buildTunnels(W) {
 function palmParts(trunkCol, leafCols) {
   const trunkM = lam(trunkCol), leafM = lam('#ffffff', { side: T.DoubleSide }); const parts = [];
   for (let s = 0; s < 6; s++) { const gseg = new T.CylinderGeometry(.3 - s * .025, .36 - s * .025, 1.55, 9); parts.push({ geo: gseg, mat: trunkM, off: trs(s * s * .045, .78 + s * 1.45, 0, 0, 0, -s * .05) }); }
-  const frond = new T.CapsuleGeometry(.3, 3, 4, 10); frond.scale(1, 1, .22); frond.rotateZ(-Math.PI / 2); frond.translate(1.7, 0, 0); frond.rotateZ(-.42);
+  const frond = frondGeo(); frond.scale(1, 1, .22); frond.rotateZ(-Math.PI / 2); frond.translate(1.7, 0, 0); frond.rotateZ(-.42);
   for (let f = 0; f < 7; f++) parts.push({ geo: frond, mat: leafM, off: trs(1.6, 8.8, 0, 0, f / 7 * TAU + .3, 0), colors: leafCols });
   return parts;
 }
@@ -1927,7 +2140,10 @@ function buildJungle(W, ext, cx, cz, scatter, ring, q) {
   W.jgMarks = { arches: [], pyramid: null, falls: [] }; W.jgCount = Object.fromEntries(Object.entries(P).map(([k, v]) => [k, v.length]));
   // arches de la cité perdue au-dessus de la route (2), sur des portions droites hors saut / embranchement / virage relevé
   { const stone = stdMat('#8f927c', .9, 0), dark = stdMat('#6e715e', .9, 0), moss = stdMat('#3f7a34', .95, 0); const used = [];
-    for (let i = 0; i < N && used.length < 2; i += 5) { if (zoneOf(i) !== 'ruines' || S.glide[i] || (S.wz && S.wz[i]) || nearBranchWin(W, i, 14) || used.some((u) => Math.abs(u - i) < N * .07)) continue;
+    /* #37 Grande Cascade P5 : aucune arche dans l'approche de la cascade (de 240 m avant à 30 m après) ; l'arche se décale au prochain
+       emplacement valide (avant : poutre et pilier masquaient la chute à 150–200 m). WK_GC_AVANT = témoin. */
+    const approche = (i) => { if (!W.temoin || window.WK_GC_AVANT) return false; let k = (i - W.temoin.c) % N; if (k > N / 2) k -= N; if (k < -N / 2) k += N; return k >= -120 && k <= 15; };
+    for (let i = 0; i < N && used.length < 2; i += 5) { if (zoneOf(i) !== 'ruines' || approche(i) || S.glide[i] || (S.wz && S.wz[i]) || nearBranchWin(W, i, 14) || used.some((u) => Math.abs(u - i) < N * .07)) continue;
       let c = 0; for (let o = -10; o <= 10; o++) c += Math.abs(S.curv[(i + o + N) % N]); if (c > .25) continue; used.push(i);
       const g = new T.Group(); g.position.set(S.px[i], S.py[i], S.pz[i]); g.rotation.y = S.hd[i]; const span = wallD + 2.2;
       for (const s of [-1, 1]) { const p = new T.Mesh(rbox(3.4, 13, 3.4, .3), stone); p.position.set(s * span, 6.5, 0); g.add(p); const b = new T.Mesh(new T.BoxGeometry(4.2, 1.2, 4.2), dark); b.position.set(s * span, .6, 0); g.add(b); }
@@ -2112,27 +2328,274 @@ function extrudeSide(shape, width, bevel, segs = 4, sizeOverride) {
   const g = new T.ExtrudeGeometry(shape, { depth: Math.max(.01, width - 2 * thick), bevelEnabled: true, bevelThickness: thick, bevelSize: sizeOverride != null ? sizeOverride : bevel * .85, bevelSegments: segs, curveSegments: 10 });
   g.rotateY(-Math.PI / 2); g.computeBoundingBox(); const bb = g.boundingBox; g.translate(-(bb.min.x + bb.max.x) / 2, 0, 0); return smooth(g, 48);
 }
-function tireGeo(R, w, knobby) {
-  const r0 = R * .6, c = Math.min(w * .3, (R - r0) * .5), pts = [];
-  pts.push(new T.Vector2(r0, -w / 2 + .02));
+function tireGeo(R, w, knobby, style) {
+  // Refonte (3 novembre) : flancs bombés, épaule arrondie et bande de roulement à deux rainures (même rayon et même largeur : la
+  // conduite et les collisions ne dépendent pas du maillage).
+  const r0 = R * .6, c = Math.min(w * .3, (R - r0) * .5), pts = [], bulge = w * .06;
+  pts.push(new T.Vector2(r0, -w / 2 + .02)); pts.push(new T.Vector2((r0 + R - c) / 2, -w / 2 - bulge));
   for (let k = 0; k <= 6; k++) { const a = -Math.PI / 2 + k / 6 * Math.PI / 2; pts.push(new T.Vector2(R - c + Math.cos(a) * c, -w / 2 + c + Math.sin(a) * c)); }
+  if (!knobby && style !== 'lisse') for (const [y, d] of [[-.2, 0], [-.17, -.025], [-.12, -.025], [-.09, 0], [.09, 0], [.12, -.025], [.17, -.025], [.2, 0]]) pts.push(new T.Vector2(R + d * R, y * w * 2.2));
   for (let k = 0; k <= 6; k++) { const a = k / 6 * Math.PI / 2; pts.push(new T.Vector2(R - c + Math.cos(a) * c, w / 2 - c + Math.sin(a) * c)); }
-  pts.push(new T.Vector2(r0, w / 2 - .02));
-  let g = new T.LatheGeometry(pts, 36); g.rotateZ(Math.PI / 2);
-  if (knobby) {
+  pts.push(new T.Vector2((r0 + R - c) / 2, w / 2 + bulge)); pts.push(new T.Vector2(r0, w / 2 - .02));
+  let g = new T.LatheGeometry(pts, 28); g.rotateZ(Math.PI / 2);
+  if (knobby === 'chevrons') { const list = [g]; for (let k = 0; k < 18; k++) for (const sx of [-1, 1]) { const a = k / 18 * TAU, kb = rbox(w * .5, .09, .13, .035); kb.applyMatrix4(trs(sx * w * .22, Math.cos(a) * (R + .012), Math.sin(a) * (R + .012), a, sx * .5, 0)); list.push(kb); } g = mergeGeos(list); }
+  else if (knobby) {
     const list = [g]; for (let k = 0; k < 16; k++) { const a = k / 16 * TAU; const kb = rbox(w * .92, .1, .16, .04); kb.applyMatrix4(trs(0, Math.cos(a) * (R + .015), Math.sin(a) * (R + .015), a, 0, 0)); list.push(kb); }
     g = mergeGeos(list);
   }
   return g;
 }
+// Retour du 5 nov. : la jante s'arrêtait à 0,97 × r0, 5 cm en retrait du talon du pneu (r0, ±(w/2 − 0,02)) dont l'alésage n'est pas
+// modélisé ; on voyait la caisse à travers cet anneau vide (contour irrégulier). Une collerette rejoint maintenant le talon, juste à
+// l'intérieur du flanc. Branches, voile et moyeu inchangés.
+function rimLevre(r0, w, s) { return [[r0 * .97, s * w * .34], [r0 * 1.0, s * w * .4], [r0 * 1.035, s * (w / 2 - .022)]]; }
+/* #36.Q1 — Jante Standard en deux tons (avant : fond et branches dans le même métal clair, lecture pâle et plate en gros plan) : fond de
+   jante gris acier sombre (couleurs de sommets selon le rayon), lèvre claire ; branches séparées en métal clair ; moyeu traversant
+   remplacé par deux enjoliveurs bombés (il se lisait comme une tache jaune étirée à travers les branches). WK_Q1_AVANT = témoin. */
+function jante2Geo(R, w) {
+  const r0 = R * .6, paroi = (sg) => [.55, .72, .8, .88].map((f) => [r0 * (.62 + .415 * f), sg * (w * .22 + (w / 2 - .022 - w * .22) * f)]);   /* points intermédiaires SUR le segment d'origine (forme inchangée) : transition de teinte nette */
+  const pts = [[.001, w * .34], [r0 * .28, w * .36], [r0 * .62, w * .22], ...paroi(1), ...rimLevre(r0, w, 1).reverse(), ...rimLevre(r0, w, -1), ...paroi(-1).reverse(), [r0 * .62, -w * .22], [r0 * .28, -w * .36], [.001, -w * .34]].map((p) => new T.Vector2(p[0], p[1]));
+  const g = new T.LatheGeometry(pts, 28); g.rotateZ(Math.PI / 2); const P = g.attributes.position, C = new Float32Array(P.count * 3);
+  for (let i = 0; i < P.count; i++) { const rr = Math.hypot(P.getY(i), P.getZ(i)) / r0, t = clamp((rr - .95) / .05, 0, 1), c = [.05 + .77 * t, .056 + .78 * t, .07 + .8 * t];   /* fond sombre jusqu'à la lèvre (couleurs de sommets en espace linéaire) */ C.set(c, i * 3); }
+  g.setAttribute('color', new T.BufferAttribute(C, 3));
+  const sp = []; for (const sx of [-1, 1]) for (let k = 0; k < 5; k++) { const a = k / 5 * TAU, c = new T.CapsuleGeometry(r0 * .1, r0 * .55, 2, 6); c.scale(1.6, 1, 1); c.translate(0, r0 * .5, 0); c.applyMatrix4(trs(sx * w * .3, 0, 0, a, 0, 0)); sp.push(c); }
+  const caps = [-1, 1].map((sx) => { const d = new T.SphereGeometry(R * .15, 24, 12, 0, TAU, 0, Math.PI / 2); d.scale(1, .55, 1); d.rotateZ(-sx * Math.PI / 2); d.translate(sx * w * .35, 0, 0);
+    const b = new T.CylinderGeometry(R * .15, R * .16, w * .06, 24); b.rotateZ(Math.PI / 2); b.translate(sx * w * .33, 0, 0); return mergeGeos([d, b]); });
+  /* une seule géométrie jante + branches (couleurs de sommets : branches claires) : 4 appels de rendu de moins par kart */
+  const a = g.toNonIndexed(), b = mergeGeos(sp), na = a.attributes.position.count, nb = b.attributes.position.count, m = new T.BufferGeometry(), cat = (k, n) => { const A = a.attributes[k].array, B = b.attributes[k] ? b.attributes[k].array : new Float32Array(nb * n).fill(.86), o = new Float32Array(A.length + B.length); o.set(A); o.set(B, A.length); return new T.BufferAttribute(o, n); };
+  m.setAttribute('position', cat('position', 3)); m.setAttribute('normal', cat('normal', 3)); m.setAttribute('uv', cat('uv', 2)); m.setAttribute('color', cat('color', 3));
+  return { rim: m, cap: mergeGeos(caps) };
+}
 function rimGeo(R, w) {
-  const r0 = R * .6, pts = [[.001, w * .34], [r0 * .28, w * .36], [r0 * .62, w * .22], [r0 * .97, w * .34], [r0 * .97, -w * .34], [r0 * .62, -w * .22], [r0 * .28, -w * .36], [.001, -w * .34]].map((p) => new T.Vector2(p[0], p[1]));
-  const g = new T.LatheGeometry(pts, 28); g.rotateZ(Math.PI / 2); return g;
+  const r0 = R * .6, pts = [[.001, w * .34], [r0 * .28, w * .36], [r0 * .62, w * .22], ...rimLevre(r0, w, 1).reverse(), ...rimLevre(r0, w, -1), [r0 * .62, -w * .22], [r0 * .28, -w * .36], [.001, -w * .34]].map((p) => new T.Vector2(p[0], p[1]));
+  const g = new T.LatheGeometry(pts, 28); g.rotateZ(Math.PI / 2);
+  // cinq branches arrondies sur chaque face (refonte du 3 novembre)
+  const list = [g]; for (const sx of [-1, 1]) for (let k = 0; k < 5; k++) { const a = k / 5 * TAU, sp = new T.CapsuleGeometry(r0 * .1, r0 * .55, 2, 6); sp.scale(1.6, 1, 1); sp.translate(0, r0 * .5, 0); sp.applyMatrix4(trs(sx * w * .3, 0, 0, a, 0, 0)); list.push(sp); }
+  return mergeGeos(list);
 }
 const WHEEL_DIM = { standard: { r: .43, w: .44 }, slicks: { r: .4, w: .66 }, offroad: { r: .56, w: .52 }, neon: { r: .44, w: .42 } };
-const HEAD_TOP = { casque: 2.04, casquette: 1.97, capuche: 2.04, robot: 1.92 };
+const HEAD_TOP = { casque: 2.08, casquette: 2.02, capuche: 2.1, robot: 2.02, heros: 2.1 };   // sommets des têtes animées (rig, refonte du 3 novembre)
 const BODY_W = { bolide: [1.12, .11], libellule: [1.45, .22], equilibre: [1.3, .13], buggy: [1.2, .1] };
 
+/* ================= Carrosseries v3 (refonte du 4 novembre, retour du propriétaire : « au niveau des roues ») =================
+   Chaque carrosserie est une COQUE CONTINUE lissée (« loft » : sections transversales en super-ellipse, interpolées en douceur le
+   long du kart, extrémités refermées en dôme), au lieu d'un assemblage de sphères qui se croisent. Les UV suivent la coque
+   (u autour, v le long) : la LIVRÉE peinte (deux tons, joints de carrosserie, filets, numéro de course, prises d'air, damier ou
+   bandes selon la déco choisie) est appliquée sans étirement. Matériaux séparés : coque peinte (paillettes + vernis en qualité
+   haute), plastique mat texturé, métal brossé, chrome, verre teinté. Appuis des roues, place du pilote et statistiques inchangés. */
+function loftGeo(secs, M = 44, K = 40) {
+  secs = secs.slice().sort((a, b) => a.z - b.z); const z0 = secs[0].z, z1 = secs[secs.length - 1].z, keys = ['w', 't', 'b', 'n', 'tb', 'x'];
+  const at = (z, key) => { let i = 0; while (i < secs.length - 2 && secs[i + 1].z < z) i++; const A = secs[i], Bb = secs[i + 1], h = (Bb.z - A.z) || 1e-6, u = clamp((z - A.z) / h, 0, 1);
+    const val = (s) => s[key] != null ? s[key] : key === 'n' ? 2.4 : 0, sl = (p, q) => (val(q) - val(p)) / ((q.z - p.z) || 1e-6);
+    const m0 = i > 0 ? (sl(secs[i - 1], A) + sl(A, Bb)) / 2 : sl(A, Bb), m1 = i < secs.length - 2 ? (sl(A, Bb) + sl(Bb, secs[i + 2])) / 2 : sl(A, Bb);
+    const u2 = u * u, u3 = u2 * u; return (2 * u3 - 3 * u2 + 1) * val(A) + (u3 - 2 * u2 + u) * h * m0 + (-2 * u3 + 3 * u2) * val(Bb) + (u3 - u2) * h * m1; };
+  const pos = [], uv = [], idx = [];
+  for (let i = 0; i <= M; i++) { const s = .5 - .5 * Math.cos(Math.PI * i / M), z = z0 + (z1 - z0) * s, p = {}; for (const k of keys) p[k] = at(z, k);
+    const w = Math.max(.002, p.w), hh = Math.max(.002, (p.t - p.b) / 2), yc = (p.t + p.b) / 2, ex = 2 / Math.max(1.2, p.n);
+    for (let j = 0; j <= K; j++) { const th = j / K * TAU, c = Math.cos(th), sn = Math.sin(th), yr = -Math.sign(c) * Math.pow(Math.abs(c), ex);
+      let x = w * Math.sign(sn) * Math.pow(Math.abs(sn), ex); if (yr > 0) x *= 1 - p.tb * yr; pos.push(x + p.x, yc + hh * yr, z); uv.push(j / K, s); } }
+  for (let i = 0; i < M; i++) for (let j = 0; j < K; j++) { const a = i * (K + 1) + j, b = a + K + 1; idx.push(a, a + 1, b, a + 1, b + 1, b); }
+  for (const [ring, sgn] of [[0, -1], [M, 1]]) { const c = pos.length / 3; let cx = 0, cy = 0; for (let j = 0; j < K; j++) { cx += pos[(ring * (K + 1) + j) * 3]; cy += pos[(ring * (K + 1) + j) * 3 + 1]; }
+    pos.push(cx / K, cy / K, (ring ? z1 : z0) + sgn * .01); uv.push(.5, ring ? 1 : 0); for (let j = 0; j < K; j++) { const a = ring * (K + 1) + j; if (sgn < 0) idx.push(c, a + 1, a); else idx.push(c, a, a + 1); } }
+  const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new T.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals(); return g;
+}
+// Livrée peinte sur la coque : u = 0 dessous, 0,25 flanc droit, 0,5 dessus, 0,75 flanc gauche ; v = 0 arrière, 1 avant.
+const LIVERY = new Map();
+function liveryMat(body, cfg, F, spec) {
+  const hi = qual().shadows, key = [body, cfg.color, cfg.helmet, cfg.deco, F.r, F.m, hi].join('|'); if (LIVERY.has(key)) return LIVERY.get(key);
+  const Wd = hi ? 1024 : 512, Hd = hi ? 1024 : 512, cv = document.createElement('canvas'); cv.width = Wd; cv.height = Hd; const x = cv.getContext('2d'), sp = spec || {};
+  const U = (u) => u * Wd, Vv = (v) => (1 - v) * Hd, base = cfg.color, acc = cfg.helmet, dk = darken(base, .62), lt = (() => { const c = rgb(base).map((v) => Math.min(255, Math.round(v + (255 - v) * .2))); return `rgb(${c.join(',')})`; })();
+  x.fillStyle = base; x.fillRect(0, 0, Wd, Hd);
+  // reflet doux du dessus et bas de caisse deux tons
+  let gr = x.createLinearGradient(U(.3), 0, U(.5), 0); gr.addColorStop(0, base); gr.addColorStop(1, lt); x.fillStyle = gr; x.globalAlpha = .35; x.fillRect(U(.3), 0, U(.2), Hd); gr = x.createLinearGradient(U(.5), 0, U(.7), 0); gr.addColorStop(0, lt); gr.addColorStop(1, base); x.fillStyle = gr; x.fillRect(U(.5), 0, U(.2), Hd); x.globalAlpha = 1;
+  x.fillStyle = dk; x.fillRect(0, 0, U(sp.bas || .17), Hd); x.fillRect(U(1 - (sp.bas || .17)), 0, U(sp.bas || .17), Hd);
+  x.fillStyle = acc; for (const u of [sp.bas || .17, 1 - (sp.bas || .17)]) x.fillRect(U(u) - 3, 0, 6, Hd);            // filet de séparation
+  // déco choisie, peinte (et non collée en relief)
+  if (cfg.deco === 'bande') { x.fillStyle = acc; x.fillRect(U(.465), 0, U(.025), Hd); x.fillRect(U(.51), 0, U(.025), Hd); x.fillStyle = '#ffffff'; x.globalAlpha = .7; x.fillRect(U(.4885), 0, 3, Hd); x.fillRect(U(.4885) + 6, 0, 3, Hd); x.globalAlpha = 1; }
+  else if (cfg.deco === 'damier') { const n = 10, c = U(.24) / n; for (let r = 0; r < 3; r++) for (let k = 0; k < n; k++) { x.fillStyle = (r + k) % 2 ? '#15141c' : '#ffffff'; x.fillRect(U(.38) + k * c, Vv(sp.damier || .9) + r * c * .9, c, c * .9); } }
+  else { x.fillStyle = acc; x.fillRect(U(.3), 0, 5, Hd); x.fillRect(U(.7) - 5, 0, 5, Hd); }
+  // joints de carrosserie (capot, portière, coffre) : fins traits sombres + liseré clair
+  for (const v of sp.joints || [.3, .66]) { x.fillStyle = 'rgba(10,8,20,.45)'; x.fillRect(U(.18), Vv(v) - 1, U(.64), 2); x.fillStyle = 'rgba(255,255,255,.18)'; x.fillRect(U(.18), Vv(v) + 1, U(.64), 1); }
+  for (const s of [.29, .71]) for (const v of sp.portes || []) { x.strokeStyle = 'rgba(10,8,20,.45)'; x.lineWidth = 2; x.beginPath(); x.moveTo(U(s - .06), Vv(v[0])); x.lineTo(U(s - .06), Vv(v[1])); x.stroke(); }
+  // prises d'air latérales
+  for (const s of [.25, .75]) for (const [v, n] of sp.ouies || [[.45, 3]]) for (let k = 0; k < n; k++) { x.fillStyle = 'rgba(12,10,22,.7)'; const y0 = Vv(v) + k * Hd * .025; x.beginPath(); x.ellipse(U(s), y0, U(.03), Hd * .006, 0, 0, TAU); x.fill(); }
+  // numéro de course sur les flancs et le capot
+  // numéros sur les flancs, lisibles de chaque côté (le texte suit la longueur du kart) et ronds en vrai (u et v n'ont pas la même échelle)
+  const num = String(sp.num || 7), ru = .19 * Wd / 5, rv = .19 * Hd / 3.8; for (const [u, rot] of [[.25, Math.PI / 2], [.75, -Math.PI / 2]]) { if (sp.num === 0) break; const cx = U(u), cy = Vv(sp.vNum || .52);
+    x.fillStyle = '#ffffff'; x.beginPath(); x.ellipse(cx, cy, ru, rv, 0, 0, TAU); x.fill(); x.strokeStyle = acc; x.lineWidth = Wd * .004; x.stroke();
+    x.save(); x.translate(cx, cy); x.rotate(rot); x.scale(rv / ru, 1); x.fillStyle = '#15141c'; x.font = `900 ${Math.round(ru * 1.25)}px sans-serif`; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(num, 0, ru * .06); x.restore(); }
+  // petit logo « WK » à l'arrière
+  // emblème original Wild Kart sur le capot (rond blanc, anneau d'accent, étoile), dessiné rond en mètres
+  if (sp.capot !== false) { const cx = U(.5), cy = Vv(sp.vCapot || .82), rx = Wd * .045, ry = rx * Hd / Wd * 1.05; x.fillStyle = '#ffffff'; x.beginPath(); x.ellipse(cx, cy, rx, ry, 0, 0, TAU); x.fill(); x.lineWidth = Wd * .006; x.strokeStyle = acc; x.stroke();
+    x.save(); x.translate(cx, cy); x.scale(1, ry / rx); x.lineWidth = rx * .08; x.strokeStyle = dk; x.beginPath(); x.arc(0, 0, rx * .78, 0, TAU); x.stroke();   // double anneau
+    x.fillStyle = dk; x.beginPath(); for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? rx * .26 : rx * .62; x.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); } x.closePath(); x.fill(); x.restore(); }   // étoile Wild Kart (aucune lettre : pas de monogramme pouvant évoquer une autre marque)
+  x.save(); x.translate(U(.5), Vv(.1)); x.scale(1, 2); x.fillStyle = acc; x.font = `900 ${Math.round(Hd * .03)}px sans-serif`; x.textAlign = 'center'; x.fillText('WILD KART', 0, 0); x.restore();
+  const tex = new T.CanvasTexture(cv); tex.anisotropy = Math.min(8, (renderer.capabilities && renderer.capabilities.getMaxAnisotropy()) || 1); if ('colorSpace' in tex) tex.colorSpace = T.SRGBColorSpace; else tex.encoding = T.sRGBEncoding;
+  const m = hi ? new T.MeshPhysicalMaterial({ color: '#ffffff', map: tex, roughness: Math.min(F.r, .32), roughnessMap: paintTex(), metalness: F.m, bumpMap: flakeTex(), bumpScale: .0012, clearcoat: F.m > .9 ? .35 : 1, clearcoatRoughness: .06 })
+    : new T.MeshStandardMaterial({ color: '#ffffff', map: tex, roughness: Math.min(F.r, .38), metalness: F.m });
+  LIVERY.set(key, m); return m;
+}
+// Plastique mat texturé (grain) pour bas de caisse, pare-chocs, ailerons noirs
+function plastiqueMat() { const key = 'plastique|' + qual().shadows; if (!matCache.has(key)) { const t = paintTex(); matCache.set(key, new T.MeshStandardMaterial({ color: '#23222e', map: t, roughness: .72, roughnessMap: t, metalness: .05 })); } return matCache.get(key); }
+function chromeMat() { const key = 'chrome|' + qual().shadows; if (!matCache.has(key)) matCache.set(key, new T.MeshStandardMaterial({ color: '#f2f4fa', roughness: .08, metalness: 1, envMapIntensity: 1.3 })); return matCache.get(key); }
+function verreMat() { const key = 'verre'; if (!matCache.has(key)) matCache.set(key, new T.MeshPhysicalMaterial({ color: '#2a3650', roughness: .04, metalness: .2, transmission: 0, transparent: true, opacity: .82, clearcoat: 1, clearcoatRoughness: .02 })); return matCache.get(key); }
+const BODY_SPEC = {
+  galet: { num: 7, joints: [.36, .62], ouies: [], vCapot: .95, vNum: .5 },   // emblème sur le nez, devant la prise d'air de capot
+  equilibre: { num: 7, joints: [.34, .7], ouies: [[.46, 3]] }, bolide: { num: 1, joints: [.3, .62], ouies: [[.42, 4]], vNum: .45, vCapot: .86 }, libellule: { num: 5, joints: [.62], ouies: [], vNum: .5 },
+  buggy: { num: 4, joints: [.4], ouies: [[.5, 2]] }, fusee: { num: 9, joints: [.25, .55, .75], ouies: [], vNum: .5, capot: false }, sport: { num: 3, joints: [.3, .72], portes: [[.38, .58]], ouies: [[.62, 4]] },
+  monstre: { num: 8, joints: [.5], ouies: [], bas: .2 }, baignoire: { num: 0 }, scarabee: { num: 2, joints: [], ouies: [], capot: false }, lutin: { num: 6, joints: [.7], ouies: [] }, requin: { num: 13, joints: [], ouies: [[.62, 4]], capot: false },
+  tracteur: { num: 11, joints: [.55], ouies: [[.75, 5]] }, comete: { num: 12, joints: [.7], ouies: [[.4, 3]] }, mini: { num: 10, joints: [.72], portes: [[.42, .6]], ouies: [] }, fourgon: { num: 14, joints: [.8], portes: [[.3, .55], [.58, .74]], ouies: [] },
+  limousine: { num: 15, joints: [.25, .45, .78], portes: [[.36, .5], [.52, .66]], ouies: [] }, herisson: { num: 16, joints: [], ouies: [], capot: false }, torpille: { num: 17, joints: [.3, .7], ouies: [], capot: false },
+};
+/* ================= Carrosseries v2 (refonte du 3-4 novembre, demande du propriétaire) =================
+   Les 19 carrosseries ont chacune leur PROPRE modèle (avant : 10 formes, dont 9 partagées par deux noms et seulement mises à
+   l'échelle). Volumes arrondis (ellipsoïdes, tours, capsules), ailes sur les roues, détails propres à chaque modèle, deux tons
+   (peinture + couleur secondaire « accent »). Appuis des roues, place du pilote et statistiques inchangés : la conduite et les
+   collisions ne dépendent pas du maillage. Repère : x latéral, y haut, z avant ; roues avant en z = fz, arrière en z = -1. */
+const BODY_FZ = { bolide: 1.22, fusee: 1.25, buggy: 1.12, sport: 1.28, monstre: 1.15, limousine: 1.42, requin: 1.25, torpille: 1.3, comete: 1.25, tracteur: 1.12, scarabee: 1.05, fourgon: 1.1, herisson: 1.1, mini: .95, lutin: 1.0 };
+const BODY_WIDE = { buggy: .06, monstre: .2, baignoire: .04, tracteur: .14, herisson: .1, fourgon: .06, scarabee: .04, limousine: .02 };
+const WHEEL_V2 = new Set();   // roues v2 (rempli plus bas)
+const BODY_V2 = new Set(['equilibre', 'bolide', 'libellule', 'buggy', 'fusee', 'sport', 'monstre', 'baignoire', 'scarabee', 'lutin', 'requin', 'tracteur', 'comete', 'galet', 'mini', 'fourgon', 'limousine', 'herisson', 'torpille']);
+function bodyV2(body, add, cap, V, cfg, WD) {
+  if (window.WKCarrosseriesPrototype && window.WKCarrosseriesPrototype.noms[body]) return window.WKCarrosseriesPrototype.construire(T, add, WD, cfg);
+  if (body === 'equilibre' && window.WKEquilibrePrototype) return window.WKEquilibrePrototype.construire(T, add, WD, cfg);
+  if (body === 'galet') return { flames: null, deco: galetBody(add, cap, V, cfg, WD) };
+  const fz = BODY_FZ[body] || 1.05, wide = BODY_WIDE[body] || 0, xw = .92 + wide + WD.w / 2 - .12;
+  // primitives
+  const E = (k, rx, ry, rz, x, y, z, a = [0, 0, 0], seg = 28) => { const g = new T.SphereGeometry(1, seg, Math.round(seg * .6)); g.scale(rx, ry, rz); g.applyMatrix4(trs(x, y, z, a[0], a[1], a[2])); add(k, g); return g; };
+  const H = (k, rx, ry, rz, x, y, z, a = [0, 0, 0]) => { const g = new T.SphereGeometry(1, 30, 10, 0, TAU, 0, Math.PI / 2); g.scale(rx, ry, rz); g.applyMatrix4(trs(x, y, z, a[0], a[1], a[2])); add(k, g); return g; };
+  const C = (k, r, l, x, y, z, rx = 0, ry = 0, rz = 0) => add(k, cap(r, l, x, y, z, rx, ry, rz));
+  const Tz = (k, R, r, x, y, z, a = [0, 0, 0], arc = TAU) => { const g = new T.TorusGeometry(R, r, 10, 36, arc); g.applyMatrix4(trs(x, y, z, a[0], a[1], a[2])); add(k, g); };
+  const Cy = (k, r0, r1, h, x, y, z, a = [0, 0, 0], seg = 24, open = false) => { const g = new T.CylinderGeometry(r0, r1, h, seg, 1, open); g.applyMatrix4(trs(x, y, z, a[0], a[1], a[2])); add(k, g); };
+  const Co = (k, r, h, x, y, z, a = [0, 0, 0], seg = 16) => { const g = new T.ConeGeometry(r, h, seg); g.applyMatrix4(trs(x, y, z, a[0], a[1], a[2])); add(k, g); };
+  const B = (k, w, h, d, r, x, y, z, a = [0, 0, 0]) => add(k, rbox(w, h, d, r), trs(x, y, z, a[0], a[1], a[2]));
+  const Lk = (k, a, b, r) => { const d = new T.Vector3().subVectors(b, a), g = new T.CapsuleGeometry(r, Math.max(.01, d.length()), 4, 10); g.applyMatrix4(new T.Matrix4().compose(a.clone().add(b).multiplyScalar(.5), new T.Quaternion().setFromUnitVectors(new T.Vector3(0, 1, 0), d.normalize()), new T.Vector3(1, 1, 1))); add(k, g); };
+  const lathe = (k, prof, x, y, z, a = [0, 0, 0], seg = 32) => { const g = new T.LatheGeometry(prof.map((p) => new T.Vector2(p[0], p[1])), seg); g.applyMatrix4(trs(x, y, z, a[0], a[1], a[2])); add(k, g); };
+  // aile sur une roue (demi-tore ouvert, double face) et garde-boue arrondi
+  const aile = (s, z, ep = .13, L = .8) => { const r = WD.r + ep, w = WD.w + .14, g = new T.CylinderGeometry(r, r, w, 28, 1, true, Math.PI / 2 - Math.PI * L / 2, Math.PI * L); g.rotateZ(Math.PI / 2); g.translate(s * xw, WD.r, z); add('paint', g);
+    const b = new T.TorusGeometry(r, .035, 6, 28, Math.PI * L); b.rotateZ(Math.PI / 2 - Math.PI * L / 2); b.rotateY(Math.PI / 2); b.translate(s * (xw + w / 2), WD.r, z); add('accent', b); };
+  const ailes = (L = .8, ep = .13, av = true, ar = true) => { for (const s of [-1, 1]) { if (av) aile(s, fz, ep, L); if (ar) aile(s, -1, ep, L); } };
+  const aileron = (y, z, w = 2.0, ch = .72, k = 'paint') => { add(k, extrudeSide(airfoilShape(ch, .12), w, .03, 2), tr(0, y, z)); for (const s of [-1, 1]) { B('dark', .06, .5, ch * .9, .025, s * (w / 2 - .02), y - .05, z); C('dark', .035, y - .75, s * .4, (y + .75) / 2 - .02, z + .05); } };
+  const siege = () => { B('dark', .72, .62, .2, .08, 0, 1.0, -.64, [-.15, 0, 0]); Tz('dark', .42, .065, 0, 1.06, -.42, [Math.PI / 2, 0, 0]); };
+  const echap = (pts) => pts.map(([x, y, z, s]) => ({ x, y, z, s: s || 1 }));
+  // bandes de déco qui suivent la coque principale (ellipsoïde rx, ry, rz centré en x, y, z)
+  const decoSur = (rx, ry, rz, x, y, z) => { if (cfg.deco === 'aucune') return null; const L = [], wd = cfg.deco === 'damier' ? .5 : .12, cs = cfg.deco === 'damier' ? [Math.PI / 2] : [Math.PI / 2 - .16, Math.PI / 2 + .16];
+    for (const c0 of cs) for (const c of [c0, c0 + Math.PI]) { const g = new T.SphereGeometry(1, 4, 28, c - wd / 2, wd, 0, Math.PI * .5); g.scale(rx * 1.012, ry * 1.012, rz * 1.012); g.translate(x, y, z); L.push(g); } return mergeGeos(L); };
+  let flames = echap([[-.24, .86, -1.9], [.24, .86, -1.9]]), deco = null;
+  add('plast', rbox(1.72, .12, 2.85, .05), tr(0, .3, 0));   // plancher
+  const S = (z, w, t, b, n = 2.6, tb = .18, x = 0) => ({ z, w, t, b, n, tb, x });
+  const coque = (secs, k = 'coque', M, K) => add(k, loftGeo(secs, M, K));
+  const jupe = (zr, zf, w = .9) => coque([S(zr - .05, .3, .44, .34, 3), S(zr + .2, w * .92, .48, .3, 4, 0), S((zr + zf) / 2, w, .5, .3, 4, 0), S(zf - .2, w * .92, .48, .3, 4, 0), S(zf + .05, .3, .44, .34, 3)], 'plast', 24, 24);
+  const bouclier = (z, y, w, r = .09) => { C('plast', r, w, 0, y, z, 0, 0, Math.PI / 2); for (const s of [-1, 1]) C('chrome', r * .45, .02, s * w * .48, y + .02, z + r * .7, Math.PI / 2); };
+  const phares = (z, y, x, r = .13, k = 'lampe') => { for (const s of [-1, 1]) { Cy('chrome', r * 1.18, r * 1.18, .06, s * x, y, z, [Math.PI / 2, 0, 0], 20); Cy(k, r, r, .07, s * x, y, z + .01, [Math.PI / 2, 0, 0], 20); } };
+  const feux = (z, y, x, w = .22) => { for (const s of [-1, 1]) B('feu', w, .08, .05, .03, s * x, y, z); };
+  const cockpit = (z = -.42, y = .96, rx = .44, rz = .5) => { const g = new T.TorusGeometry(1, .07, 10, 32); g.scale(rx, rz, 1); g.rotateX(Math.PI / 2); g.translate(0, y, z); add('plast', g); };
+  const pare = (z, y, w = .5, h = .26, inc = -.55) => { const g = new T.SphereGeometry(1, 24, 8, -1.1, 2.2, Math.PI * .28, Math.PI * .22); g.scale(w, h * 2.2, .5); g.rotateX(inc + .55); g.translate(0, y - h, z - .35); add('verre', g); };
+  const retro = (z, y, x) => { for (const s of [-1, 1]) { C('plast', .02, .12, s * x, y, z, 0, 0, s * .9); E('chrome', .06, .04, .02, s * (x + .08), y + .05, z); } };
+  switch (body) {
+    case 'equilibre': { // kart rond de référence : coque fluide en goutte, pontons galbés, nez souriant, aileron arrière
+      coque([S(-1.85, .12, .74, .58), S(-1.55, .6, .95, .44, 2.8), S(-1.05, .7, .98, .4, 3), S(-.45, .9, .9, .38, 3.2, .3), S(.15, .88, .88, .38, 3, .3), S(.7, .7, .84, .38, 2.8), S(1.1, .58, .78, .4, 2.6), S(1.55, .46, .7, .42, 2.4), S(1.92, .24, .6, .45, 2.2), S(2.05, .05, .54, .5)]);
+      jupe(-1.6, 1.7, .86); cockpit(); pare(.3, 1.02, .42, .2); bouclier(2.0, .46, 1.2); phares(1.86, .62, .3, .1); feux(-1.84, .74, .3);
+      ailes(.75, .12, true, false); aileron(1.25, -1.5, 1.7, .6, 'accent'); retro(.25, .98, .5); flames = echap([[-.3, .62, -1.88], [.3, .62, -1.88]]); break; }
+    case 'bolide': { // monoplace : nez effilé, cockpit étroit, capot moteur haut, pontons latéraux sculptés, ailerons
+      coque([S(-1.8, .14, .72, .48), S(-1.4, .36, .98, .38, 2.6), S(-.9, .46, 1.02, .34, 3, .3), S(-.4, .46, .9, .34, 3, .35), S(.2, .4, .84, .34, 2.8), S(.9, .32, .72, .34, 2.6), S(1.6, .2, .58, .36, 2.4), S(2.15, .05, .46, .4, 2)]);
+      for (const s of [-1, 1]) coque([S(-1.15, .05, .58, .4, 2, 0, s * .66), S(-.9, .2, .66, .34, 3, .1, s * .68), S(-.2, .26, .66, .34, 3, .1, s * .7), S(.35, .2, .6, .36, 2.6, .1, s * .68), S(.55, .04, .56, .42, 2, 0, s * .64)]);
+      for (const s of [-1, 1]) Cy('plast', .14, .16, .08, s * .7, .5, .58, [Math.PI / 2, 0, 0], 18);
+      add('accent', extrudeSide(airfoilShape(.62, .1), 2.15, .03, 2), tr(0, .32, 2.1)); for (const s of [-1, 1]) B('plast', .05, .34, .66, .025, s * 1.06, .38, 2.1);
+      aileron(1.42, -1.55, 2.1, .8, 'accent'); B('coque', .05, .45, .9, .02, 0, 1.12, -1.05, [.12, 0, 0]); Tz('plast', .26, .055, 0, 1.36, -.74, [0, Math.PI / 2, 0], Math.PI); cockpit(-.42, .9, .36, .48);
+      flames = echap([[0, .78, -1.85, 1.2]]); break; }
+    case 'libellule': { // cabriolet bulle rétro : corps en goutte très galbé, quatre ailes rondes, ailes de libellule translucides
+      coque([S(-1.6, .1, .78, .56), S(-1.3, .55, .96, .44, 2.4), S(-.7, .72, .92, .4, 2.6, .25), S(0, .74, .9, .4, 2.6, .25), S(.7, .62, .9, .42, 2.4), S(1.3, .45, .84, .44, 2.2), S(1.62, .1, .72, .52, 2)]);
+      for (const [xx, z] of [[-1, fz], [1, fz], [-1, -1], [1, -1]]) coque([S(z - .62, .05, .68, .62, 2, 0, xx * xw), S(z - .45, .38, .96, .5, 2.2, .2, xx * xw), S(z, .4, 1.05, .52, 2.2, .2, xx * xw), S(z + .45, .38, .96, .5, 2.2, .2, xx * xw), S(z + .62, .05, .68, .62, 2, 0, xx * xw)], 'paint', 16, 20);
+      for (const s of [-1, 1]) { const w = new T.SphereGeometry(1, 24, 10); w.scale(.95, .03, .32); w.applyMatrix4(trs(s * .75, 1.25, -.9, 0, s * .35, s * .25)); add('canopy', w); C('chrome', .03, .5, s * .2, 1.12, -.75, .5, 0, 0); }
+      phares(1.5, .72, .36, .1); feux(-1.56, .82, .3, .16); cockpit(); pare(.35, 1.02, .4, .2); flames = echap([[0, .66, -1.62, 1.0]]); break; }
+    case 'buggy': { // buggy des dunes : baquet bas, arceau tubulaire, pare-buffle, roue de secours, phares de toit
+      coque([S(-1.5, .3, .7, .5, 3), S(-1.2, .7, .82, .42, 3.6, .1), S(-.4, .78, .78, .4, 3.6, .15), S(.5, .74, .76, .4, 3.4, .15), S(1.2, .6, .72, .42, 3), S(1.6, .3, .64, .46, 2.6)]);
+      Tz('plast', .64, .06, 0, 1.4, -.38, [0, 0, 0], Math.PI); for (const sx of [-1, 1]) { C('plast', .06, .55, sx * .64, 1.12, -.38); Lk('plast', V(sx * .62, 1.6, -.38), V(sx * .55, .78, .75), .05); Lk('plast', V(sx * .62, 1.7, -.38), V(sx * .4, .9, -1.2), .045); }
+      C('chrome', .06, 1.3, 0, .58, 1.98, 0, 0, Math.PI / 2); for (const s of [-1, 1]) C('chrome', .05, .32, s * .45, .72, 1.9);
+      Tz('plast', .34, .14, 0, .98, -1.45, [0, 0, 0]); Cy('chrome', .18, .18, .16, 0, .98, -1.45, [Math.PI / 2, 0, 0]);
+      for (const s of [-1, 1]) { Cy('chrome', .1, .1, .1, s * .3, 2.08, -.3, [Math.PI / 2, 0, 0]); Cy('lampe', .08, .08, .11, s * .3, 2.08, -.29, [Math.PI / 2, 0, 0]); } ailes(.6, .1); phares(1.6, .64, .32, .09); cockpit(-.42, .88);
+      flames = echap([[.45, .55, -1.5]]); break; }
+    case 'fusee': { // fusée : fuselage rond continu du cône au réacteur, ailettes, hublot, anneaux
+      coque([S(-1.7, .48, 1.28, .32, 2, 0), S(-1.1, .56, 1.36, .24, 2, 0), S(.1, .56, 1.36, .24, 2, 0), S(1.0, .52, 1.32, .28, 2, 0), S(1.7, .3, 1.1, .5, 2, 0), S(2.25, .04, .82, .78, 2, 0)], 'coque', 44, 36);
+      Cy('chrome', .46, .52, .55, 0, .8, -1.88, [Math.PI / 2, 0, 0], 32); Cy('plast', .52, .36, .38, 0, .8, -2.22, [Math.PI / 2, 0, 0], 32, true);
+      B('accent', .07, .75, .85, .03, 0, 1.5, -1.25, [-.3, 0, 0]); for (const s of [-1, 1]) B('accent', .07, .6, .85, .03, s * .74, .62, -1.25, [0, 0, s * 1.15]);
+      Tz('chrome', .19, .04, .56, .95, .85, [0, Math.PI / 2, 0]); E('verre', .03, .17, .17, .55, .95, .85); for (const z of [.75, -.35]) Tz('chrome', .565, .035, 0, .8, z); cockpit(-.42, 1.2, .38, .44);
+      flames = echap([[0, .8, -2.3, 2.4]]); break; }
+    case 'sport': { // GT : capot long et bas, cabine reculée vitrée, flancs creusés, ailes musclées, diffuseur, aileron
+      coque([S(-1.9, .2, .7, .42, 3), S(-1.6, .78, .82, .34, 3.4, .2), S(-1.0, .74, .86, .32, 3.4, .25), S(-.5, .86, .86, .32, 3.6, .3), S(.3, .86, .8, .32, 3.4, .25), S(1.0, .72, .74, .32, 3), S(1.7, .62, .64, .34, 3), S(2.15, .4, .54, .36, 2.6), S(2.25, .1, .5, .4, 2.2)]);
+      for (const s of [-1, 1]) for (const z of [fz, -1]) coque([S(z - .62, .05, .62, .56, 2, 0, s * .84), S(z - .4, .2, .9, .44, 2.6, .3, s * .84), S(z, .22, .96, .42, 2.6, .3, s * .84), S(z + .4, .2, .9, .44, 2.6, .3, s * .84), S(z + .62, .05, .62, .56, 2, 0, s * .84)], 'coque', 16, 20);
+      E('verre', .52, .26, .5, 0, .92, -.25); E('coque', .58, .14, .55, 0, 1.02, -.75); for (const s of [-1, 1]) B('plast', .3, .1, .4, .04, s * .5, .82, .75);
+      aileron(1.22, -1.55, 2.0, .75, 'accent'); B('plast', 1.5, .16, .3, .06, 0, .42, -1.85); for (const s of [-1, 1]) for (let k = 0; k < 4; k++) B('plast', .03, .14, .26, .01, s * (.2 + k * .15), .4, -1.88);
+      phares(2.1, .6, .55, .1); feux(-1.88, .74, .55, .3); retro(-.05, .98, .6); flames = echap([[-.35, .44, -1.98], [.35, .44, -1.98]]); break; }
+    case 'monstre': { // monster truck : caisse haute à arêtes adoucies, capot bombé, rampe de phares, arceau, pare-chocs tubulaires
+      coque([S(-1.55, .8, 1.5, .78, 4.2, .1), S(-1.2, .95, 1.55, .72, 4.6, .12), S(-.2, .96, 1.3, .72, 4.6, .12), S(.6, .95, 1.42, .72, 4.6, .12), S(1.3, .9, 1.42, .74, 4.2, .1), S(1.62, .7, 1.3, .8, 3.6)]);
+      pare(.32, 1.62, .55, .24);
+      C('plast', .07, 1.8, 0, 2.15, -.2, 0, 0, Math.PI / 2); for (const s of [-1, 1]) C('plast', .07, 1.1, s * .85, 1.65, -.2); for (let k = -2; k <= 2; k++) { Cy('chrome', .1, .1, .08, k * .3, 2.2, -.12, [Math.PI / 2, 0, 0]); Cy('lampe', .08, .08, .09, k * .3, 2.2, -.11, [Math.PI / 2, 0, 0]); }
+      C('chrome', .07, 1.9, 0, .85, 1.72, 0, 0, Math.PI / 2); C('chrome', .07, 1.9, 0, .85, -1.62, 0, 0, Math.PI / 2); phares(1.63, 1.12, .55, .12); feux(-1.56, 1.25, .62, .2);
+      ailes(.62, .16); for (const s of [-1, 1]) Cy('chrome', .09, .1, .7, s * .7, 1.75, -1.05); flames = echap([[-.7, 2.1, -1.05, .8], [.7, 2.1, -1.05, .8]]); cockpit(-.42, 1.32, .44, .46); break; }
+    case 'baignoire': { // baignoire : cuve émaillée continue à rebord roulé, pieds griffus dorés, douche, canard, mousse
+      coque([S(-1.65, .3, 1.12, .55, 3), S(-1.4, .88, 1.18, .45, 3.4, -.08), S(0, .96, 1.18, .42, 3.6, -.1), S(1.4, .88, 1.18, .45, 3.4, -.08), S(1.65, .3, 1.12, .55, 3)], 'email', 44, 40);
+      const g = new T.TorusGeometry(1, .075, 10, 40); g.scale(.95, 1.62, 1); g.rotateX(Math.PI / 2); g.translate(0, 1.18, 0); add('email', g); E('water', .84, .04, 1.45, 0, 1.12, 0);
+      for (const s of [-1, 1]) for (const z of [1.2, -1.2]) { Co('gold', .1, .3, s * .72, .42, z, [Math.PI, 0, 0]); E('gold', .09, .06, .12, s * .72, .28, z + .05); }
+      C('chrome', .05, .9, -.55, 1.55, -1.25); C('chrome', .05, .4, -.55, 2.02, -1.05, Math.PI / 2); Cy('chrome', .15, .08, .12, -.55, 1.98, -.82, [Math.PI / 2, 0, 0]);
+      E('duck', .2, .18, .24, .45, 1.28, .9); E('duck', .12, .12, .12, .45, 1.48, 1.05); Co('beak', .06, .12, .45, 1.46, 1.2, [Math.PI / 2, 0, 0]);
+      for (let k = 0; k < 7; k++) E('email', .13, .1, .13, -.45 + k * .15, 1.18, -.6 + (k % 2) * .25); ailes(.55, .1); flames = echap([[-.3, .6, -1.72], [.3, .6, -1.72]]); break; }
+    case 'scarabee': { // scarabée : dôme d'élytres continu et fendu, corselet, tête ronde aux yeux-phares, antennes, pattes
+      coque([S(-1.62, .2, .7, .5, 2.2), S(-1.3, .82, 1.08, .42, 2.4, .35), S(-.5, .98, 1.18, .4, 2.4, .4), S(.3, .9, 1.06, .4, 2.4, .4), S(.8, .7, .9, .42, 2.4, .3), S(1.05, .45, .82, .46, 2.2)]);
+      B('plast', .025, .72, 1.8, .012, 0, .82, -.3, [0, 0, 0]); coque([S(1.0, .1, .7, .5, 2), S(1.2, .5, .86, .42, 2.2, .2), S(1.6, .5, .82, .42, 2.2, .2), S(1.9, .3, .74, .46, 2), S(2.02, .05, .66, .52, 2)], 'paint', 24, 28);
+      for (const s of [-1, 1]) { E('lampe', .14, .14, .1, s * .28, .7, 1.86); Tz('chrome', .14, .02, s * .28, .7, 1.9); C('plast', .022, .7, s * .18, 1.0, 1.85, .7, 0, s * .4); E('accent', .06, .06, .06, s * .32, 1.32, 2.12); }
+      for (const s of [-1, 1]) for (const z of [.4, -.4]) C('plast', .045, .45, s * 1.02, .45, z, 0, 0, s * 1.0); cockpit(-.42, 1.05, .42, .45); flames = echap([[0, .5, -1.62]]); break; }
+    case 'lutin': { // lutin : coque de sabot à la pointe recourbée vers le ciel, bonnet pointu à grelot, liseré doré
+      coque([S(-1.4, .2, .84, .56), S(-1.1, .72, .96, .44, 2.6, .2), S(-.4, .82, .88, .4, 2.6, .25), S(.4, .76, .86, .42, 2.6, .2), S(1.0, .56, .82, .44, 2.4), S(1.45, .3, .86, .5, 2.2), S(1.75, .12, 1.02, .78, 2), S(1.82, .04, 1.15, 1.05, 2)]);
+      E('gold', .08, .08, .08, 0, 1.18, 1.86); Co('accent', .42, 1.1, 0, 1.45, -1.25, [-.55, 0, 0], 24); Tz('email', .4, .08, 0, 1.15, -1.0, [Math.PI / 2 - .55, 0, 0]); E('gold', .11, .11, .11, 0, 1.93, -1.7);
+      Tz('gold', .84, .03, 0, .66, -.05, [Math.PI / 2, 0, 0]); ailes(.7, .1); phares(1.35, .66, .3, .08); cockpit(); flames = echap([[0, .6, -1.42, .9]]); break; }
+    case 'requin': { // requin : fuselage continu du museau à la queue, aileron dorsal, ouïes, gueule à dents, nageoires
+      coque([S(-1.9, .1, .9, .7, 2), S(-1.5, .42, 1.1, .5, 2.2, .1), S(-.6, .62, 1.24, .38, 2.3, .15), S(.4, .64, 1.24, .36, 2.3, .15), S(1.2, .56, 1.12, .36, 2.2, .1), S(1.8, .38, .96, .4, 2), S(2.2, .08, .78, .5, 2)]);
+      coque([S(1.3, .4, .62, .44, 2, 0), S(1.9, .3, .56, .44, 2, 0), S(2.15, .05, .54, .48, 2, 0)], 'email', 16, 20);
+      Co('coque', .34, .95, 0, 1.62, -.45, [-.35, 0, 0], 4); for (const s of [-1, 1]) { E('plast', .07, .07, .05, s * .38, 1.0, 1.75); C('coque', .1, .6, s * .7, .5, .3, 0, 0, s * 1.2); }
+      for (let k = -3; k <= 3; k++) Co('email', .04, .1, k * .07, .5, 2.12, [Math.PI, 0, 0], 6);
+      for (const r of [.5, -.5]) B('coque', .08, .65, .55, .04, 0, .85 + r * .5, -1.95, [r * 1.2, 0, 0]); cockpit(-.42, 1.18, .4, .44); flames = echap([[-.25, .7, -1.7], [.25, .7, -1.7]]); break; }
+    case 'tracteur': { // tracteur : capot arrondi à calandre chromée, cheminée, ailes arrière enveloppantes, marchepieds
+      coque([S(.0, .3, 1.15, .62, 3.6), S(.3, .6, 1.3, .55, 4, .15), S(1.2, .62, 1.3, .55, 4, .15), S(1.75, .58, 1.22, .58, 3.6, .1), S(1.95, .3, 1.1, .66, 3)]);
+      coque([S(-1.6, .4, .95, .55, 3.6), S(-1.3, .78, 1.0, .5, 4, .1), S(-.2, .78, .95, .5, 4, .1), S(.1, .4, .9, .55, 3.6)]);
+      for (let k = 0; k < 5; k++) B('chrome', .9, .04, .04, .015, 0, .74 + k * .1, 1.97); Cy('plast', .08, .09, .9, .4, 1.75, 1.0); Cy('chrome', .1, .1, .1, .4, 2.22, 1.0);
+      for (const s of [-1, 1]) { const g = new T.CylinderGeometry(WD.r + .2, WD.r + .2, WD.w + .25, 28, 1, true, Math.PI / 2 - 1.3, 2.6); g.rotateZ(Math.PI / 2); g.translate(s * xw, WD.r, -1); add('paint', g); B('plast', .5, .06, .3, .02, s * .85, .55, .15); }
+      phares(1.98, 1.05, .42, .1); feux(-1.62, .9, .5, .16); ailes(.55, .12, true, false); cockpit(-.42, .98); flames = echap([[.4, 2.3, 1.0, .8]]); break; }
+    case 'comete': { // comète : goutte très effilée, nez étoilé, traînées lumineuses, flancs creusés
+      coque([S(-1.95, .06, .76, .66, 2), S(-1.5, .4, .9, .5, 2.4, .2), S(-.8, .72, .96, .4, 2.6, .3), S(0, .8, .92, .38, 2.8, .3), S(.8, .66, .86, .4, 2.6, .25), S(1.5, .44, .78, .44, 2.4), S(2.05, .12, .7, .54, 2)]);
+      const st = new T.OctahedronGeometry(.22); st.scale(1, 1, .4); st.translate(0, .68, 2.12); add('gold', st);
+      for (const s of [-1, 0, 1]) C('led', .045, 1.2, s * .3, .84 - Math.abs(s) * .1, -1.95, Math.PI / 2 + .1, 0, 0); for (const s of [-1, 1]) C('led', .025, 1.3, s * .82, .62, -.1, Math.PI / 2);
+      pare(.35, 1.0, .4, .2); ailes(.7, .1); cockpit(); flames = echap([[0, .72, -2.0, 1.4]]); break; }
+    case 'mini': { // citadine : caisse courte et haute aux flancs bombés, capote repliée, gros phares ronds chromés, pare-chocs
+      coque([S(-1.3, .4, .9, .5, 3), S(-1.0, .82, 1.05, .42, 3.4, .25), S(-.2, .86, .98, .4, 3.4, .3), S(.5, .82, .92, .42, 3.2, .25), S(1.0, .7, .84, .44, 3), S(1.28, .4, .78, .5, 2.6)]);
+      H('accent', .62, .4, .42, 0, 1.0, -1.0); Tz('chrome', .56, .04, 0, 1.05, -.72, [0, 0, 0], Math.PI); pare(.4, 1.12, .44, .22); Tz('chrome', .48, .02, 0, 1.12, .3, [-.45, 0, 0], Math.PI);
+      phares(1.22, .76, .42, .15); feux(-1.28, .86, .48, .18); bouclier(1.32, .48, 1.4, .08); bouclier(-1.34, .5, 1.4, .08); retro(.2, 1.02, .66); ailes(.7, .1); cockpit(-.42, 1.02);
+      flames = echap([[.35, .48, -1.36, .8]]); break; }
+    case 'fourgon': { // fourgonnette : grande caisse arrondie, vitres teintées, porte coulissante, galerie et bagages
+      coque([S(-1.65, .78, 1.62, .48, 4.4, .12), S(-1.3, .86, 1.75, .42, 4.6, .14), S(.8, .86, 1.75, .42, 4.6, .14), S(1.3, .84, 1.6, .44, 4.2, .12), S(1.6, .76, 1.2, .5, 3.6), S(1.75, .5, 1.05, .56, 3)], 'coque', 40, 40);
+      for (const s of [-1, 1]) { B('verre', .04, .4, 1.1, .1, s * .86, 1.35, .15); B('verre', .04, .4, .55, .1, s * .86, 1.35, -1.0); } B('verre', 1.35, .45, .06, .12, 0, 1.38, 1.5, [-.3, 0, 0]);
+      for (const s of [-1, 1]) C('chrome', .04, 2.4, s * .65, 1.82, -.2, Math.PI / 2); B('accent', .62, .3, .52, .1, 0, 1.99, -.5); B('coque', .45, .25, .4, .08, .1, 1.98, .25);
+      phares(1.74, .88, .55, .12); feux(-1.66, 1.1, .7, .14); bouclier(1.8, .55, 1.6); ailes(.6, .1); flames = echap([[-.45, .5, -1.72]]); break; }
+    case 'limousine': { // limousine : caisse très longue et basse, capot interminable, ailerons de queue, chromes, fanions
+      coque([S(-2.15, .3, .74, .44, 3), S(-1.8, .82, .86, .36, 3.4, .2), S(-.6, .86, .84, .36, 3.6, .25), S(.6, .86, .8, .36, 3.6, .2), S(1.6, .78, .72, .36, 3.2), S(2.15, .6, .66, .38, 3), S(2.35, .25, .6, .42, 2.6)]);
+      E('verre', .62, .16, .9, 0, .94, -.75); E('coque', .66, .1, .85, 0, 1.04, -.75);
+      for (const s of [-1, 1]) { C('chrome', .03, 4.0, s * .86, .46, .1, Math.PI / 2); B('coque', .06, .34, .6, .03, s * .55, .98, -1.85, [-.4, 0, s * .25]); C('plast', .015, .4, s * .6, 1.0, 2.0); B('accent', .02, .14, .2, .01, s * .7, 1.16, 1.98); }
+      for (let k = 0; k < 6; k++) B('chrome', .9, .03, .03, .01, 0, .5 + k * .05, 2.36); E('gold', .07, .1, .07, 0, .82, 2.25); phares(2.3, .56, .55, .09); feux(-2.14, .7, .6, .26); flames = echap([[-.3, .45, -2.2], [.3, .45, -2.2]]); break; }
+    case 'herisson': { // hérisson : dôme continu hérissé de piquants, museau pointu à truffe, oreilles, pattes
+      coque([S(-1.55, .3, .9, .5, 2.2), S(-1.2, .86, 1.22, .42, 2.3, .3), S(-.4, 1.0, 1.32, .4, 2.3, .35), S(.4, .92, 1.2, .4, 2.3, .35), S(.9, .6, .95, .42, 2.2, .2), S(1.1, .3, .82, .46, 2)]);
+      coque([S(.9, .45, .86, .4, 2), S(1.3, .4, .8, .42, 2), S(1.75, .2, .7, .5, 2), S(2.0, .05, .64, .58, 2)], 'ivory', 20, 24); E('plast', .1, .09, .09, 0, .62, 2.02);
+      for (let i = 0; i < 60; i++) { const a = (i * 2.399) % TAU, t = .2 + .75 * ((i * .618) % 1), x = Math.cos(a) * Math.sin(t * 1.2) * .9, z = -.2 + Math.sin(a) * Math.sin(t * 1.2) * 1.15 - .1, y = .55 + Math.cos(t * 1.2) * .74;
+        if (z > .1 && Math.abs(x) < .45) continue; const n = new T.Vector3(x / 1.0, (y - .55) / .78, (z + .2) / 1.35).normalize(), g = new T.ConeGeometry(.12, .55, 7); g.applyMatrix4(new T.Matrix4().compose(V(x, y, z).addScaledVector(n, .12), new T.Quaternion().setFromUnitVectors(V(0, 1, 0), n), V(1, 1, 1))); add('paint2', g); }
+      for (const s of [-1, 1]) { E('coque', .12, .14, .06, s * .38, 1.1, .6); E('plast', .06, .06, .05, s * .2, .78, 1.6); } cockpit(-.42, 1.15, .42, .45); flames = echap([[0, .55, -1.55]]); break; }
+    case 'torpille': { // torpille : long fuseau continu, hélice à pales, gouvernails, périscope, bagues chromées
+      coque([S(-2.0, .14, .9, .66, 2, 0), S(-1.6, .44, 1.24, .32, 2, 0), S(-.2, .5, 1.28, .28, 2, 0), S(1.0, .5, 1.28, .28, 2, 0), S(1.7, .4, 1.18, .38, 2, 0), S(2.1, .05, .82, .74, 2, 0)], 'coque', 44, 36);
+      for (const z of [.9, -.5]) Tz('chrome', .51, .035, 0, .78, z); Cy('chrome', .12, .12, .3, 0, .78, -2.1, [Math.PI / 2, 0, 0]); for (let k = 0; k < 4; k++) B('chrome', .07, .7, .2, .03, 0, .78, -2.25, [0, 0, k * Math.PI / 4]);
+      for (const a of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) B('plast', .06, .45, .5, .02, Math.sin(a) * .5, .78 + Math.cos(a) * .5, -1.55, [0, 0, -a]);
+      C('plast', .05, .55, .3, 1.45, .7); C('plast', .05, .2, .3, 1.75, .8, Math.PI / 2); for (const s of [-1, 1]) E('verre', .03, .1, .1, s * .5, .9, .4); cockpit(-.42, 1.18, .38, .44); flames = echap([[0, .78, -2.4, 1.6]]); break; }
+  }
+  return { flames, deco };
+}
 function kartGeometry(cfg) {
   const key = [cfg.body, cfg.wheels, cfg.pilot, cfg.acc, cfg.deco].join('|'); if (KART_GEO.has(key)) return KART_GEO.get(key);
   const body = cfg.body;
@@ -2144,8 +2607,8 @@ function kartGeometry(cfg) {
   add('dark', rbox(1.72, .12, 2.85, .05), tr(0, .3, 0));
   let flames = [{ x: -.24, y: .86, z: -1.9, s: 1 }, { x: .24, y: .86, z: -1.9, s: 1 }];
   let deco = null;
-  const xb = extraBody(body, add, limb, cap, V);
-  if (xb) { flames = xb; } else if (body === 'fusee') {
+  const v2 = BODY_V2.has(body) ? bodyV2(body, add, cap, V, cfg, WHEEL_DIM[cfg.wheels] || WHEEL_DIM.standard) : null, xb = v2 ? null : extraBody(body, add, limb, cap, V);
+  if (v2) { if (v2.flames) flames = v2.flames; deco = v2.deco; } else if (xb) { flames = xb; } else if (body === 'galet') { deco = galetBody(add, cap, V, cfg, WHEEL_DIM[cfg.wheels] || WHEEL_DIM.standard); } else if (body === 'fusee') {
     const hull = new T.CapsuleGeometry(.55, 2.1, 10, 28); hull.rotateX(Math.PI / 2); hull.translate(0, .8, .05); add('paint', hull);
     const nose = new T.ConeGeometry(.4, .95, 28); nose.rotateX(Math.PI / 2); nose.translate(0, .8, 1.95); add('paint', nose);
     const bst = new T.CylinderGeometry(.44, .52, .75, 28); bst.rotateX(Math.PI / 2); bst.translate(0, .8, -1.45); add('metal', bst);
@@ -2199,13 +2662,15 @@ function kartGeometry(cfg) {
     }
   }
   // siège + pilote
-  add('dark', rbox(.72, .62, .2, .08), trs(0, 1.0, -.64, -.15, 0, 0));
+  if (!(window.WKCarrosseriesPrototype && window.WKCarrosseriesPrototype.noms[body]) && !(body === 'equilibre' && window.WKEquilibrePrototype)) add('dark', rbox(.72, .62, .2, .08), trs(0, 1.0, -.64, -.15, 0, 0));
+  // Pilote « Héros » (#36, prototype) : corps, tête, bras et volant animés construits à part dans kartMesh (heroRig).
+  const hz = -.3;
+  if (!RIG_PILOTS.has(cfg.pilot)) {
   add('suit', new T.CapsuleGeometry(.27, .3, 6, 16), new T.Matrix4().compose(V(0, 1.12, -.42), new T.Quaternion(), V(1, 1, .85)));
   add('dark', new T.CylinderGeometry(.1, .12, .14, 12), tr(0, 1.45, -.35));
   for (const s of [-1, 1]) { limb('suit', V(s * .27, 1.3, -.38), V(s * .22, 1.16, -.02), .085); limb('suit', V(s * .22, 1.16, -.02), V(s * .18, 1.22, .2), .075); add('glove', new T.SphereGeometry(.095, 12, 10), tr(s * .18, 1.22, .21)); }
   add('dark', new T.TorusGeometry(.2, .035, 10, 28), trs(0, 1.2, .23, -.9, 0, 0));
   add('dark', new T.CylinderGeometry(.03, .03, .4, 8), trs(0, 1.08, .38, -.9, 0, 0));
-  const hz = -.3;
   if (cfg.pilot === 'casquette') {
     add('skin', new T.SphereGeometry(.3, 28, 20), tr(0, 1.64, hz));
     add('helm', new T.SphereGeometry(.318, 28, 12, 0, TAU, 0, Math.PI * .46), tr(0, 1.66, hz));
@@ -2226,7 +2691,11 @@ function kartGeometry(cfg) {
     add('visor', new T.SphereGeometry(.382, 28, 14, Math.PI / 2 - .95, 1.9, 1.12, .62), tr(0, 1.68, hz));
     add('paint', new T.TorusGeometry(.373, .045, 10, 40), trs(0, 1.68, hz, 0, Math.PI / 2, 0));
   }
+  }
   const top = HEAD_TOP[cfg.pilot] || 2.04;
+  // Héros : les accessoires suivent la tête animée (parties « h: », rattachées à la tête dans kartMesh).
+  const add0 = add;
+  { const add = RIG_PILOTS.has(cfg.pilot) ? (k, g, m) => add0('h:' + k, g, m) : add0;
   if (cfg.acc === 'antenne') { add('dark', cap(.018, .5, .12, top + .2, hz - .12)); add('paint', new T.SphereGeometry(.085, 14, 10), tr(.12, top + .5, hz - .12)); }
   else if (cfg.acc === 'crete') { for (let k = 0; k < 5; k++) { const s = new T.SphereGeometry(.1, 12, 8); s.scale(.45, 1.5 - Math.abs(k - 2) * .25, 1.1); add('paint', s, tr(0, top - .02, hz + .22 - k * .13)); } }
   else if (cfg.acc === 'couronne') { add('gold', new T.TorusGeometry(.2, .035, 8, 28), trs(0, top - .03, hz, Math.PI / 2, 0, 0)); for (let k = 0; k < 6; k++) { const a = k / 6 * TAU; add('gold', new T.ConeGeometry(.055, .2, 8), tr(Math.cos(a) * .2, top + .09, hz + Math.sin(a) * .2)); } }
@@ -2236,13 +2705,41 @@ function kartGeometry(cfg) {
   else if (cfg.acc === 'helice') { add('metal', new T.CylinderGeometry(.02, .02, .2, 8), tr(0, top + .08, hz)); add('paint', rbox(.5, .02, .07, .01), tr(0, top + .19, hz)); add('helm', new T.SphereGeometry(.04, 10, 8), tr(0, top + .2, hz)); }
   else if (cfg.acc === 'aureole') add('gold', new T.TorusGeometry(.17, .025, 8, 28), trs(0, top + .22, hz, Math.PI / 2, 0, 0));
   else if (cfg.acc === 'oreilles') { for (const s of [-1, 1]) add('paint', new T.ConeGeometry(.09, .2, 4), trs(s * .14, top + .04, hz, 0, Math.PI / 4, -s * .3)); }
+  }
+  // Finitions communes à TOUTES les carrosseries (refonte du 3 novembre) : phares, feux arrière et sorties d'échappement, posés sur la
+  // vraie surface de la carrosserie (lancer de rayon sur la peinture) ; rien n'est posé si le rayon ne touche pas (forme atypique).
+  if (parts.paint && parts.paint.length && !BODY_V2.has(body)) { const tmp = new T.Mesh(mergeGeos(parts.paint.map((x) => x.clone())), new T.MeshBasicMaterial({ side: T.DoubleSide })); tmp.geometry.computeBoundingBox(); const bb = tmp.geometry.boundingBox, ray = new T.Raycaster(), hy = bb.min.y + (bb.max.y - bb.min.y) * .42, hw = (bb.max.x - bb.min.x) / 2;
+    for (const [dz, key, rr] of [[1, 'lampe', .12], [-1, 'feu', .09]]) for (const sx of [-1, 1]) { ray.set(new T.Vector3(sx * hw * .55, hy, dz * (Math.abs(dz > 0 ? bb.max.z : bb.min.z) + 3)), new T.Vector3(0, 0, -dz)); const hit = ray.intersectObject(tmp, false)[0]; if (!hit || !hit.face) continue;
+      const n = hit.face.normal.clone(); if (n.z * dz < .2) continue; const d = new T.CylinderGeometry(rr, rr * 1.08, .05, 18); d.applyMatrix4(new T.Matrix4().compose(hit.point.clone().addScaledVector(n, .012), new T.Quaternion().setFromUnitVectors(new T.Vector3(0, 1, 0), n), new T.Vector3(1, 1, 1))); add(key, d);
+      const ring = new T.TorusGeometry(rr * 1.05, .018, 6, 18); ring.applyMatrix4(new T.Matrix4().compose(hit.point.clone().addScaledVector(n, .02), new T.Quaternion().setFromUnitVectors(new T.Vector3(0, 0, 1), n), new T.Vector3(1, 1, 1))); add('metal', ring); }
+    tmp.geometry.dispose(); }
+  // Les nouveaux constructeurs possèdent leurs vrais embouts : ne pas superposer l'ancien embout générique.
+  if (!(v2 && v2.echappementIntegre)) { for (const fp of flames) if (fp.s < 1.6) { const t = new T.CylinderGeometry(.12 * fp.s, .14 * fp.s, .28, 14, 1, true); t.rotateX(Math.PI / 2); t.translate(fp.x, fp.y, fp.z + .1); add('metal', t); const c = new T.CircleGeometry(.1 * fp.s, 14); c.rotateY(Math.PI); c.translate(fp.x, fp.y, fp.z + .2); add('dark', c); } }
   const merged = {}; for (const k in parts) { merged[k] = mergeGeos(parts[k]); merged[k].userData.keep = true; }
   if (deco) deco.userData.keep = true;
   const WD = WHEEL_DIM[cfg.wheels] || WHEEL_DIM.standard;
   const wh = wheelGeoFor(cfg.wheels, WD);
-  const out = { merged, wh, WD, flames, deco }; KART_GEO.set(key, out); return out;
+  const out = { merged, wh, WD, flames, deco, anc: v2 && v2.ancrages || null }; KART_GEO.set(key, out); return out;
 }
 function darken(hex, k) { const c = rgb(hex); return '#' + c.map((v) => Math.round(v * k).toString(16).padStart(2, '0')).join(''); }
+// Textures procédurales des karts (refonte du 4 novembre) : peinture pailletée (grain + paillettes, sert aussi de carte de rugosité),
+// relief des paillettes (qualité haute), flancs de pneus gravés « WILD KART » et sculptures, métal brossé des jantes. Générées une
+// fois (canvas), mip-maps et filtrage anisotrope pour rester nettes de près comme en course. Graine fixe : rendu identique partout.
+const KTEX = {};
+function ktexCanvas(w, h, draw) { const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d'); draw(x, w, h); const t = new T.CanvasTexture(c); t.wrapS = t.wrapT = T.RepeatWrapping; t.anisotropy = Math.min(8, (renderer.capabilities && renderer.capabilities.getMaxAnisotropy()) || 1); return t; }
+function kRand(seed) { let v = seed >>> 0; return () => ((v = (Math.imul(v, 1664525) + 1013904223) >>> 0) / 4294967296); }
+function paintTex() { if (KTEX.paint) return KTEX.paint; const r = kRand(7); KTEX.paint = ktexCanvas(256, 256, (x, w, h) => { x.fillStyle = '#f4f4f4'; x.fillRect(0, 0, w, h);
+    for (let i = 0; i < 2600; i++) { const v = 222 + Math.floor(r() * 30); x.fillStyle = `rgb(${v},${v},${v})`; x.fillRect(r() * w, r() * h, 2, 2); }
+    for (let i = 0; i < 420; i++) { const v = 250 + Math.floor(r() * 6); x.fillStyle = `rgba(${v},${v},${v},.9)`; const px = r() * w, py = r() * h; x.fillRect(px, py, 1, 1); } }); KTEX.paint.repeat.set(3, 3); return KTEX.paint; }
+function flakeTex() { if (KTEX.flake) return KTEX.flake; const r = kRand(11); KTEX.flake = ktexCanvas(256, 256, (x, w, h) => { x.fillStyle = '#808080'; x.fillRect(0, 0, w, h); for (let i = 0; i < 5000; i++) { const v = 100 + Math.floor(r() * 60); x.fillStyle = `rgb(${v},${v},${v})`; x.fillRect(r() * w, r() * h, 1, 1); } }); KTEX.flake.repeat.set(6, 6); return KTEX.flake; }
+function tireTex() { if (KTEX.tire) return KTEX.tire; KTEX.tire = ktexCanvas(1024, 128, (x, w, h) => { x.fillStyle = '#1b1a22'; x.fillRect(0, 0, w, h);
+    x.fillStyle = '#121118'; for (let i = 0; i < 64; i++) { const u = i / 64 * w; x.beginPath(); x.moveTo(u, h * .36); x.lineTo(u + 9, h * .5); x.lineTo(u, h * .64); x.lineTo(u + 5, h * .64); x.lineTo(u + 14, h * .5); x.lineTo(u + 5, h * .36); x.fill(); }   // sculptures en chevrons
+    x.font = 'bold 22px sans-serif'; x.textBaseline = 'middle'; x.fillStyle = '#7a7988'; for (const y of [h * .12, h * .88]) for (let k = 0; k < 4; k++) x.fillText('WILD KART  ★', k * w / 4 + 12, y);   // flancs gravés
+    x.strokeStyle = '#3a3948'; x.lineWidth = 2; for (const y of [h * .24, h * .76]) { x.beginPath(); x.moveTo(0, y); x.lineTo(w, y); x.stroke(); } }); return KTEX.tire; }
+function brushTex() { if (KTEX.brush) return KTEX.brush; const r = kRand(5); KTEX.brush = ktexCanvas(256, 256, (x, w, h) => { x.fillStyle = '#e6e8ee'; x.fillRect(0, 0, w, h); for (let i = 0; i < 900; i++) { const v = 200 + Math.floor(r() * 50); x.strokeStyle = `rgb(${v},${v},${v + 4})`; x.lineWidth = 1; const yy = r() * h; x.beginPath(); x.moveTo(0, yy); x.lineTo(w, yy + r() * 2 - 1); x.stroke(); } }); return KTEX.brush; }
+// Peinture de carrosserie (refonte du 3 novembre) : vernis (clearcoat) en qualité haute pour des reflets nets ; peinture standard en
+// qualité basse (budget Samsung). Aucune incidence sur la conduite.
+function paintMat(color, F) { const hi = qual().shadows, key = 'paint|' + color + '|' + F.r + '|' + F.m + '|' + hi; if (!matCache.has(key)) matCache.set(key, hi ? new T.MeshPhysicalMaterial({ color, map: paintTex(), roughness: F.r, roughnessMap: paintTex(), metalness: F.m, bumpMap: flakeTex(), bumpScale: .0012, clearcoat: F.m > .9 ? .3 : .85, clearcoatRoughness: .08, side: T.DoubleSide }) : new T.MeshStandardMaterial({ color, map: paintTex(), roughness: F.r, metalness: F.m, side: T.DoubleSide })); return matCache.get(key); }
 function glowMat(color) {
   const key = 'glow|' + color; if (!matCache.has(key)) matCache.set(key, new T.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.5, roughness: .3, metalness: .2 })); return matCache.get(key);
 }
@@ -2251,39 +2748,166 @@ function checkerMat() {
     matCache.set('checker', new T.MeshStandardMaterial({ map: t, roughness: .3, metalness: .2 })); }
   return matCache.get('checker');
 }
+// #36 (fiches V1, V4 et L de docs/art/references/FICHES-LOT1.md) : finition du véhicule, ombrage des creux cuit dans les sommets,
+// peinture vernie diélectrique, plastique semi-mat grainé. window.WK_FINITION_AVANT = true rend l'ancien aspect (banc avant/après).
+function finitionVehicule(geo, mats, F) {
+  const fin = {};   // matériaux finis réservés aux maillages de carrosserie (le pilote garde les siens, sans couleurs de sommets)
+  for (const k of ['paint', 'coque', 'accent', 'paint2', 'dark', 'plast']) { const g = geo.merged[k]; if (!g || !g.attributes.position || !mats[k]) continue;
+    if (!g.attributes.color) { g.computeBoundingBox(); const b = g.boundingBox, p = g.attributes.position, n = g.attributes.normal, c = new Float32Array(p.count * 3), H = Math.max(.01, b.max.y - b.min.y);
+      // bas de caisse assombri (dégradé vertical) et faces tournées vers le sol plus sombres (occlusion simple)
+      for (let i = 0; i < p.count; i++) { const h = Math.min(1, Math.max(0, (p.getY(i) - b.min.y) / H)), sm = h * h * (3 - 2 * h); let v = .72 + .28 * sm; if (n && n.getY(i) < 0) v *= 1 + .32 * n.getY(i); c[i * 3] = c[i * 3 + 1] = c[i * 3 + 2] = v; }
+      g.setAttribute('color', new T.BufferAttribute(c, 3)); }
+    const m = mats[k].clone(); m.vertexColors = true;
+    if (k === 'dark' || k === 'plast') { if (!m.map) { m.map = paintTex(); m.roughnessMap = paintTex(); } m.roughness = .6; m.metalness = .05; }   // plastique semi-mat grainé
+    else if (F.m < .9) { if (k === 'coque') m.color.setScalar(.84); m.envMapIntensity = .5;   // le reflet bleuté de l'environnement délavait le rouge en saumon   // livrée un peu plus dense : évite l'aspect délavé sous le vernis
+      m.metalness = F.m > .3 ? .12 : .04; m.roughness = Math.min(m.roughness, F.r < .5 ? .3 : m.roughness); if ('clearcoat' in m) { m.clearcoat = .45; m.clearcoatRoughness = .08; } }   // peinture diélectrique + vernis
+    fin[k] = m; }
+  return fin;
+}
+// Lentille de phare bombée (fiche V2) : presque transparente, vernie, laisse voir le réflecteur.
+function lentilleMat() { const key = 'lentille|' + qual().shadows; if (!matCache.has(key)) matCache.set(key, qual().shadows ? new T.MeshPhysicalMaterial({ color: '#ffffff', transparent: true, opacity: .28, roughness: .02, metalness: 0, clearcoat: 1, clearcoatRoughness: .02, depthWrite: false }) : new T.MeshStandardMaterial({ color: '#ffffff', transparent: true, opacity: .25, roughness: .05, metalness: 0, depthWrite: false })); return matCache.get(key); }
+// Calandre en nid d'abeille (fiche V3) : texture, pas de géométrie.
+function grilleMat() { const key = 'grille'; if (!matCache.has(key)) { const t = ktexCanvas(128, 128, (x, w, h) => { x.fillStyle = '#0c0b12'; x.fillRect(0, 0, w, h); x.strokeStyle = '#6d6f7c'; x.lineWidth = 3; const R = 10, dx = R * Math.sqrt(3);
+      for (let j = -1; j < h / (R * 1.5) + 1; j++) for (let i = -1; i < w / dx + 1; i++) { const cx = i * dx + (j % 2 ? dx / 2 : 0), cy = j * R * 1.5; x.beginPath(); for (let a = 0; a < 6; a++) { const t = Math.PI / 6 + a * Math.PI / 3; x[a ? 'lineTo' : 'moveTo'](cx + R * Math.cos(t), cy + R * Math.sin(t)); } x.closePath(); x.stroke(); } });
+    matCache.set(key, new T.MeshStandardMaterial({ map: t, roughness: .45, metalness: .5, side: T.DoubleSide })); } return matCache.get(key); }
+// Tissu de combinaison (pilotes) : trame fine et coutures, rugosité élevée.
+function tissuMat(color, rough = .82) { const key = 'tissu|' + color + '|' + rough; if (!matCache.has(key)) { if (!KTEX.tissu) { const r = kRand(23); KTEX.tissu = ktexCanvas(128, 128, (x, w, h) => { x.fillStyle = '#ffffff'; x.fillRect(0, 0, w, h);
+      for (let y = 0; y < h; y += 2) { x.fillStyle = `rgba(0,0,0,${.05 + r() * .04})`; x.fillRect(0, y, w, 1); } for (let i = 0; i < w; i += 2) { x.fillStyle = `rgba(0,0,0,${.03 + r() * .03})`; x.fillRect(i, 0, 1, h); }
+      x.fillStyle = 'rgba(0,0,0,.22)'; x.fillRect(0, 62, w, 2); x.fillStyle = 'rgba(255,255,255,.25)'; x.fillRect(0, 65, w, 1); }); KTEX.tissu.repeat.set(3, 3); }
+    matCache.set(key, new T.MeshStandardMaterial({ color, map: KTEX.tissu, roughness: rough, roughnessMap: KTEX.tissu, metalness: 0 })); } return matCache.get(key); }
+// Casque verni (pilotes) : base peinte peu métallique, vernis net en qualité haute.
+function casqueMat(color) { const hi = qual().shadows, key = 'casque|' + color + '|' + hi; if (!matCache.has(key)) matCache.set(key, hi ? new T.MeshPhysicalMaterial({ color, roughness: .3, metalness: .05, clearcoat: 1, clearcoatRoughness: .05 }) : new T.MeshStandardMaterial({ color, roughness: .26, metalness: .08 })); return matCache.get(key); }
 function kartMesh(cfgIn) {
-  const cfg = cleanCfg(cfgIn), bodyId = cfg.body; cfg.body = shapeB(cfg.body); cfg.wheels = shapeW(cfg.wheels);
+  const cfg = cleanCfg(cfgIn), bodyId = cfg.body; cfg.body = BODY_V2.has(cfg.body) ? cfg.body : shapeB(cfg.body); cfg.wheels = WHEEL_V2.has(cfg.wheels) ? cfg.wheels : shapeW(cfg.wheels);
   const g = new T.Group(); const tilt = new T.Group(); g.add(tilt);
+  // #34.G16 : la caisse (carrosserie, pilote, flammes, pièces posées) est un sous-groupe ; la suspension règle sa garde au sol, les roues
+  // restent au sol.
+  const SU = SUSPS[cfg.susp] || SUSPS.standard, caisse = new T.Group(); caisse.name = 'caisse'; caisse.position.y = SU.h || 0; tilt.add(caisse);
   const geo = kartGeometry(cfg); const F = FINISHES[cfg.finish];
-  const mats = { paint: stdMat(cfg.color, F.r, F.m), dark: stdMat('#22213a', .5, .35), metal: stdMat('#cfd2dc', .2, .9), suit: stdMat(cfg.color === '#2b2b3a' ? '#4a4a60' : darken(cfg.color, .45), .7, .05),
+  const mats = { paint: paintMat(cfg.color, F), dark: stdMat('#22213a', .5, .35), metal: stdMat('#cfd2dc', .2, .9), suit: stdMat(cfg.color === '#2b2b3a' ? '#4a4a60' : darken(cfg.color, .45), .7, .05),
     helm: stdMat(cfg.helmet, .15, .3), visor: stdMat('#0b0b16', .05, .85), glove: stdMat('#f7f5ee', .6, 0), skin: stdMat(cfg.skin, .72, 0), glass: stdMat('#101018', .05, .75),
-    led: glowMat('#2ee6ff'), gold: stdMat('#ffc531', .22, .85), ivory: stdMat('#f1e7cf', .5, 0), water: stdMat('#6fd8ff', .1, .2), duck: stdMat('#ffd23a', .4, 0), beak: stdMat('#ff8a1e', .5, 0),
-    canopy: new T.MeshStandardMaterial({ color: '#bfe6ff', transparent: true, opacity: .45, roughness: .05, metalness: .3 }) };
-  for (const k in geo.merged) tilt.add(new T.Mesh(geo.merged[k], mats[k]));
-  if (geo.deco) tilt.add(new T.Mesh(geo.deco, cfg.deco === 'damier' ? checkerMat() : stdMat(cfg.helmet, F.r, F.m)));
+    coque: liveryMat(bodyId, cfg, F, BODY_SPEC[bodyId]), plast: plastiqueMat(), chrome: chromeMat(), verre: verreMat(), email: (() => { const k = 'email|' + qual().shadows; if (!matCache.has(k)) matCache.set(k, qual().shadows ? new T.MeshPhysicalMaterial({ color: '#fbfaf6', roughness: .18, metalness: 0, clearcoat: 1, clearcoatRoughness: .05 }) : new T.MeshStandardMaterial({ color: '#fbfaf6', roughness: .22, metalness: 0 })); return matCache.get(k); })(),
+    accent: paintMat(cfg.helmet, F), paint2: paintMat(darken(cfg.color, .55), F), led: glowMat('#2ee6ff'), lampe: glowMat('#fff3c8'), feu: glowMat('#ff3048'), gold: stdMat('#ffc531', .22, .85), ivory: stdMat('#f1e7cf', .5, 0), water: stdMat('#6fd8ff', .1, .2), duck: stdMat('#ffd23a', .4, 0), beak: stdMat('#ff8a1e', .5, 0),
+    canopy: new T.MeshStandardMaterial({ color: '#bfe6ff', transparent: true, opacity: .45, roughness: .05, metalness: .3 }), lentille: lentilleMat(), grille: grilleMat(), satin: stdMat('#c9ccd6', .36, .55) };   // satin : liserés et rebords gris satinés (fiche V4)
+  if (!(typeof window !== 'undefined' && window.WK_FINITION_AVANT)) { mats.suit = tissuMat(mats.suit.color.getStyle()); mats.helm = casqueMat(cfg.helmet); mats.skin = stdMat(cfg.skin, .58, 0); mats.glove = tissuMat('#f7f5ee', .62); }
+  mats.arch = new T.MeshStandardMaterial({ color: cfg.color, roughness: F.r, metalness: F.m, side: T.DoubleSide });
+  const fin = typeof window !== 'undefined' && window.WK_FINITION_AVANT ? {} : finitionVehicule(geo, mats, F);
+  let rig = null; if (RIG_PILOTS.has(cfg.pilot)) { rig = heroRig(cfg, mats); caisse.add(rig.root); }
+  for (const k in geo.merged) { if (k.startsWith('h:')) { if (rig) { const m = new T.Mesh(geo.merged[k], mats[k.slice(2)]); m.position.set(0, -1.7, .3); rig.head.add(m); } continue; } caisse.add(new T.Mesh(geo.merged[k], fin[k] || mats[k])); }
+  if (geo.deco) caisse.add(new T.Mesh(geo.deco, cfg.deco === 'damier' ? checkerMat() : stdMat(cfg.helmet, F.r, F.m)));
   const WD = geo.WD; const neon = cfg.wheels === 'neon';
-  const wt = cfg.wheels; const tireM = wt === 'bois' ? stdMat('#a0703f', .8, 0) : wt === 'ballon' ? stdMat(cfg.helmet, .35, .05) : stdMat('#1c1b24', .85, 0), rimM = neon ? glowMat(cfg.helmet) : wt === 'etoile' ? stdMat('#ffc531', .22, .85) : wt === 'bois' ? stdMat('#5a3c24', .7, 0) : wt === 'ballon' ? stdMat('#fffdf7', .3, .1) : stdMat('#d8dbe4', .2, .9), capM = neon ? stdMat('#1c1b24', .4, .5) : stdMat(cfg.helmet, .3, .4);
-  const wheels = [], fronts = []; const fz = { bolide: 1.22, fusee: 1.25, buggy: 1.12, sport: 1.28, monstre: 1.15 }[cfg.body] || 1.05; const wide = { buggy: .06, monstre: .2, baignoire: .04 }[cfg.body] || 0;
+  const wt = cfg.wheels; const tireM = wt === 'bois' ? stdMat('#a0703f', .8, 0) : wt === 'ballon' ? stdMat(cfg.helmet, .35, .05) : wheelMat('pneu'), rimM = neon || wt === 'disco' ? glowMat(cfg.helmet) : wt === 'etoile' ? stdMat('#ffc531', .22, .85) : wt === 'bois' ? stdMat('#5a3c24', .7, 0) : wt === 'ballon' ? stdMat('#fffdf7', .3, .1) : wt === 'crampons' ? stdMat('#e8b020', .45, .35) : wt === 'jantes' ? stdMat('#2a2a34', .25, .85) : wt === 'standard' && !window.WK_Q1_AVANT ? wheelMat('jante2') : wheelMat('jante'), capM = neon ? stdMat('#1c1b24', .4, .5) : stdMat(cfg.helmet, .3, .4);
+  // Jantes séparées (#34.G16) : matière propre à la jante, quelle que soit la forme du pneu (« De série » = jante d'origine du pneu).
+  const RJ = { alliage: ['#dfe3ea', .26, .92], acier: ['#3b3e47', .55, .6], carbone: ['#1a1b21', .32, .45], doree: ['#ffc531', .2, .9] }[cfg.rims], rimJ = RJ ? stdMat(RJ[0], RJ[1], RJ[2]) : null;
+  const wheels = [], fronts = []; const fz = BODY_FZ[cfg.body] || 1.05; const wide = BODY_WIDE[cfg.body] || 0;
   for (const [x, z, front] of [[-1, fz, 1], [1, fz, 1], [-1, -1, 0], [1, -1, 0]]) {
     const piv = new T.Group(); piv.position.set(x * (.92 + wide + WD.w / 2 - .12), WD.r, z); tilt.add(piv);
-    const w = new T.Group(); piv.add(w); w.add(new T.Mesh(geo.wh.tire, tireM)); w.add(new T.Mesh(geo.wh.rim, rimM)); w.add(new T.Mesh(geo.wh.cap, capM));
+    const w = new T.Group(); piv.add(w); w.add(new T.Mesh(geo.wh.tire, tireM)); w.add(new T.Mesh(geo.wh.rim, rimJ || rimM));
+    if (SU.amort) piecesAmortisseur(piv, x, WD, SU.h, cfg); w.add(new T.Mesh(geo.wh.cap, capM));
     if (geo.wh.glow) w.add(new T.Mesh(geo.wh.glow, glowMat(cfg.helmet)));
     if (geo.wh.star) w.add(new T.Mesh(geo.wh.star, stdMat('#ffc531', .22, .85)));
+    if (geo.wh.detail) w.add(new T.Mesh(geo.wh.detail, stdMat('#15141c', .5, .3))); if (geo.wh.accent) w.add(new T.Mesh(geo.wh.accent, wt === 'disco' ? stdMat('#f4f6ff', .05, 1) : wt === 'jantes' ? stdMat('#ff3048', .35, .3) : stdMat(cfg.helmet, .3, .4))); if (geo.wh.bolts) w.add(new T.Mesh(geo.wh.bolts, stdMat('#d8dbe4', .2, .9)));
     wheels.push({ m: w, r: WD.r }); if (front) fronts.push(piv);
   }
   const trail = TRAILS[cfg.trail].c;
   const flameMat = new T.MeshBasicMaterial({ color: trail[0], transparent: true, opacity: .9, blending: T.AdditiveBlending, depthWrite: false });
   const flames = []; const fg = new T.ConeGeometry(.2, 1, 12); fg.rotateX(-Math.PI / 2); fg.translate(0, 0, -.5);
-  for (const fp of geo.flames) { const f = new T.Mesh(fg, flameMat); f.position.set(fp.x, fp.y, fp.z); f.scale.set(fp.s, fp.s, .01); f.userData.s = fp.s; tilt.add(f); flames.push(f); }
+  for (const fp of geo.flames) { const f = new T.Mesh(fg, flameMat); f.position.set(fp.x, fp.y, fp.z); f.scale.set(fp.s, fp.s, .01); f.userData.s = fp.s; f.visible = false; caisse.add(f); flames.push(f); }
   const shield = new T.Mesh(new T.SphereGeometry(2.1, 32, 20), new T.MeshBasicMaterial({ color: '#38b6ff', transparent: true, opacity: .26, depthWrite: false, blending: T.AdditiveBlending }));
   shield.position.y = .9; shield.visible = false; g.add(shield);
-  tilt.traverse((o) => { if (o.isMesh && o.material !== flameMat) o.castShadow = true; });
+  tilt.traverse((o) => { if (o.isMesh && o.material !== flameMat) o.castShadow = !o.userData.sansOmbre; });
+  piecesPosees(caisse, geo, cfg, mats, { fz, wide, WD });
   const glider = gliderMesh(cfg); tilt.add(glider);
   const shadow = new T.Mesh(new T.PlaneGeometry(3.2, 4.3), new T.MeshBasicMaterial({ map: SHADOW_TEX, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
   shadow.rotation.x = -Math.PI / 2; shadow.position.y = .05; g.add(shadow);
   shadow.visible = !qual().shadows;
-  const sc = (BODIES[bodyId] && BODIES[bodyId].sc) || null; if (sc) tilt.scale.set(sc[0], sc[1], sc[2]);
-  return { g, tilt, wheels, fronts, flames, shield, wheelR: WD.r, trail, glider, sc };
+  const sc = BODY_V2.has(bodyId) ? null : (BODIES[bodyId] && BODIES[bodyId].sc) || null; if (sc) tilt.scale.set(sc[0], sc[1], sc[2]);   // carrosseries v2 : modèle propre, plus de mise à l'échelle d'un autre
+  if (rig && !window.WK_POSE_AVANT) heroAnimate(rig, { spin: 0, boost: 0, finished: false, place: 0, drift: 0, air: false }, 0, 1, 0);   /* #36.Q1 : bras posés dès la construction (le fantôme du record n'est jamais animé : capsules des bras au repos sous le kart) ; WK_POSE_AVANT = témoin */
+  return { g, tilt, caisse, wheels, fronts, flames, shield, wheelR: WD.r, trail, glider, sc, rig };
+}
+// Ailes et pare-chocs ajoutés (#34, 8 nov.). Chaque pièce est posée puis RACCORDÉE à la caisse par des supports dont l'autre bout est le
+// point touché par un rayon sur la vraie carrosserie (≤ 0,7 m) ; sans contact, la pièce n'est pas posée (« non posé », consigné).
+// Élargisseurs : arc au-dessus de chaque roue, rayon > distance maximale d'un point du pneu à son moyeu (+0,1 m) : aucun contact même
+// roue braquée. Bavettes : derrière les roues arrière. Pare-chocs : devant / derrière le pare-chocs déclaré (ancrages.parechocs) ou la
+// caisse. userData.pieces.ailes / .parechocs = { posees, supports } ou 'non posé'.
+function piecesCarrosserie(caisse, geo, cfg, mats, roues, info) {
+  const dbl = new T.MeshBasicMaterial({ side: T.DoubleSide }), tmp = [], box = new T.Box3(); for (const k in geo.merged) { if (k.startsWith('h:')) continue; const m = new T.Mesh(geo.merged[k], dbl); m.updateMatrixWorld(); tmp.push(m); box.expandByObject(m); }
+  const rc = new T.Raycaster(), sombre = mats.dark, accent = mats.accent, chrome = chromeMat(), parts = [];
+  const contact = (p, d) => { rc.set(p, d.clone().normalize()); rc.far = 1; const h = rc.intersectObjects(tmp, false)[0]; return h ? h.point : null; };
+  const tube = (a, b, r, m, nom) => { const L = a.distanceTo(b); if (L < .005) return null; const g = new T.CylinderGeometry(r, r, L, 10); const ms = new T.Mesh(g, m); ms.position.copy(a).add(b).multiplyScalar(.5); ms.quaternion.setFromUnitVectors(new T.Vector3(0, 1, 0), b.clone().sub(a).normalize()); ms.name = nom; return ms; };
+  // support : du point de la pièce vers la caisse, plusieurs directions essayées ; renvoie la longueur ou null
+  // plusieurs points de départ (décalés le long de la pièce) × directions : le premier contact trouvé, le plus court
+  const support = (p, dirs, nom, decal = [V(0, 0, 0)]) => { let best = null; for (const o of decal) for (const d of dirs) { const q = p.clone().add(o), h = contact(q, d); if (h && (!best || q.distanceTo(h) < best[2])) best = [q, h, q.distanceTo(h)]; }
+    if (!best) return null; const t = tube(best[0], best[1], .03, sombre, nom); if (t) parts.push(t); return +best[2].toFixed(3); };
+  const { fz, wide, WD } = roues, wx = .92 + wide + WD.w / 2 - .12, V = (x, y, z) => new T.Vector3(x, y, z), vers = (x, y, z) => V(x, y, z);
+  if (cfg.ailes === 'elargisseurs' || cfg.ailes === 'bavettes') { const lot = [], sup = [];
+    if (cfg.ailes === 'elargisseurs') { const R = Math.hypot(WD.r, WD.w / 2) + .1, arc = 1.9;
+      for (const [sx, z] of [[-1, fz], [1, fz], [-1, -1], [1, -1]]) { const g = new T.TorusGeometry(R, .055, 8, 28, arc); g.rotateZ(Math.PI / 2 - arc / 2); g.rotateY(Math.PI / 2); g.scale((WD.w / 2 + .06) / .055, 1, 1); g.translate(sx * wx, WD.r, z);
+        const m = new T.Mesh(g, mats.paint || accent); m.name = 'aile-elargisseur'; lot.push(m);
+        // support : du bord intérieur de l'arc vers l'axe du kart, à mi-hauteur de l'arc
+        // support : du SOMMET de l'arc (au-dessus du pneu, hors de son volume même braqué) vers la caisse
+        sup.push(support(V(sx * (wx - WD.w / 2 - .02), WD.r + R - .04, z), [vers(-sx, 0, 0), vers(-sx, -.5, 0), vers(-sx, -1, 0), vers(-sx, -.3, .4), vers(-sx, -.3, -.4)], 'aile-support', [V(0, 0, 0), V(0, 0, .18), V(0, 0, -.18)])); } }
+    else for (const sx of [-1, 1]) { const zf = -1 - Math.hypot(WD.r, .05) - .12, hb = Math.max(.42, WD.r * 1.15), g = rbox(WD.w * .9, hb, .035, .012); g.translate(sx * wx, .1 + hb / 2, zf); const m = new T.Mesh(g, sombre); m.name = 'aile-bavette'; lot.push(m);
+      const top = V(sx * wx, .1 + hb, zf); sup.push(support(top, [vers(0, 1, 0), vers(-sx, 0, 0), vers(-sx, .5, .3), vers(0, .4, 1), vers(-sx, .5, 0), vers(0, .6, .5)], 'aile-support', [V(0, 0, 0), V(-sx * WD.w * .4, 0, 0), V(0, -.08, 0)])); }
+    if (sup.every((x) => x != null)) { for (const m of lot) parts.push(m); info.ailes = { posees: lot.length, supports: sup }; } else { info.ailes = 'non posé'; for (let i = parts.length - 1; i >= 0; i--) if (parts[i].name === 'aile-support') parts.splice(i, 1); } }
+  if (cfg.parechocs && cfg.parechocs !== 'serie') { const anc = (geo.anc && geo.anc.parechocs) || [], av = anc.find((p) => p.cote === 'avant'), ar = anc.find((p) => p.cote === 'arriere');
+    const front = av || { z: box.max.z - .04, y: .42, largeur: Math.min(1.5, (box.max.x - box.min.x) * .75) }, rear = ar || { z: box.min.z + .04, y: .45, largeur: Math.min(1.45, (box.max.x - box.min.x) * .75) };
+    const avant = cfg.parechocs !== 'tubes', B = avant ? front : rear, sz = avant ? 1 : -1, l = Math.min(B.largeur * .82, 2 * (wx - WD.w / 2) - .2), lot = [], sup = [], z0 = B.z + sz * .2, y0 = B.y;
+    if (cfg.parechocs === 'buffle') { const yb = Math.max(.14, y0 - .2), yh = y0 + .38; for (const sx of [-1, 1]) lot.push(tube(V(sx * l / 2, yb, z0), V(sx * l / 2, yh, z0), .045, chrome, 'parechoc'));
+      lot.push(tube(V(-l / 2, yh, z0), V(l / 2, yh, z0), .045, chrome, 'parechoc')); lot.push(tube(V(-l / 2, y0, z0), V(l / 2, y0, z0), .04, chrome, 'parechoc')); lot.push(tube(V(-l * .3, yh, z0), V(-l * .3, y0, z0), .03, chrome, 'parechoc')); lot.push(tube(V(l * .3, yh, z0), V(l * .3, y0, z0), .03, chrome, 'parechoc')); }
+    else if (cfg.parechocs === 'lame') { const g = rbox(l, .045, .34, .015); g.translate(0, Math.max(.13, y0 - .24), B.z + .1); const m = new T.Mesh(g, sombre); m.name = 'parechoc'; lot.push(m);
+      for (const e of [-1, 1]) { const g2 = rbox(.04, .12, .3, .01); g2.translate(e * l / 2, Math.max(.13, y0 - .24) + .07, B.z + .1); const m2 = new T.Mesh(g2, accent); m2.name = 'parechoc'; lot.push(m2); } }
+    else { for (const yy of [y0, y0 + .2]) lot.push(tube(V(-l / 2, yy, z0), V(l / 2, yy, z0), .045, chrome, 'parechoc')); for (const sx of [-1, 1]) lot.push(tube(V(sx * l / 2, y0, z0), V(sx * l / 2, y0 + .2, z0), .045, chrome, 'parechoc')); }
+    const yS = cfg.parechocs === 'lame' ? Math.max(.13, y0 - .24) + .03 : y0, zS = cfg.parechocs === 'lame' ? B.z + .1 + sz * .17 : z0;
+    for (const sx of [-1, 1]) sup.push(support(V(sx * l * .32, yS, zS), [vers(0, 0, -sz), vers(0, .5, -sz), vers(0, -.4, -sz), vers(0, 1, 0), vers(0, .6, -sz * .6), vers(-sx * .4, 0, -sz)], 'parechoc-support', [V(0, 0, 0), V(0, .12, 0), V(0, -.1, 0), V(-sx * .15, 0, 0)]));
+    if (lot.every(Boolean) && sup.every((x) => x != null)) { for (const m of lot) parts.push(m); info.parechocs = { posees: lot.length, supports: sup, cote: avant ? 'avant' : 'arriere' }; }
+    else { info.parechocs = 'non posé'; for (let i = parts.length - 1; i >= 0; i--) if (parts[i].name === 'parechoc-support') parts.splice(i, 1); } }
+  for (const m of parts) { m.castShadow = true; caisse.add(m); } dbl.dispose();
+}
+// Compatibilité d'une pièce posée avec la carrosserie (raison lisible, '' si compatible) : l'atelier grise les choix incompatibles.
+const PIECE_POSE = new Map();   // ailes / pare-chocs : résultat de pose par carrosserie, pneus et pièce (essai réel avec kartMesh)
+function pieceIncompatible(cle, val, cfgIn) {
+  if (val === 'serie' || !['aileron', 'echap', 'ailes', 'parechocs'].includes(cle)) return '';
+  const cfg = cleanCfg(cfgIn); cfg.body = BODY_V2.has(cfg.body) ? cfg.body : shapeB(cfg.body); cfg.wheels = WHEEL_V2.has(cfg.wheels) ? cfg.wheels : shapeW(cfg.wheels); const geo = kartGeometry(cfg);
+  if (cle === 'aileron' && geo.anc && geo.anc.aileron) return 'cette carrosserie a déjà son aileron';
+  if (cle === 'echap' && !geo.flames.some((f) => f.s < 1.6)) return 'pas de sortie d\'échappement sur cette carrosserie';
+  if (cle === 'ailes' || cle === 'parechocs') { const k = [cfgIn && cfgIn.body, cfgIn && cfgIn.wheels, cle, val].join('|'); if (!PIECE_POSE.has(k)) { const m = kartMesh(Object.assign({}, cfgIn, { [cle]: val })); PIECE_POSE.set(k, m.caisse.userData.pieces[cle] === 'non posé' ? 'aucun point d\'attache sur cette carrosserie avec ces pneus' : ''); m.g.traverse((o) => { if (o.geometry && !o.geometry.userData.keep) o.geometry.dispose(); }); } return PIECE_POSE.get(k); }
+  return '';
+}
+// Amortisseur visible (suspension Rallye) : tige chromée et ressort coloré, côté intérieur de la roue, du moyeu jusque dans la caisse.
+function piecesAmortisseur(piv, sx, WD, h, cfg) {
+  const x = -sx * (WD.w / 2 + .06), haut = .34 + (h || 0), tige = new T.Mesh(new T.CylinderGeometry(.03, .03, haut, 10), chromeMat()); tige.position.set(x, haut / 2, 0); tige.name = 'amortisseur'; piv.add(tige);
+  const rs = stdMat(cfg.helmet, .35, .4); for (let i = 0; i < 6; i++) { const r = new T.Mesh(new T.TorusGeometry(.065, .016, 6, 14), rs); r.rotation.x = Math.PI / 2; r.position.set(x, .1 + i * (haut - .14) / 6, 0); r.name = 'ressort'; piv.add(r); }
+}
+// Aileron et échappements séparés (#34.G16, apparence) posés sur la VRAIE surface de la caisse : les pieds de l'aileron partent du point
+// touché par un rayon vertical sur la carrosserie (rien ne flotte) ; les embouts d'échappement se posent sur les sorties déclarées
+// (ancrages.echappements / flammes). Sans surface touchée (forme atypique), la pièce n'est pas posée et c'est consigné (userData).
+function piecesPosees(caisse, geo, cfg, mats, roues) {
+  const info = caisse.userData.pieces = { aileron: null, echap: 0, ailes: null, parechocs: null };
+  if ((cfg.ailes && cfg.ailes !== 'serie') || (cfg.parechocs && cfg.parechocs !== 'serie')) piecesCarrosserie(caisse, geo, cfg, mats, roues, info);
+  if (cfg.aileron && cfg.aileron !== 'serie' && geo.anc && geo.anc.aileron) info.aileron = 'aileron d\'origine';   // carrosserie déjà équipée : on n'empile pas
+  else if (cfg.aileron && cfg.aileron !== 'serie') {
+    const box = new T.Box3(), tmp = [], dbl = new T.MeshBasicMaterial({ side: T.DoubleSide }); for (const k in geo.merged) { if (k.startsWith('h:')) continue; const m = new T.Mesh(geo.merged[k], dbl); m.updateMatrixWorld(); tmp.push(m); box.expandByObject(m); }
+    const rc = new T.Raycaster(), lg = clamp((box.max.x - box.min.x) * .9, 1.1, 1.9), haut = (x, z) => { rc.set(new T.Vector3(x, box.max.y + 2, z), new T.Vector3(0, -1, 0)); const h = rc.intersectObjects(tmp, false)[0]; return h ? h.point.y : null; };
+    // Recherche du pont arrière : entre l'arrière de la caisse et z = −1,15 (dos du pilote à −0,74), deux pieds symétriques qui touchent
+    // la caisse à des hauteurs voisines ; le plan passe au-dessus de TOUT ce qui est dessous (grille de rayons sur son emprise).
+    let best = null;
+    for (let z = box.min.z + .3; z <= -1.15; z += .08) for (const xf of [.48, .38, .28, .18]) { const ya = haut(-xf, z), yb = haut(xf, z); if (ya == null || yb == null || Math.abs(ya - yb) > .12) continue;
+      let dessous = Math.max(ya, yb); for (let gx = -lg / 2; gx <= lg / 2 + 1e-6; gx += lg / 8) for (const dz of [-.3, 0, .3]) { const y = haut(gx, z + dz); if (y != null) dessous = Math.max(dessous, y); }
+      const score = dessous - Math.max(ya, yb); if (!best || score < best.score - 1e-6) best = { z, xf, ya, yb, dessous, score }; break; }
+    if (best) {
+      const zr = best.z, y = best.dessous + (cfg.aileron === 'bas' ? .2 : cfg.aileron === 'haut' ? .48 : .42), ac = mats.accent, sombre = mats.dark, pieds = [[-best.xf, best.ya], [best.xf, best.yb]];
+      const plan = (yy, l) => { const p = new T.Mesh(rbox(l, .06, .52, .02), ac); p.position.set(0, yy, zr); p.rotation.x = -.12; p.name = 'aileron'; caisse.add(p); for (const sx of [-1, 1]) { const e = new T.Mesh(rbox(.04, .17, .44, .012), sombre); e.position.set(sx * l / 2, yy + .015, zr); e.name = 'aileron'; caisse.add(e); } };
+      plan(y, lg); if (cfg.aileron === 'double') plan(y - .2, lg * .86);
+      for (const [x, yb] of pieds) { const L = y - yb + .02, t = new T.Mesh(new T.CylinderGeometry(.035, .035, L, 10), sombre); t.position.set(x, yb + L / 2 - .01, zr); t.name = 'aileron-pied'; caisse.add(t); }
+      info.aileron = { y: +y.toFixed(3), dessous: +best.dessous.toFixed(3), pieds: pieds.map(([x, yb]) => [+x.toFixed(3), +yb.toFixed(3)]), z: +zr.toFixed(3) };
+    } else info.aileron = 'non posé';
+    dbl.dispose();
+  }
+  if (cfg.echap && cfg.echap !== 'serie') for (const fp of geo.flames) { if (fp.s >= 1.6) continue; const s = fp.s, cm = chromeMat();
+    const embout = (x, r1, r2, L) => { const t = new T.Mesh(new T.CylinderGeometry(r1, r2, L, 16, 1, true), cm); t.rotation.x = Math.PI / 2; t.position.set(x, fp.y, fp.z + L / 2 - .12); t.name = 'echappement'; caisse.add(t);
+      const c = new T.Mesh(new T.CircleGeometry(Math.min(r1, r2) * .85, 14), mats.dark); c.rotation.y = Math.PI; c.position.set(x, fp.y, fp.z + .02); c.name = 'echappement'; caisse.add(c); info.echap++; };
+    if (cfg.echap === 'chrome') embout(fp.x, .15 * s, .13 * s, .34); else if (cfg.echap === 'double') { for (const d of [-1, 1]) embout(fp.x + d * .1 * s, .085 * s, .08 * s, .32); } else embout(fp.x, .21 * s, .1 * s, .44); }
 }
 
 /* ================= v7 : nouvelles pièces de garage ================= */
@@ -2297,8 +2921,13 @@ Object.assign(BODIES, {
   requin: { name: 'Requin', shape: 'fusee', sc: [1, .9, 1.15], speed: .12, accel: -.04, handling: -.08, weight: .1, off: 0 },
   tracteur: { name: 'Tracteur', shape: 'monstre', sc: [1.05, 1.1, .95], speed: -.1, accel: 0, handling: -.04, weight: .3, off: .28 },
   comete: { name: 'Comète', shape: 'sport', sc: [.95, .9, 1.12], speed: .16, accel: .04, handling: -.2, weight: -.05, off: 0 },
-  mini: { name: 'Mini', shape: 'equilibre', sc: [.88, .92, .84] }, fourgon: { name: 'Fourgonnette', shape: 'baignoire', sc: [1.1, 1.22, 1.08] }, limousine: { name: 'Limousine', shape: 'sport', sc: [1, .88, 1.32] },
-  herisson: { name: 'Hérisson', shape: 'monstre', sc: [.92, .95, .9] }, torpille: { name: 'Torpille', shape: 'fusee', sc: [.84, .84, 1.28] },
+  galet: { name: 'Galet', speed: 0, accel: 0, handling: 0, weight: 0, off: 0 },
+  // Statistiques explicites (audit du 4 nov. : ces cinq carrosseries n'en avaient pas → NaN dans statsFor et makeKart).
+  mini: { name: 'Mini', shape: 'equilibre', sc: [.88, .92, .84], speed: -.08, accel: .16, handling: .16, weight: -.22, off: -.04 },
+  fourgon: { name: 'Fourgonnette', shape: 'baignoire', sc: [1.1, 1.22, 1.08], speed: -.04, accel: -.04, handling: -.08, weight: .3, off: .1 },
+  limousine: { name: 'Limousine', shape: 'sport', sc: [1, .88, 1.32], speed: .18, accel: -.1, handling: -.14, weight: .22, off: -.1 },
+  herisson: { name: 'Hérisson', shape: 'monstre', sc: [.92, .95, .9], speed: -.06, accel: .1, handling: .04, weight: -.06, off: .22 },
+  torpille: { name: 'Torpille', shape: 'fusee', sc: [.84, .84, 1.28], speed: .22, accel: -.14, handling: -.06, weight: .06, off: -.12 },
 });
 Object.assign(WHEELS, {
   monstre: { name: 'Géantes', speed: -.04, accel: -.02, handling: -.04, weight: .14, off: .45 },
@@ -2317,7 +2946,7 @@ Object.assign(FINISHES, { nacre: { name: 'Nacré', r: .2, m: .55 }, brosse: { na
 // formes : une carrosserie / des roues à débloquer réutilisent la forme d'un modèle existant
 const shapeB = (b) => (BODIES[b] && BODIES[b].shape) || b, shapeW = (w) => (WHEELS[w] && WHEELS[w].shape) || w;
 
-Object.assign(WHEEL_DIM, { monstre: { r: .72, w: .62 }, ballon: { r: .5, w: .68 }, etoile: { r: .45, w: .42 }, bois: { r: .47, w: .5 } });
+Object.assign(WHEEL_DIM, { jantes: { r: .4, w: .66 }, disco: { r: .44, w: .42 }, crampons: { r: .56, w: .52 }, monstre: { r: .72, w: .62 }, ballon: { r: .5, w: .68 }, etoile: { r: .45, w: .42 }, bois: { r: .47, w: .5 } });
 Object.assign(BODY_W, { sport: [1.4, .1] });
 Object.assign(HEAD_TOP, {});
 function profileSport() {
@@ -2325,6 +2954,297 @@ function profileSport() {
   s.quadraticCurveTo(.55, .74, .34, .72); s.lineTo(-.55, .74); s.quadraticCurveTo(-1.05, .8, -1.16, .62); s.quadraticCurveTo(-1.24, .45, -1.15, .32); return s;
 }
 // carrosseries spéciales (appelée par kartGeometry)
+/* ---------- #36 lot pilote : carrosserie « Galet » et pilote « Héros » (prototype soumis au propriétaire) ----------
+   Galet : coque ovoïde lisse, flancs galbés, ailes au-dessus des roues avant, museau arrondi, aileron porté ; mêmes points
+   d'appui des roues et même gabarit que l'Équilibré (aucun effet sur la conduite ni les collisions, statistiques à zéro). */
+function galetBody(add, cap, V, cfg, WD) {
+  // Coque principale lisse + jupe sombre ; habitacle creusé (bord de cockpit) où le pilote est assis ; pare-brise.
+  const shell = new T.SphereGeometry(1, 48, 28); shell.scale(.98, .42, 1.78); shell.translate(0, .7, .02); add('paint', shell);
+  const skirt = new T.SphereGeometry(1, 40, 14, 0, TAU, Math.PI * .5, Math.PI * .2); skirt.scale(1.03, .48, 1.83); skirt.translate(0, .72, .02); add('dark', skirt);
+  const rim = new T.TorusGeometry(.42, .07, 10, 32); rim.scale(1, 1.25, 1); rim.rotateX(Math.PI / 2); rim.translate(0, 1.08, -.45); add('dark', rim);
+  const screen = new T.SphereGeometry(.5, 24, 10, -Math.PI * .35, Math.PI * .7, Math.PI * .28, Math.PI * .22); screen.scale(1, 1, .7); screen.translate(0, .86, .2); add('canopy', screen);
+  const nose = new T.SphereGeometry(.42, 28, 18); nose.scale(1.45, .58, .9); nose.translate(0, .6, 1.62); add('paint', nose);
+  add('dark', cap(.1, 1.2, 0, .38, 1.92, 0, 0, Math.PI / 2));
+  // Coques de roues : demi-cylindres ouverts (double face) qui suivent la taille des roues (roues « Géantes » comprises).
+  const r = WD.r + .14, w = WD.w + .16, fz = 1.05, xw = .92 + WD.w / 2 - .12;
+  for (const s of [-1, 1]) for (const z of [fz, -1]) {
+    // Après rotateZ(π/2) : hauteur = r·sin θ, avant = r·cos θ → arc centré sur θ = π/2 (dessus de la roue).
+    const L = Math.PI * .78, arch = new T.CylinderGeometry(r, r, w, 28, 1, true, Math.PI / 2 - L / 2, L); arch.rotateZ(Math.PI / 2); arch.translate(s * xw, WD.r, z); add('arch', arch);
+  }
+  for (const s of [-1, 1]) {
+    const pod = new T.CapsuleGeometry(.24, .8, 8, 20); pod.rotateX(Math.PI / 2); pod.scale(1, .75, 1); pod.translate(s * .8, .52, -.05); add('paint', pod);
+    const intake = new T.CapsuleGeometry(.1, .3, 4, 12); intake.rotateX(Math.PI / 2); intake.translate(s * .86, .58, .45); add('dark', intake);
+    add('glove', new T.SphereGeometry(.1, 14, 10), tr(s * .42, .7, 1.86));
+    add('dark', cap(.035, .36, s * .45, 1.04, -1.3));
+  }
+  const wing = extrudeSide(airfoilShape(.62, .12), 1.95, .035, 2); wing.applyMatrix4(tr(0, 1.28, -1.36)); add('paint', wing);
+  for (const s of [-1, 1]) { const end = new T.SphereGeometry(.16, 16, 10); end.scale(.4, 1, 1.6); end.translate(s * .99, 1.3, -1.36); add('dark', end); }
+  add('metal', rbox(.78, .4, .5, .14), tr(0, .74, -1.3));
+  for (const s of [-1, 1]) { const ex = new T.CylinderGeometry(.09, .12, .5, 14, 1, true); ex.applyMatrix4(trs(s * .24, .84, -1.66, Math.PI / 2, 0, 0)); add('metal', ex); }
+  // Déco de la boutique : bandes (deux anneaux étroits sur la coque) ou damier (bande centrale) ; même rendu que les autres karts.
+  if (cfg.deco === 'aucune') return null;
+  const band = (c, half) => { const g = new T.SphereGeometry(1.012, 64, 4, 0, TAU, Math.PI / 2 + c - half, half * 2); g.rotateZ(Math.PI / 2); g.scale(.98, .42, 1.78); g.translate(0, .7, .02); return g; };
+  return cfg.deco === 'damier' ? band(0, .14) : mergeGeos([band(-.17, .045), band(.17, .045)]);
+}
+// Pilote Héros : maillages séparés (tête, torse, bras, volant) pour l'animation ; segments de bras = capsules unitaires orientées à chaque image.
+// Pilotes animés (rig) : tous les pilotes du jeu depuis la refonte du 3 novembre.
+const RIG_PILOTS = new Set(['casque', 'casquette', 'capuche', 'robot', 'heros']);
+/* #36.P1 — Fusion des maillages STATIQUES du pilote, frère par frère et par matériau, pour réduire les appels de rendu (le pilote
+   pesait 43 maillages sur ~64 par kart, autant d'appels d'ombre). Ne sont fusionnés que des maillages feuilles du même parent, de même
+   matériau, même appartenance à « detail » (masqués de loin), mêmes réglages d'ombre/ordre et mêmes attributs (position, normale,
+   uv éventuel), sans groupes ni morphs. Exclus : tout objet référencé par le rig (bouche, dents, sourcils, bras, volant… animés un
+   par un) et tout maillage portant des userData (animations, étiquettes de pièces). La position de chaque maillage est appliquée à
+   sa géométrie : rendu identique, transformations du parent conservées. */
+// Fusion qui CONSERVE les index (mergeGeos désindexe : +2,6 % de mémoire mesurés avec 8 karts). null si une géométrie n'est pas indexée.
+function fusionIndexee(geos) {
+  if (!geos.every((g) => g.index && g.attributes.normal)) return null;
+  const uv = geos.every((g) => g.attributes.uv); let nv = 0, ni = 0; for (const g of geos) { nv += g.attributes.position.count; ni += g.index.count; }
+  const P = new Float32Array(nv * 3), N = new Float32Array(nv * 3), U = uv ? new Float32Array(nv * 2) : null, I = nv > 65535 ? new Uint32Array(ni) : new Uint16Array(ni);
+  let ov = 0, oi = 0;
+  for (const g of geos) { const c = g.attributes.position.count; P.set(g.attributes.position.array, ov * 3); N.set(g.attributes.normal.array, ov * 3); if (U) U.set(g.attributes.uv.array, ov * 2);
+    const ix = g.index.array; for (let k = 0; k < ix.length; k++) I[oi + k] = ix[k] + ov; ov += c; oi += ix.length; }
+  const m = new T.BufferGeometry(); m.setAttribute('position', new T.BufferAttribute(P, 3)); m.setAttribute('normal', new T.BufferAttribute(N, 3)); if (U) m.setAttribute('uv', new T.BufferAttribute(U, 2)); m.setIndex(new T.BufferAttribute(I, 1)); return m;
+}
+function fusionPilote(rig) {
+  const proteges = new Set(), vu = new Set();
+  const marquer = (v, prof) => { if (!v || typeof v !== 'object' || vu.has(v) || prof > 2) return; vu.add(v); if (v.isObject3D) { proteges.add(v); return; }
+    if (Array.isArray(v)) { for (const x of v) marquer(x, prof + 1); return; } if (v.constructor === Object) for (const k in v) marquer(v[k], prof + 1); };
+  for (const k in rig) if (k !== 'root' && k !== 'detail') marquer(rig[k], 0);
+  const det = new Set(rig.detail), parents = new Set(); rig.root.traverse((o) => { if (o.isMesh && o.parent) parents.add(o.parent); });
+  const attrs = (g) => Object.keys(g.attributes).sort().join(',');
+  for (const par of parents) {
+    const lots = new Map();
+    for (const m of par.children) {
+      if (!m.isMesh || m.isSkinnedMesh || m.isInstancedMesh || m.children.length || proteges.has(m) || Object.keys(m.userData).length || Array.isArray(m.material)) continue;
+      const g = m.geometry; if (!g || g.groups.length > 1 || Object.keys(g.morphAttributes).length || !/^(normal,)?position(,uv)?$/.test(attrs(g))) continue;
+      const cle = [m.material.uuid, det.has(m), m.castShadow, m.receiveShadow, m.renderOrder, m.visible, m.frustumCulled, attrs(g)].join('|');
+      if (!lots.has(cle)) lots.set(cle, []); lots.get(cle).push(m);
+    }
+    for (const lot of lots.values()) {
+      if (lot.length < 2) continue;
+      const geos = lot.map((m) => { m.updateMatrix(); const q = m.geometry.clone(); q.applyMatrix4(m.matrix); return q; });
+      const f = new T.Mesh(fusionIndexee(geos) || mergeGeos(geos), lot[0].material); f.castShadow = lot[0].castShadow; f.receiveShadow = lot[0].receiveShadow; f.renderOrder = lot[0].renderOrder; f.name = 'fusion-pilote';
+      par.add(f); for (const m of lot) par.remove(m);   // géométries d'origine non libérées : elles peuvent être partagées (caches)
+      if (det.has(lot[0])) { rig.detail = rig.detail.filter((x) => !lot.includes(x)); rig.detail.push(f); }
+    }
+  }
+  return rig;
+}
+function heroRig(cfg, mats) {
+  // Pièces fixes fusionnées par matériau (tête, volant) : ~20 maillages au lieu de 54 (budget d'appels de rendu mobile).
+  const root = new T.Group(), unit = new T.CapsuleGeometry(.5, 1, 4, 10), V3 = (x, y, z) => new T.Vector3(x, y, z);
+  const G = (g, x, y, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) => { g.applyMatrix4(new T.Matrix4().compose(V3(x, y, z), new T.Quaternion().setFromEuler(new T.Euler(rx, ry, rz)), V3(sx, sy, sz))); return g; };
+  const mesh = (geos, m, parent) => { const o = new T.Mesh(geos.length > 1 ? mergeGeos(geos) : geos[0], m); o.castShadow = true; parent.add(o); return o; };
+  const torso = new T.Group(); torso.position.set(0, 1.08, -.42); root.add(torso);
+  mesh([G(new T.CapsuleGeometry(.29, .26, 8, 18), 0, .04, 0, 0, 0, 0, 1.05, 1, .82)], mats.suit, torso);
+  mesh([G(new T.TorusGeometry(.2, .07, 10, 24), 0, .27, .04, Math.PI / 2)], mats.paint, torso);   // écharpe
+  // Retour du 5 nov. (cockpit du Galet creusé) : bassin, cuisses et tibias fixes ; genoux visibles devant le siège, pieds sous le
+  // capot. Avant, le pilote s'arrêtait à la taille et la coque masquait ce vide. Matériau de la combinaison, aucun effet sur la physique.
+  { const jambe = (a, b, r) => { const d = b.clone().sub(a), g = new T.CapsuleGeometry(r, d.length(), 4, 12); g.applyMatrix4(new T.Matrix4().compose(a.clone().add(b).multiplyScalar(.5), new T.Quaternion().setFromUnitVectors(V3(0, 1, 0), d.normalize()), V3(1, 1, 1))); return g; };
+    const L = [G(new T.SphereGeometry(.2, 16, 12), 0, .79, -.36, 0, 0, 0, 1.3, .62, 1.05)];
+    for (const s of [-1, 1]) { const hanche = V3(s * .13, .8, -.3), genou = V3(s * .16, .88, .1), pied = V3(s * .16, .6, .52); L.push(jambe(hanche, genou, .095), jambe(genou, pied, .08), G(new T.SphereGeometry(.09, 12, 8), s * .16, .56, .58, 0, 0, 0, 1, .7, 1.5)); }
+    mesh(L, mats.suit, root); }
+  const head = new T.Group(); head.position.set(0, 1.7, -.3); root.add(head);
+  // Refonte des pilotes (3 novembre, demande du propriétaire) : TOUS les pilotes partagent le rig animé du Héros (visage expressif,
+  // mains sur le volant, tête qui suit le virage, réactions boost / saut / choc / victoire) ; seule la coiffe change selon le pilote.
+  const style = cfg.pilot, robot = style === 'robot', detail = [], cheek = [], whites = [], pupils = [], brows = [];
+  /* #36.E1 (retour du 6 nov.) : visage sculpté. WK_VISAGE_AVANT = ancien rendu (témoin des planches avant/après). */
+  const Q1 = !(typeof window !== 'undefined' && window.WK_Q1_AVANT);   /* #36.Q1 lot 1 (finitions Galet + 5 pilotes) ; WK_Q1_AVANT = témoin avant */
+  const VISAGE2 = !robot && !(typeof window !== 'undefined' && (window.WK_VISAGE_AVANT || window.WK_FINITION_AVANT)), FACE = VISAGE2 ? formeVisage(style) : null;
+  if (robot) {
+    mesh([G(new T.CapsuleGeometry(.27, .16, 8, 20), 0, 0, 0, 0, 0, Math.PI / 2, 1, 1.05, .95)], mats.metal, head);   // tête arrondie
+    mesh([G(new T.TorusGeometry(.3, .04, 10, 32, Math.PI), 0, 0, -.02), G(new T.CylinderGeometry(.09, .09, .1, 32), -.34, 0, 0, 0, 0, Math.PI / 2), G(new T.CylinderGeometry(.09, .09, .1, 32), .34, 0, 0, 0, 0, Math.PI / 2), G(new T.CylinderGeometry(.015, .015, .22, 10), .14, .38, -.05), G(new T.SphereGeometry(.045, 16, 12), .14, .5, -.05)], mats.dark, head);   /* #36.Q1 : oreilles 32 côtés, antenne 10, boule 16×12 (facettes visibles en gros plan avant) */
+    if (!Q1) detail.push(mesh([G(rbox(.46, .2, .04, .05), 0, .02, .27)], mats.visor || mats.glass, head));            // écran du visage
+    else { /* #36.Q1 : écran intégré (avant : plaque noire posée devant la tête, sans raccord) — écran enfoncé de moitié dans la coque, cadre
+         tubulaire qui épouse la surface de la tête (tête = capsule couchée, rayon 0,27, échelles 1 / 1,05 / 0,95) */
+      detail.push(mesh([G(rbox(.44, .19, .04, .05), 0, .02, .248)], mats.visor || mats.glass, head));
+      const surf = (x, y) => { const ax = Math.max(0, Math.abs(x) - .08), q = .27 * .27 - ax * ax - (y / 1.05) ** 2; return Math.sqrt(Math.max(0, q)) * .95; }, L = [], w2 = .235, h2 = .108, rr = .05;
+      for (let i = 0; i < 64; i++) { const t = i / 64 * TAU, c = Math.cos(t), sn = Math.sin(t), px = Math.sign(c) * Math.min(w2 - rr, Math.abs(c) * w2 * 1.6) + rr * c, py = Math.sign(sn) * Math.min(h2 - rr, Math.abs(sn) * h2 * 1.6) + rr * sn, x = clamp(px, -w2, w2), y = clamp(py, -h2, h2) + .02;
+        L.push(new T.Vector3(x, y, Math.max(surf(x, y), .2) + .004)); }
+      mesh([new T.TubeGeometry(new T.CatmullRomCurve3(L, true), 128, .018, 8, true)], mats.metal, head); }
+  } else {
+    if (VISAGE2) mesh([teteSculptee(T, FACE)], mats.skin, head);   // #36.E1 : une seule surface (front, joues, menton, nez intégrés)
+    else mesh([G(new T.SphereGeometry(style === 'heros' ? .325 : .295, 32, 24), 0, 0, 0, 0, 0, 0, 1, .95, .94), G(new T.SphereGeometry(.05, 12, 10), 0, -.07, style === 'heros' ? .33 : .3)], mats.skin, head);
+    for (const s of [-1, 1]) cheek.push(VISAGE2 ? G(new T.SphereGeometry(.05, 10, 8), s * .175, -.105, FACE.z(s * .175, -.105) - .012, 0, s * .55, 0, 1, .6, .35) : G(new T.SphereGeometry(.05, 10, 8), s * .19, -.1, .24, 0, 0, 0, 1, .6, .4));
+    detail.push(mesh(cheek, stdMat('#ff8fa3', .7, 0), head));
+  }
+  if (style === 'heros') {
+    { const coque = [G(new T.SphereGeometry(.355, 40, 18, 0, TAU, 0, Math.PI * .44), 0, .1, -.03, 0, 0, 0, 1.02, 1.05, 1), G(new T.ConeGeometry(.09, .26, 10), .06, .38, .1, .6, 0, -.3)];
+      /* #36.Q1 : bord inférieur tranché (calotte sans épaisseur) → bourrelet roulé sur tout le pourtour + intérieur sombre */
+      if (Q1) { const ry = .355 * Math.cos(Math.PI * .44) * 1.05 + .1, rr = .355 * Math.sin(Math.PI * .44); coque.push(G(new T.TorusGeometry(rr - .004, .021, 12, 64), 0, ry, -.03, Math.PI / 2, 0, 0, 1.02, 1, 1)); }
+      mesh(coque, mats.helm, head);
+      if (Q1) mesh([G(new T.SphereGeometry(.345, 32, 12, 0, TAU, 0, Math.PI * .44), 0, .1, -.03, 0, 0, 0, 1.02, 1.05, 1)], new T.MeshStandardMaterial({ color: '#4a4356', roughness: .9, side: T.BackSide }), head).userData.sansOmbre = true; }   /* intérieur : ombre déjà portée par la coque (exempté du traverse castShadow de kartMesh) */
+    const gog = [], lens = []; for (const s of [-1, 1]) { gog.push(G(new T.TorusGeometry(.07, .024, 8, 18), s * .11, .29, .3, -.55)); lens.push(G(new T.CircleGeometry(.055, 16), s * .11, .29, .3, -.55)); }
+    detail.push(mesh(gog, mats.metal, head), mesh(lens, mats.glass, head));
+  } else if (style === 'casquette') {   // casquette à visière, mèches et oreilles
+    if (VISAGE2) {   /* #36.E3 : calotte relevée au-dessus des sourcils, bord roulé, visière courbe épaisse aux bords arrondis, mèches brunes */
+      const vis = new T.Shape(), a0 = -.85, a1 = .85, Ro = .46, Ri = .3; for (let i = 0; i <= 24; i++) { const a = a0 + (a1 - a0) * i / 24; (i ? vis.lineTo : vis.moveTo).call(vis, Math.sin(a) * Ro, Math.cos(a) * Ro * .78); }
+      for (let i = 24; i >= 0; i--) { const a = a0 + (a1 - a0) * i / 24; vis.lineTo(Math.sin(a) * Ri, Math.cos(a) * Ri); }
+      const vg = new T.ExtrudeGeometry(vis, { depth: .012, bevelEnabled: true, bevelThickness: .008, bevelSize: .008, bevelSegments: 3, curveSegments: 4 }); vg.rotateX(Math.PI / 2);
+      { const p = vg.attributes.position; for (let i = 0; i < p.count; i++) { const x = p.getX(i), z = p.getZ(i); p.setY(i, p.getY(i) - .55 * x * x - .06 * Math.max(0, z - .3)); } vg.computeVertexNormals(); }   /* bombée et inclinée vers l'avant */
+      mesh([G(new T.SphereGeometry(.318, 32, 14, 0, TAU, 0, Math.PI * .365), 0, .03, -.01), G(new T.TorusGeometry(.275, .014, 8, 48), 0, .162, -.01, Math.PI / 2), G(vg, 0, .178, -.01), G(new T.SphereGeometry(.035, 10, 8), 0, .345, -.01)], mats.helm, head);
+      /* lisière de cheveux continue sous la calotte, des tempes à la nuque (plus de boules sombres séparées) */
+      const lis = new T.SphereGeometry(.306, 36, 10, Math.PI * .82, Math.PI * 1.36, Math.PI * .36, Math.PI * .2);
+      if (Q1) { /* #36.Q1 : bord inférieur droit (« bande collée ») → mèches arrondies, plus longues à la nuque, effilées aux tempes ; léger
+           gonflement vers le bas pour l'épaisseur des cheveux */
+        const P = lis.attributes.position, W = 36, Hs = 10;
+        for (let i = 0; i < P.count; i++) { const row = Math.floor(i / (W + 1)), col = i % (W + 1), u = col / W, t = row / Hs, ph = Math.PI * .82 + u * Math.PI * 1.36;
+          const env = Math.pow(Math.sin(Math.PI * u), .6), meche = Math.pow(.5 + .5 * Math.cos(TAU * 6.5 * u), 1.6), nuque = .6 + .4 * Math.pow(Math.sin(Math.PI * u), 2);
+          const th = Math.PI * .36 + t * Math.PI * .2 + t * t * env * nuque * (Math.PI * .085 * meche + Math.PI * .03), Rr = .306 * (1 + .035 * t * t * env);
+          P.setXYZ(i, -Rr * Math.cos(ph) * Math.sin(th), Rr * Math.cos(th), Rr * Math.sin(ph) * Math.sin(th)); }
+        lis.computeVertexNormals(); }
+      lis.scale(1, .95, .94);   /* φ centré sur la nuque (−z) */ mesh([G(lis, 0, .012, -.008)], stdMat('#5b3a24', .75, 0), head);   /* cheveux : calotte partielle qui épouse la tête (tempes → nuque) sous la casquette */
+    } else {
+    mesh([G(new T.SphereGeometry(.318, 28, 12, 0, TAU, 0, Math.PI * .47), 0, .03, -.01), G(rbox(.42, .045, .3, .022), 0, .1, .33, .14, 0, 0), G(new T.SphereGeometry(.035, 10, 8), 0, .34, 0)], mats.helm, head);
+    mesh([G(new T.SphereGeometry(.08, 10, 8), -.25, .02, .08, 0, 0, 0, .7, 1, 1.1), G(new T.SphereGeometry(.08, 10, 8), .25, .02, .08, 0, 0, 0, .7, 1, 1.1), G(new T.SphereGeometry(.09, 10, 8), 0, .02, -.27, 0, 0, 0, 1.6, .9, .8)], mats.dark, head); }
+    if (!Q1) mesh([G(new T.SphereGeometry(.065, 10, 8), -.3, -.03, 0, 0, 0, 0, .5, 1, .8), G(new T.SphereGeometry(.065, 10, 8), .3, -.03, 0, 0, 0, 0, .5, 1, .8)], mats.skin, head);
+    else { /* #36.Q1 : oreille sculptée (ellipsoïde uni avant) : pavillon bordé d'un ourlet, creux ombré, lobe ; enracinée dans la tête, inclinée vers l'arrière */
+      const or = [], creux = []; for (const sd of [-1, 1]) { const x = sd * .288, ry = sd * .32;
+        or.push(G(new T.SphereGeometry(.062, 20, 14), x, -.03, -.005, 0, ry, 0, .42, 1, .74), G(new T.TorusGeometry(.046, .016, 10, 28), x + sd * .016, -.026, -.005, 0, sd * Math.PI / 2 + ry, 0, 1, 1.32, 1), G(new T.SphereGeometry(.022, 12, 10), x + sd * .012, -.085, .005));
+        creux.push(G(new T.SphereGeometry(.036, 16, 12), x + sd * .021, -.024, -.003, 0, ry, 0, .3, 1, .7)); }
+      mesh(or, mats.skin, head); mesh(creux, stdMat(darken(cfg.skin, .82), .7, 0), head); }
+  } else if (style === 'capuche') {     // capuche ouverte sur le visage, cordons
+    if (VISAGE2) { /* #36.E3 : coque sphérique fermée percée d'une ouverture ELLIPTIQUE autour du visage, bordure tubulaire continue (bord
+         épais et arrondi, plus de découpe à angle vif ni de calotte plate), double face pour l'intérieur. Cordons : portés par le buste. */
+      const Rh = .4, C = [0, .03, -.03], ouv = (x, y, z) => z > 0 && (x / .6) ** 2 + ((y + .06) / .68) ** 2 < 1;
+      const g = new T.SphereGeometry(Rh, 72, 48), p = g.attributes.position, ix = g.index.array, keep = [];
+      for (let i = 0; i < ix.length; i += 3) { let dedans = 0; for (let j = 0; j < 3; j++) { const v = ix[i + j]; if (ouv(p.getX(v) / Rh, p.getY(v) / Rh, p.getZ(v) / Rh)) dedans++; } if (!dedans) keep.push(ix[i], ix[i + 1], ix[i + 2]); }   /* aucun triangle ne mord sur l'ouverture */
+      g.setIndex(keep); g.translate(...C);
+      const bord = []; for (let i = 0; i < 64; i++) { const t = i / 64 * TAU, dx = .6 * 1.04 * Math.cos(t), dy = -.06 + .68 * 1.04 * Math.sin(t),   /* bordure sur le bord réel du maillage (≈ une maille hors de l'ellipse) */ dz = Math.sqrt(Math.max(0, 1 - dx * dx - dy * dy)); bord.push(V3(C[0] + Rh * .985 * dx, C[1] + Rh * .985 * dy, C[2] + Rh * .985 * dz)); }
+      const hood = mesh([g, new T.TubeGeometry(new T.CatmullRomCurve3(bord, true), 96, .026, 8, true)], mats.suit, head); hood.material = mats.suit.clone(); hood.material.side = T.DoubleSide;
+    } else { // Capuche fermée sur le dessus (bug signalé le 4 nov. : l'ouverture du visage remontait jusqu'au sommet, crâne visible) ; double face.
+      const hood = mesh([G(new T.SphereGeometry(.4, 28, 18, Math.PI / 2 + .95, TAU - 1.9, 0, Math.PI * .75), 0, .03, -.03), G(new T.SphereGeometry(.4, 28, 8, 0, TAU, 0, Math.PI * .3), 0, .03, -.03), G(new T.TorusGeometry(.31, .05, 10, 30, Math.PI * 1.25), 0, .01, .17, 0, 0, -Math.PI * .125 + Math.PI)], mats.suit, head);
+      hood.material = mats.suit.clone(); hood.material.side = T.DoubleSide; }
+    if (!VISAGE2) mesh([G(new T.CylinderGeometry(.012, .012, .22, 6), -.1, -.32, .27), G(new T.CylinderGeometry(.012, .012, .22, 6), .1, -.32, .27), G(new T.SphereGeometry(.025, 8, 6), -.1, -.44, .27), G(new T.SphereGeometry(.025, 8, 6), .1, -.44, .27)], mats.glove, head);
+  } else if (!robot) {                  // casque intégral ouvert devant, visière relevée, bande de couleur
+    mesh([G(new T.SphereGeometry(.37, 32, 22, Math.PI / 2 + .85, TAU - 1.7, 0, Math.PI * .8), 0, .02, -.02)], mats.helm, head);
+    if (Q1) { /* #36.Q1 : bords de la coque tranchés (ouverture du visage et bas) → liseré tubulaire continu le long du bord réel + intérieur sombre */
+      const R = .37, p0 = Math.PI / 2 + .85, p1 = p0 + TAU - 1.7, th = Math.PI * .8, pt = (ph, t) => new T.Vector3(-R * Math.cos(ph) * Math.sin(t), .02 + R * Math.cos(t), -.02 + R * Math.sin(ph) * Math.sin(t)), L = [];
+      for (let i = 0; i <= 16; i++) L.push(pt(p0, th * (1 - i / 16)));          /* bord avant gauche, du bas vers le sommet */
+      for (let i = 1; i <= 16; i++) L.push(pt(p1, th * i / 16));                /* bord avant droit, du sommet vers le bas */
+      for (let i = 1; i < 40; i++) L.push(pt(p1 - (p1 - p0) * i / 40, th));     /* bord inférieur, par la nuque */
+      mesh([new T.TubeGeometry(new T.CatmullRomCurve3(L, true, 'centripetal'), 160, .022, 8, true)], mats.helm, head);
+      mesh([G(new T.SphereGeometry(.36, 32, 18, p0, TAU - 1.7, 0, th), 0, .02, -.02)], new T.MeshStandardMaterial({ color: '#4a4356', roughness: .9, side: T.BackSide }), head).userData.sansOmbre = true; }   /* intérieur : ombre déjà portée par la coque (exempté du traverse castShadow de kartMesh) */
+    { const bande = [G(new T.TorusGeometry(.372, .04, 10, 40, Math.PI - .75), 0, .02, -.02, 0, Math.PI / 2, 0)];   // bande de la nuque jusqu'au-dessus du front (jamais sur le visage)
+      /* #36.Q1 : le tore est ouvert à ses deux bouts (extrémités tranchées visibles en gros plan) → embouts arrondis ; WK_FINITION_AVANT = témoin */
+      if (!(typeof window !== 'undefined' && window.WK_FINITION_AVANT)) for (const a of [0, Math.PI - .75]) bande.push(G(new T.SphereGeometry(.04, 14, 10), 0, .02 + .372 * Math.sin(a), -.02 - .372 * Math.cos(a)));
+      mesh(bande, mats.paint, head); }
+    detail.push(mesh([G(new T.SphereGeometry(.385, 28, 10, Math.PI / 2 - .9, 1.8, .42, .38), 0, .02, -.02)], mats.visor, head));
+  }
+  for (const s of [-1, 1]) {
+    whites.push(robot ? G(rbox(.1, .07, .02, .03), s * .11, 0, 0) : G(new T.SphereGeometry(.07, 18, 12), s * .115, 0, 0, 0, 0, 0, 1, 1.15, .32)); pupils.push(G(new T.SphereGeometry(robot ? .028 : .034, 14, 10), s * (robot ? .11 : .115), 0, robot ? .012 : .023, 0, 0, 0, 1, 1, robot ? 1 : .4));
+    brows.push(G(new T.CapsuleGeometry(.022, .09, 4, 8), s * .12, 0, 0, 0, 0, Math.PI / 2 + s * .18));
+  }
+  const eyesG = new T.Group(); eyesG.position.set(0, robot ? .02 : -.01, robot ? .3 : VISAGE2 ? FACE.z(.115, -.01) - .006 : style === 'heros' ? .28 : .25); head.add(eyesG);
+  if (!robot && !(typeof window !== 'undefined' && window.WK_FINITION_AVANT)) {   // #36 : œil verni à iris coloré, pupille et reflet (lisible de loin)
+    const IRIS = { heros: '#3d7bd9', casquette: '#5a9a3a', capuche: '#8a5a2e', casque: '#2f8f9a' }, iris = [], shine = [];
+    for (let i = 0; i < pupils.length; i++) { const s = i ? 1 : -1; iris.push(G(new T.SphereGeometry(.047, 16, 10), s * .115, -.004, .019, 0, 0, 0, 1, 1.1, .4)); pupils[i] = G(new T.SphereGeometry(.026, 12, 8), s * .115, -.004, .029, 0, 0, 0, 1, 1.1, .4); shine.push(G(new T.SphereGeometry(.012, 8, 6), s * .115 - .016, .022, .04)); }
+    const contour = []; for (let i = 0; i < 2; i++) contour.push(G(new T.TorusGeometry(.071, VISAGE2 ? .0048 : .0085, 6, 28), (i ? 1 : -1) * .115, 0, .006, 0, 0, 0, 1, 1.15, 1));
+    detail.push(mesh(contour, mats.dark, eyesG));
+    detail.push(mesh(whites, stdMat('#ffffff', .12, 0), eyesG), mesh(iris, stdMat(IRIS[style] || '#3d7bd9', .2, 0), eyesG), mesh(pupils, stdMat('#0d0b18', .1, 0), eyesG), mesh(shine, glowMat('#ffffff'), eyesG));
+  } else detail.push(mesh(whites, robot ? glowMat('#2ee6ff') : stdMat('#ffffff', .4, 0), eyesG), mesh(pupils, robot ? glowMat('#ffffff') : stdMat('#1a1630', .2, 0), eyesG));
+  const browG = new T.Group(); browG.position.set(0, robot ? .13 : .12, robot ? .31 : VISAGE2 ? FACE.z(.12, .12) + .004 : style === 'heros' ? .31 : .28); head.add(browG);
+  // #36 personnage : sourcils séparés (expressions), dents dans la bouche ouverte, gants plus gros. Robot et ancien rendu inchangés.
+  const expressif = !(typeof window !== 'undefined' && window.WK_FINITION_AVANT), browM = [];
+  const sourcil = (s) => { const g = new T.CapsuleGeometry(.025, .1, 4, 8); if (!VISAGE2) return g;
+    /* #36.E1 : sourcil aplati (épaisseur ×0,45) et courbé sur le front : chaque sommet suit la surface (plus de tube qui ressort de profil) */
+    g.scale(1, 1, .45); const a = Math.PI / 2 + s * .18, c = Math.cos(a), sn = Math.sin(a), z0 = FACE.z(.12, .12), p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) { const lx = p.getX(i), ly = p.getY(i), x = s * .12 + lx * c - ly * sn, y = .12 + lx * sn + ly * c; p.setZ(i, p.getZ(i) + FACE.z(x, y) - z0); }
+    g.computeVertexNormals(); return g; };
+  if (expressif) for (const s of [-1, 1]) { const m = new T.Mesh(sourcil(s), mats.dark); m.rotation.z = Math.PI / 2 + s * .18; m.position.x = s * .12; m.userData.s = s; browG.add(m); browM.push(m); detail.push(m); }
+  else detail.push(mesh(brows, mats.dark, browG));
+  const mouth = mesh([new T.TorusGeometry(.075, .02, 8, 16, Math.PI)], robot ? glowMat('#2ee6ff') : mats.dark, head); mouth.position.set(0, robot ? -.1 : -.15, robot ? .3 : style === 'heros' ? .29 : .26); mouth.rotation.z = Math.PI;
+  if (expressif && !robot) {   // #36 : sourire épousant la surface du visage (tube posé sur l'ellipsoïde de la tête), plus de crochet de profil
+    const Rh = style === 'heros' ? .325 : .295, ry = Rh * .95, rz = Rh * .94, y0 = -.15, onFace = VISAGE2 ? (x, y) => FACE.z(x, y) + .004 : (x, y) => rz * Math.sqrt(Math.max(0, 1 - (x * x) / (Rh * Rh) - (y * y) / (ry * ry))) + .006;
+    const c = new T.Vector3(0, y0, onFace(0, y0)), pts = []; for (let i = 0; i <= 12; i++) { const t = i / 6 - 1, x = t * .068, y = y0 + .026 * t * t - .006; pts.push(new T.Vector3(x, y, onFace(x, y)).sub(c)); }
+    mouth.geometry.dispose(); mouth.geometry = new T.TubeGeometry(new T.CatmullRomCurve3(pts), 24, .0115, 6, false); mouth.position.copy(c); mouth.rotation.z = 0; }   // sourire intégré à la surface du visage (ne ressort plus de trois quarts)
+  const open = mesh([new T.SphereGeometry(.07, 14, 10)], robot ? glowMat('#2ee6ff') : stdMat('#5a1020', .6, 0), head); open.position.set(0, robot ? -.1 : -.14, robot ? .29 : VISAGE2 ? FACE.z(0, -.14) - .025 : style === 'heros' ? .27 : .24); open.scale.set(1.15, .85, .45); open.visible = false;
+  let teeth = null; if (expressif && !robot) { teeth = new T.Mesh(new T.BoxGeometry(.105, .032, .03), stdMat('#fffdf6', .3, 0)); teeth.position.set(0, .042, .055); open.add(teeth); const tongue = new T.Mesh(new T.SphereGeometry(.045, 10, 8), stdMat('#e2566e', .55, 0)); tongue.scale.set(1.1, .5, .6); tongue.position.set(0, -.04, .03); open.add(tongue); }
+  // Volant face au pilote (correction 4 nov., signalée par le propriétaire) : haut de la jante penché vers le capot, face tournée vers le
+  // haut et l'arrière (vers le buste), axe aligné sur la colonne de direction des carrosseries.
+  const wheel = new T.Group(); wheel.position.set(0, 1.2, .23); wheel.rotation.x = .55; root.add(wheel);
+  const spin = new T.Group(); wheel.add(spin); mesh([new T.TorusGeometry(.2, .035, 10, 28)], mats.dark, spin);
+  mesh([0, 2.1, 4.2].map((a) => G(new T.CylinderGeometry(.018, .018, .2, 6), Math.sin(a) * .1, Math.cos(a) * .1, 0, 0, 0, -a)).concat([G(new T.CylinderGeometry(.05, .05, .05, 12), 0, 0, 0, Math.PI / 2)]), mats.metal, spin);
+  const sleeve = Q1 && expressif ? mats.suit : stdMat(cfg.color, .55, .05), seg =   /* #36.Q1 : manches dans le tissu de la combinaison (avant : tubes vernis couleur carrosserie, sans lien avec le buste) */ () => { const m = new T.Mesh(unit, sleeve); m.castShadow = true; root.add(m); return m; };
+  const arms = [-1, 1].map((s) => ({ s, up: seg(), lo: seg(), coude: (() => { const m = new T.Mesh(new T.SphereGeometry(.09, 12, 10), sleeve); m.castShadow = true; root.add(m); return m; })(), hand: (() => { if (!expressif) { const h = new T.Mesh(new T.SphereGeometry(.085, 12, 10), mats.glove); h.castShadow = true; root.add(h); return h; }
+    // #36 : gant moufle (paume, pouce refermé sur la jante, manchette) au lieu d'une boule ; orienté sur la jante dans heroAnimate
+    const h = new T.Group(); h.userData.moufle = true; const part = (g) => { const m = new T.Mesh(g, mats.glove); m.castShadow = true; h.add(m); return m; };
+    const paume = new T.SphereGeometry(.1, 16, 12); paume.scale(1.05, .85, 1.15); part(paume);
+    const pouce = new T.CapsuleGeometry(.034, .05, 4, 10); pouce.rotateZ(s * .9); pouce.translate(-s * .07, .055, .03); part(pouce);
+    if (!Q1) { const manchette = new T.TorusGeometry(.075, .028, 8, 20); manchette.translate(0, 0, -.1); part(manchette); }
+    /* #36.Q1 : la manchette n'est plus dans le groupe de la main (orienté sur le volant) mais suit l'avant-bras : voir A.cuff */
+    root.add(h); return h; })(), cuff: (() => { if (!(Q1 && expressif)) return null;
+      /* #36.Q1 : manchette évasée du gant (avant : bouée torique épaisse, mal orientée) — profil de révolution le long de l'avant-bras, bord
+         roulé, recouvre la fin de la manche ; liseré couleur carrosserie. Orientée dans heroAnimate (main → coude). */
+      const c = new T.Group(), prof = [[.07, .0], [.074, .03], [.083, .065], [.094, .1], [.098, .118], [.091, .13], [.08, .124]].map(([r, y]) => new T.Vector2(r, y));
+      const gm = new T.Mesh(new T.LatheGeometry(prof, 24), mats.glove), li = new T.Mesh(new T.TorusGeometry(.093, .009, 8, 28), mats.paint); li.rotation.x = Math.PI / 2; li.position.y = .112;
+      gm.castShadow = li.castShadow = true; c.add(gm, li); root.add(c); return c; })() }));
+  for (const A of arms) { detail.push(A.hand, A.up, A.lo, A.coude); if (A.cuff) detail.push(A.cuff); } detail.push(mouth);   // loin : bras et mains masqués aussi (budget d'appels Samsung)
+  const rig = { visage2: VISAGE2, face: FACE, detail, far: false, root, torso, head, eyes: [eyesG], brows: [browG], browM, teeth, mouth, open, wheel, spin, arms, ang: 0, blink: 2 + Math.random() * 3, cheer: 0, _a: V3(), _b: V3(), _c: V3(), _q: new T.Quaternion(), _y: V3(0, 1, 0) };
+  if (window.WKPilotesPrototype) window.WKPilotesPrototype.habiller(T, cfg, mats, rig);
+  // #36 identité des cinq pilotes au-delà de la coiffe : proportions, posture et visage (nez, taches de rousseur, menton).
+  if (expressif) { const GAB = { heros: { tete: 1.04, buste: [1, 1, 1], pench: .1, yeux: 1 }, casque: { tete: .93, buste: [1.14, 1.05, 1.06], pench: .22, yeux: .88 },
+      casquette: { tete: 1.0, buste: [.95, .94, .95], pench: .0, yeux: 1.08 }, capuche: { tete: .9, buste: [.88, 1.04, .94], pench: .17, yeux: 1.16 }, robot: { tete: 1.05, buste: [1.12, 1.06, 1.06], pench: 0, yeux: 1 } }[style] || { tete: 1, buste: [1, 1, 1], pench: 0, yeux: 1 };
+    head.scale.multiplyScalar(GAB.tete); torso.scale.multiply(V3(...GAB.buste)); rig.pench = GAB.pench; rig.eyeBase = GAB.yeux; eyesG.scale.set(GAB.yeux, GAB.yeux, GAB.yeux); head.position.z += GAB.pench * .55; head.userData.z0 = head.position.z;
+    // Héros : mèche en épis qui dépasse du casque (trait original ; pas de gros nez rond, trop proche d'un personnage existant)
+    if (style === 'heros') detail.push(mesh([-.11, -.04, .03, .1].map((x, i) => G(new T.ConeGeometry(.045, .16, 8), x, .2 + (i % 2) * .02, .26, .9 + (i % 2) * .2, 0, -x * 1.6)), stdMat('#e0782a', .7, 0), head));
+    else if (style === 'casque') { if (!VISAGE2) detail.push(mesh([G(rbox(.2, .08, .1, .035), 0, -.25, .2)], mats.skin, head)); }                                        // menton carré d'athlète
+    else if (style === 'casquette') detail.push(mesh([-1, 1].flatMap((sd) => [0, 1, 2].map((k) => { const fx = sd * (.15 + k * .025), fy = -.08 - (k % 2) * .02; return G(new T.SphereGeometry(.011, 6, 4), fx, fy, VISAGE2 ? FACE.z(fx, fy) - .004 : .27 - k * .012, 0, 0, 0, 1, 1, VISAGE2 ? .4 : 1); })), stdMat('#b8734a', .7, 0), head));   // taches de rousseur
+    else if (style === 'capuche') { if (!VISAGE2) detail.push(mesh([G(new T.SphereGeometry(.04, 12, 8), 0, -.05, .3, -.35)], mats.skin, head)); }                         // petit nez retroussé
+  }
+  if (!(typeof window !== 'undefined' && window.WK_SANS_FUSION)) fusionPilote(rig);   // #36.P1 : moins d'appels de rendu (rendu identique, mesuré)
+  return rig;
+}
+/* Coude d'un bras à deux segments de longueurs a et b (cinématique inverse) ; la main est ramenée à portée (a + b) si besoin ; « pole »
+   oriente le pli du coude. Modifie hand si hors de portée ; renvoie le coude (vecteur réutilisé de « pole »). */
+function coudeIK(sh, hand, a, b, pole) { const d = hand.clone().sub(sh); let L = d.length(); const max = (a + b) * .999, min = Math.abs(a - b) + .01;
+  if (L > max) { d.multiplyScalar(max / L); hand.copy(sh).add(d); L = max; } else if (L < min) { d.multiplyScalar(min / (L || 1)); hand.copy(sh).add(d); L = min; }
+  const u = d.normalize(), x = (a * a - b * b + L * L) / (2 * L), h = Math.sqrt(Math.max(0, a * a - x * x)), pn = pole.sub(u.clone().multiplyScalar(pole.dot(u))).normalize();
+  return pn.multiplyScalar(h).add(u.multiplyScalar(x)).add(sh); }
+// Place une capsule unitaire entre deux points (rayon r).
+const VISAGE2_BRAS = true;   /* #36.E3 : avant-bras légèrement affiné (0,085 → 0,08) */
+function heroSeg(m, a, b, r, R) { const d = R._c.subVectors(b, a), L = d.length(); m.position.copy(a).add(b).multiplyScalar(.5); m.quaternion.setFromUnitVectors(R._y, d.divideScalar(L || 1)); m.scale.set(r * 2, Math.max(.01, L) / 2, r * 2); }
+// Animation : volant et mains, regard et inclinaison dans le virage, dérive, boost, choc, saut, victoire, clignement.
+function heroAnimate(R, k, st, dt, now) {
+  const e = 1 - Math.exp(-dt * 10), turn = clamp(st, -1, 1), hit = k.spin > 0, boost = k.boost > 0, win = k.finished && k.place === 1;
+  // Sens du volant (correction 4 nov., signalée par le propriétaire) : virage à droite = volant tourné dans le sens horaire vu du pilote,
+  // le haut de la jante part vers la droite du pilote (-x), exactement comme les mains (angle + R.ang ci-dessous).
+  R.ang = lerp(R.ang, -turn * 1.5, e); R.spin.rotation.z = -R.ang;
+  R.head.rotation.y = lerp(R.head.rotation.y, hit ? Math.sin(now * 18) * .5 : -turn * .38 + (k.drift ? -k.drift * .2 : 0), e);
+  R.head.rotation.z = lerp(R.head.rotation.z, turn * .12, e); R.head.rotation.x = lerp(R.head.rotation.x, boost ? -.12 : k.air ? -.18 : 0, e);
+  R.torso.rotation.z = lerp(R.torso.rotation.z, turn * .14 + (k.drift ? k.drift * .1 : 0), e); R.torso.rotation.x = lerp(R.torso.rotation.x, (boost ? -.12 : 0) + (R.pench || 0), e);
+  R.blink -= dt; const closed = R.blink < .12 || hit; if (R.blink < 0) R.blink = 2 + Math.random() * 3;
+  for (const ey of R.eyes) ey.scale.y = lerp(ey.scale.y, (closed ? .12 : boost || win ? 1.15 : 1) * (R.eyeBase || 1), 1 - Math.exp(-dt * 30));
+  R.brows[0].position.y = lerp(R.brows[0].position.y, hit ? .08 : boost || k.air ? .16 : .12, e);
+  R.open.visible = boost || win || !!k.air; R.mouth.visible = !R.open.visible; R.mouth.scale.y = lerp(R.mouth.scale.y, hit ? -.8 : 1, e);
+  R.cheer = lerp(R.cheer, win ? 1 : 0, 1 - Math.exp(-dt * 4));
+  if (R.browM && R.browM.length) {   // #36 : cinq expressions lisibles (neutre, déterminé, surpris, sonné, joie)
+    // tilt > 0 : pointe intérieure du sourcil abaissée (colère / détermination) ; < 0 : relevée (inquiétude, surprise)
+    const ex = hit ? 'aie' : win ? 'joie' : boost ? 'determine' : k.air ? 'surpris' : 'neutre';
+    const tilt = { neutre: .1, determine: .48, surpris: -.12, aie: -.45, joie: -.2 }[ex], dy = { neutre: 0, determine: -.025, surpris: .05, aie: .01, joie: .035 }[ex];
+    for (const b of R.browM) { b.rotation.z = lerp(b.rotation.z, Math.PI / 2 + b.userData.s * tilt, e); b.position.y = lerp(b.position.y, dy - (R.brows[0].position.y - .12), e); }
+    const O = { determine: [1.35, .5], surpris: [.75, 1.05], joie: [1.45, .85] }[ex]; if (O) { R.open.scale.x = lerp(R.open.scale.x, O[0] * 1.15, e); R.open.scale.y = lerp(R.open.scale.y, O[1] * .85, e); }
+    if (R.teeth) R.teeth.visible = ex === 'determine' || ex === 'joie';
+    if (ex === 'joie' && !closed) for (const ey of R.eyes) ey.scale.y = lerp(ey.scale.y, .5 * (R.eyeBase || 1), 1 - Math.exp(-dt * 20));   // yeux plissés de joie
+    const bond = win ? Math.abs(Math.sin(now * 7)) * .05 * R.cheer : 0; R.torso.position.y = 1.08 + bond; R.head.position.y = 1.7 + bond;   // rebond de joie
+    if (win) R.head.rotation.x = lerp(R.head.rotation.x, -.2, e);
+  }
+  // mains : sur la jante du volant (à 10 h 10), qui tourne ; en victoire, bras droit levé
+  R.wheel.updateMatrix();
+  for (const A of R.arms) {
+    const sh = R._a.set(A.s * .34, 1.32, -.36 + (R.pench || 0) * .3).applyAxisAngle(R._y.set(0, 0, 1), R.torso.rotation.z); R._y.set(0, 1, 0);
+    const ang = A.s * 1.05 + R.ang; let hand = new T.Vector3(Math.sin(ang) * .2, Math.cos(ang) * .2, 0).applyMatrix4(R.wheel.matrix);
+    /* #36.E3 (7 nov.) : bras à longueurs FIXES (bras 0,44, avant-bras 0,43 — atteignent la jante sur toute la plage de braquage, mesurée
+       0,73–0,85) et coude par cinématique inverse à deux segments. Avant : coude au milieu épaule–main, bras étiré de +35 à +58 % au poing
+       levé de la victoire (« long tube »). Victoire : poing au-dessus de l'épaule, à portée, coude vers l'extérieur. */
+    if (typeof window !== 'undefined' && window.WK_BRAS_AVANT) { /* témoin : ancien calcul (coude au milieu, bras étiré) */ if (A.s > 0 && R.cheer > .05) hand.lerp(new T.Vector3(.45, 2.25 + Math.sin(now * 9) * .08, -.2), R.cheer); const el = R._b.copy(sh).lerp(hand, .5).add(new T.Vector3(A.s * .2, -.12, 0)); heroSeg(A.up, sh, el, .095, R); heroSeg(A.lo, el, hand, .085, R); A.hand.position.copy(hand); if (A.coude) A.coude.position.copy(el); if (A.hand.userData.moufle) { A.hand.quaternion.copy(R.wheel.quaternion); A.hand.rotateZ(-ang); } continue; }
+    if (A.s > 0 && R.cheer > .05) hand.lerp(R._c.set(sh.x + .24, sh.y + .7 + Math.sin(now * 9) * .04, sh.z + .04), R.cheer);   /* poing écarté de la tête (de profil, il passait devant le visage) */
+    const elbow = coudeIK(sh, hand, .44, .43, R._b.set(A.s, -.55 - .9 * (A.s > 0 ? R.cheer : 0), -.35));
+    heroSeg(A.up, sh, elbow, .095, R); heroSeg(A.lo, elbow, hand, VISAGE2_BRAS ? .08 : .085, R); A.hand.position.copy(hand); if (A.coude) A.coude.position.copy(elbow);   /* articulation du coude : pas de pli brusque entre les deux segments */
+    if (A.hand.userData.moufle) { A.hand.quaternion.copy(R.wheel.quaternion); A.hand.rotateZ(-ang); if (A.s > 0 && R.cheer > .05) A.hand.quaternion.slerp(R._q.identity(), R.cheer); }   // paume refermée sur la jante
+    if (A.cuff) { A.cuff.position.copy(hand); A.cuff.quaternion.setFromUnitVectors(R._y, R._c.copy(elbow).sub(hand).normalize()); R._y.set(0, 1, 0); }   /* manchette le long de l'avant-bras */
+  }
+}
 function extraBody(body, add, limb, cap, V) {
   if (body === 'monstre') {
     add('dark', rbox(2.05, .2, 3.1, .06), tr(0, .72, 0));
@@ -2358,7 +3278,28 @@ function sportExtras(add, cap) {
   add('canopy', rbox(1.05, .36, .08, .04), trs(0, 1.1, .34, -.7, 0, 0));
   add('dark', cap(.1, 1.6, 0, .4, 1.98, 0, 0, Math.PI / 2));
 }
+// Roues v2 (refonte du 4 novembre) : chacune des 11 roues a son pneu et sa jante (avant : 8 formes et la même jante partout).
+function wheelMat(k) { const key = 'roue|' + k + '|' + qual().shadows; if (!matCache.has(key)) matCache.set(key, k === 'pneu' ? new T.MeshStandardMaterial({ color: '#ffffff', map: tireTex(), roughness: .92, metalness: 0, envMapIntensity: .25 }) : k === 'jante2' ? new T.MeshStandardMaterial({ color: '#ffffff', vertexColors: true, map: brushTex(), roughness: .3, metalness: .85 }) : new T.MeshStandardMaterial({ color: '#dfe2ea', map: brushTex(), roughness: .28, metalness: .9 })); return matCache.get(key); }
+function spokes(n, R, w, r0, wid, depth, faces = [-1, 1], twist = 0) { const L = []; for (const sx of faces) for (let k = 0; k < n; k++) { const a = k / n * TAU, g = rbox(depth, R * .5, wid, Math.min(wid, depth) * .45); g.translate(0, R * .5 * .5 + r0, 0); g.applyMatrix4(trs(sx * w * .3, 0, 0, a + twist, 0, 0)); L.push(g); } return mergeGeos(L); }
+function ringOf(n, R, x, mk) { const L = []; for (let k = 0; k < n; k++) { const a = k / n * TAU, g = mk(); g.translate(x, Math.cos(a) * R, Math.sin(a) * R); L.push(g); } return mergeGeos(L); }
+function discGeo(R, w, talon = false) { const pts = (talon ? [[.001, w * .33], [R * .9, w * .3], ...rimLevre(R, w, 1).reverse(), ...rimLevre(R, w, -1), [R * .9, -w * .3], [.001, -w * .33]] : [[.001, w * .33], [R * .9, w * .3], [R * .97, w * .38], [R * .97, -w * .38], [R * .9, -w * .3], [.001, -w * .33]]).map((p) => new T.Vector2(p[0], p[1])); const g = new T.LatheGeometry(pts, 32); g.rotateZ(Math.PI / 2); return g; }
+function wheelGeoV2(type, WD) {
+  const R = WD.r, w = WD.w, r0 = R * .6, wh = {}, both = (mk) => mergeGeos([-1, 1].map((sx) => { const g = mk(); g.translate(sx * w * .34, 0, 0); return g; }));
+  if (type === 'standard') { wh.tire = tireGeo(R, w, false); if (typeof window !== 'undefined' && window.WK_Q1_AVANT) wh.rim = rimGeo(R, w); else { const j = jante2Geo(R, w); wh.rim = j.rim; wh.cap2 = j.cap; } }
+  else if (type === 'slicks') { wh.tire = tireGeo(R, w, false, 'lisse'); wh.rim = discGeo(r0, w, true); wh.detail = both(() => ringOf(6, r0 * .55, 0, () => { const c = new T.CylinderGeometry(r0 * .14, r0 * .14, .02, 14); c.rotateZ(Math.PI / 2); return c; })); }
+  else if (type === 'jantes') { wh.tire = tireGeo(R, w, false, 'lisse'); wh.rim = mergeGeos([discGeo(r0 * .35, w), spokes(10, r0 * 1.6, w, r0 * .1, .045, .05)]); const cal = new T.TorusGeometry(r0 * .72, .07, 6, 12, 1.4); cal.rotateY(Math.PI / 2); cal.translate(w * .1, 0, 0); wh.accent = cal; }
+  else if (type === 'offroad') { wh.tire = tireGeo(R, w, true); wh.rim = mergeGeos([rimGeo(R, w), spokes(6, r0 * 1.5, w, r0 * .15, .12, .06)]); wh.bolts = both(() => ringOf(10, r0 * .86, 0, () => new T.SphereGeometry(.028, 8, 6))); }
+  else if (type === 'crampons') { wh.tire = tireGeo(R, w, 'chevrons'); wh.rim = discGeo(r0, w, true); wh.detail = both(() => ringOf(4, r0 * .55, 0, () => { const c = new T.CylinderGeometry(r0 * .2, r0 * .2, .02, 16); c.rotateZ(Math.PI / 2); return c; })); }
+  else if (type === 'monstre') { wh.tire = tireGeo(R, w, true); wh.rim = mergeGeos([discGeo(r0, w, true), spokes(6, r0 * 1.5, w, r0 * .18, .16, .08)]); wh.bolts = both(() => ringOf(8, r0 * .3, 0, () => new T.SphereGeometry(.035, 8, 6))); }
+  else if (type === 'neon') { wh.tire = tireGeo(R, w, false, 'lisse'); wh.rim = mergeGeos([discGeo(r0 * .3, w), spokes(3, r0 * 1.6, w, r0 * .15, .07, .05)]); const a = new T.TorusGeometry(R * .8, .028, 8, 32); a.rotateY(Math.PI / 2); const b = a.clone(); a.translate(w / 2 + .005, 0, 0); b.translate(-w / 2 - .005, 0, 0); wh.glow = mergeGeos([a, b]); }
+  else if (type === 'disco') { wh.tire = tireGeo(R, w, false, 'lisse'); wh.rim = mergeGeos([-1, 1].map((sx) => { const g = new T.TorusGeometry(r0 * .92, .035, 6, 28); g.rotateY(Math.PI / 2); g.translate(sx * w * .33, 0, 0); return g; })); wh.accent = both(() => { const g = new T.IcosahedronGeometry(r0 * .55, 1); g.scale(.35, 1, 1); return g; }); }
+  else return null;
+  if (wh.cap2) { wh.cap = wh.cap2; delete wh.cap2; } else { wh.cap = new T.CylinderGeometry(R * .13, R * .16, w * .74, 16); wh.cap.rotateZ(Math.PI / 2); }
+  for (const k in wh) wh[k].userData.keep = true; return wh;
+}
+for (const t of ['standard', 'slicks', 'jantes', 'offroad', 'crampons', 'monstre', 'neon', 'disco']) WHEEL_V2.add(t);
 function wheelGeoFor(type, WD) {
+  { const v2 = WHEEL_V2.has(type) ? wheelGeoV2(type, WD) : null; if (v2) return v2; }
   const wh = {};
   if (type === 'ballon') { const t = new T.SphereGeometry(WD.r, 26, 18); t.scale(WD.w / (2 * WD.r), 1, 1); wh.tire = t; wh.rim = rimGeo(WD.r * .78, WD.w * 1.02); }
   else if (type === 'bois') { const t = new T.CylinderGeometry(WD.r, WD.r, WD.w, 22); t.rotateZ(Math.PI / 2); wh.tire = t; const ring = new T.TorusGeometry(WD.r * .7, .03, 6, 24); ring.rotateY(Math.PI / 2); const r2 = ring.clone(); ring.translate(WD.w / 2 + .01, 0, 0); r2.translate(-WD.w / 2 - .01, 0, 0); wh.rim = mergeGeos([ring, r2]); }
@@ -2541,6 +3482,8 @@ Object.assign(AudioSys, {
     const gears = [0, .22, .42, .62, .82, 1.4]; let gi = 0; while (gi < gears.length - 2 && ratio > gears[gi + 1]) gi++;
     const inG = clamp((ratio - gears[gi]) / (gears[gi + 1] - gears[gi]), 0, 1), rpm = .35 + .65 * inG + gi * .06;
     const fr = 42 + rpm * 95 + (boost ? 30 : 0);
+    // Consignes arrondies (fréquence 0,25 Hz, gain 0,0005) : inaudible ; on ne reprogramme pas 9 consignes identiques à chaque image.
+    const key = Math.round(fr * 4) + ':' + Math.round(ratio * 400) + ':' + (on ? 1 : 0) + (boost ? 1 : 0) + (drift ? 1 : 0); if (key === this.engKey) return; this.engKey = key;
     E.o1.frequency.setTargetAtTime(fr, t, .04); E.o2.frequency.setTargetAtTime(fr * 1.005, t, .04); E.o3.frequency.setTargetAtTime(fr * .5, t, .04);
     E.f.frequency.setTargetAtTime(380 + rpm * 1500 + (boost ? 900 : 0), t, .06); E.g.gain.setTargetAtTime(on ? .026 + ratio * .03 : 0, t, .1);
     E.nf.frequency.setTargetAtTime(140 + ratio * 260, t, .1); E.ng.gain.setTargetAtTime(on ? .012 + ratio * .02 : 0, t, .15);
@@ -2589,6 +3532,7 @@ Object.assign(AudioSys, {
       case 'star': [72, 76, 79, 84, 88, 91].forEach((m, i) => bell(m, .14, .07, i * .05)); break;
       case 'glide': this.noise(1, .1, 700, 0, null, .5); this.note(m2f(64), .5, { vol: .06, osc: [['triangle', 0, 1]], fenv: [400, 1600, .5], rev: .4 }); break;
       case 'land': this.noise(.16, .22, 220, 0, null, .8); this.tone(95, .15, 'sine', .2, .6); break;
+      case 'avalanche': this.noise(2.2, .3, 160, 0, null, 2.4); this.tone(55, 2, 'sine', .16, .6); break;
       case 'wrong': this.note(m2f(55), .25, { vol: .08, osc: [['square', 0, .6], ['square', 8, .6]], cut: 1200 }); this.note(m2f(54), .35, { delay: .22, vol: .08, osc: [['square', 0, .6], ['square', 8, .6]], cut: 1200 }); break;
       case 'bumper': this.tone(520, .18, 'sine', .2, 2.2); this.tone(260, .25, 'triangle', .1, 1.8); bell(96, .2, .06); break;
       case 'ramp': this.noise(.5, .12, 900, 0, null, .6); this.note(m2f(60), .4, { vol: .07, osc: [['triangle', 0, 1]], fenv: [300, 2000, .35] }); break;
@@ -2598,6 +3542,8 @@ Object.assign(AudioSys, {
       case 'disco': [72, 76, 79, 83].forEach((m) => this.note(m2f(m), .6, { vol: .05, osc: [['sawtooth', -8, .5], ['sawtooth', 8, .5]], cut: 2600, rev: .7 })); this.tone(80, .4, 'sine', .3, .4); break;
       case 'agbump': this.tone(660, .2, 'sine', .12, 1.6); this.noise(.2, .1, 2500, 0, null, 2); break;
       case 'alarm': for (let i = 0; i < 3; i++) { this.note(m2f(81), .14, { delay: i * .32, vol: .07, osc: [['square', 0, .6]], cut: 2000 }); this.note(m2f(76), .14, { delay: i * .32 + .16, vol: .07, osc: [['square', 0, .6]], cut: 2000 }); } break;
+      // Croque-pétale en alerte : grondement montant + feuillage froissé (court, pour ne pas masquer la course).
+      case 'snapwarn': this.tone(120, .5, 'sawtooth', .07, 2.2); this.noise(.35, .07, 1800, .05, null, 1.6); break;
       case 'gate': this.noise(.5, .1, 300, 0, null, .7); this.tone(140, .5, 'sawtooth', .05, .7); break;
       case 'fall': this.tone(700, .9, 'sine', .14, .2); this.noise(.8, .08, 1500, 0, null, .5); break;
       case 'drone': this.note(m2f(43), .9, { vol: .06, osc: [['sawtooth', 0, .5], ['sawtooth', 15, .5]], cut: 900, vib: 30 }); break;
@@ -2701,7 +3647,10 @@ const P0 = { kick: [0, 8], snare: [4, 12], hat: 2, swing: 0, bass: 'oct', lead: 
 // style musical selon l'ambiance du circuit
 function musicSpec0(t) { const mp = RACE_OPTS.music || 'auto'; if (mp === 'off') return null; return Object.assign({ style: mp !== 'auto' ? mp : t.musicStyle || musicStyleFor(t.theme) }, t.theme.music || { bpm: 124, root: 55, prog: [[0, 4, 7], [5, 9, 12], [-3, 0, 4], [7, 11, 14]] }); }
 const wkStrHash = (s) => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0; return h; };
-function musicSpec(t) { const sp = musicSpec0(t); if (!sp) return null; const h = wkStrHash(String(t.id || '')); sp.seed = h % 9973;
+// Circuit de Wild Kart Studio : musique pré-enregistrée du circuit officiel de son biome (t.musicFrom). Sans fichier, la musique
+// était jouée en direct (notes programmées sur le fil principal : elle se taisait quand le jeu ramait) et calculée en même temps
+// en entier (OfflineAudioContext) pendant la course : lags et musique coupée au test d'un circuit du Studio (C2-17).
+function musicSpec(t) { if (t && t.musicFrom) { const s = TRACKS.find((x) => x.id === t.musicFrom && !x.studio); if (s) t = s; } const sp = musicSpec0(t); if (!sp) return null; const h = wkStrHash(String(t.id || '')); sp.seed = h % 9973;
   if ((RACE_OPTS.music || 'auto') === 'auto') { sp.root += [0, 2, -2, 3, -3, 5][h % 6]; sp.bpm += [0, 4, -4, 6, -2, 2][(h >>> 3) % 6]; } return sp; }
 function musicStyleFor(th) { const d = th.decor; return ({ prairie: 'pop', beach: 'latin', tropic: 'latin', provence: 'chill', mall: 'funk', city: 'house', safari: 'funk', fair: 'pop', snow: 'chill', glacier: 'chill', reef: 'chill', canyon: 'rock', space: 'space', volcano: 'rock', haunted: 'spooky', sky: 'space', sakura: 'chill', autumn: 'chill', antique: 'latin', forest: 'spooky', jungle: 'latin', moon: 'space', candy: 'pop', desert: 'rock', alpine: 'pop' })[d] || 'pop'; }
 
@@ -2870,11 +3819,17 @@ function zoneDecor(W, kind, pts) { const sc = W.scene; if (!pts.length) return;
 }
 // ambiance et conduite selon la zone où l'on roule ; annonce à l'entrée d'une zone
 function zoneAt(k) { const W = G.W, S = W && W.S; if (!S || !S.zoneOf) return null; const i = (k.P || S) === S ? k.idx : (k.mainIdx || 0); const z = S.zoneOf[clamp(i, 0, S.N - 1)]; return z ? W.zones[z - 1] : null; }
-function zoneEnv(k) { if (k.P && k.P.def && k.P.def.water) return ENVS.water; const z = zoneAt(k); return z && z.env ? ENVS[z.env] : G.W.env; }
+// Wild Kart Studio : surface choisie par portion de route (def.studioSurf = [[début, fin, surface]] en fractions du tour).
+let STUDIO_SURF = null; // construit à la première utilisation (ENVS est défini plus bas dans le fichier)
+function studioSurfAt(k) { const W = G.W, def = W && W.def; if (!def || !def.studioSurf || !def.studioSurf.length || (k.P && k.P !== W.S)) return null; const S = W.S;
+  if (!STUDIO_SURF) STUDIO_SURF = { neige: ENVS.snow, glace: ENVS.ice, boue: { name: 'Boue', grip: .9, turn: .92, accel: .8, vmax: .72, grav: 1 }, turbo: { name: 'Turbo', grip: 1, turn: 1, accel: 1.2, vmax: 1.16, grav: 1 } };
+  if (!S.surfOf) { S.surfOf = new Uint8Array(S.N); const names = Object.keys(STUDIO_SURF); for (const [a, b, n] of def.studioSurf) { const c = names.indexOf(n) + 1; if (!c) continue; const i0 = Math.floor(a * S.N), i1 = Math.floor(b * S.N) + (b < a ? S.N : 0); for (let i = i0; i <= i1; i++) S.surfOf[i % S.N] = c; } }
+  const c = S.surfOf[clamp(k.idx, 0, S.N - 1)]; return c ? STUDIO_SURF[Object.keys(STUDIO_SURF)[c - 1]] : null; }
+function zoneEnv(k) { if (k.P && k.P.def && k.P.def.water) return ENVS.water; const sv = studioSurfAt(k); if (sv) return sv; const z = zoneAt(k); return z && z.env ? ENVS[z.env] : G.W.env; }
 function updateZones(W, dt) { if (!W.zones || !W.zones.length || !G.race || !G.race.player) return; const P = G.race.player, z = zoneAt(P);
   if (!W.zoneBase) { const u = W.sky && W.sky.material && W.sky.material.uniforms; W.zoneBase = { fog: W.scene.fog ? W.scene.fog.color.clone() : null, top: u && u.top ? u.top.value.clone() : null, bottom: u && u.bottom ? u.bottom.value.clone() : null }; }
   if (z !== W.zoneCur) { W.zoneCur = z; if (z && G.race.state === 'race') { banner(z.name + (z.hint ? ' : ' + z.hint : ''), 1.6); } }
-  const B0 = W.zoneBase, f = 1 - Math.exp(-dt * 1.4), mixc = (base, hex) => base.clone().lerp(new T.Color(hex), .7);
+  const B0 = W.zoneBase, f = 1 - Math.exp(-dt * 1.4), mixc = (base, hex) => { const c = W.zoneMix || (W.zoneMix = new Map()); let m = c.get(base); if (!m) c.set(base, (m = new Map())); let v = m.get(hex); if (!v) m.set(hex, (v = base.clone().lerp(new T.Color(hex), .7))); return v; }; // mélanges en cache
   if (W.scene.fog && B0.fog) W.scene.fog.color.lerp(z ? mixc(B0.fog, z.fog) : B0.fog, f);
   const u = W.sky && W.sky.material && W.sky.material.uniforms; if (u && u.top && B0.top) { u.top.value.lerp(z ? mixc(B0.top, z.sky[0]) : B0.top, f); u.bottom.value.lerp(z ? mixc(B0.bottom, z.sky[1]) : B0.bottom, f); }
 }
@@ -2987,13 +3942,29 @@ const frIds = () => { const ids = new Set(frList().map((f) => f.id)); for (const
 const frHot = () => document.visibilityState === 'visible' && !(G.race && G.race.state !== 'attract') && !G.locked;
 // quelque chose a changé ici (nouveau groupe, nouvel ami…) : on coupe l'attente en cours et on repasse tout de suite au serveur
 function frKick() { FR.quick = true; if (FR.busy) { if (FR.ac) try { FR.ac.abort(); } catch (e) { /* rien */ } } else frPoll(); }
-async function frPoll() { if (FR.busy || typeof acctCall !== 'function') return; FR.busy = true; const hot = frHot() && FR.open && (FR.lpFail || 0) < 3 && !FR.quick, t0 = Date.now(); let again = false; FR.quick = false;
+/* #34.Q4 — Onglets d'un même appareil : ils partagent le même jeton, le serveur ne peut pas les distinguer. Le dernier onglet ouvert
+   (ou celui où l'on touche « Jouer ici ») est le seul actif ; les autres quittent le jeu en ligne, coupent la présence amis et
+   affichent un écran d'attente. Aucune donnée n'est touchée. Sans BroadcastChannel, rien ne change (ancien comportement). */
+const ONGLET = { id: Math.random().toString(36).slice(2, 10), inactif: false, bc: null };
+function ongletActiver() { ONGLET.inactif = false; const d = document.getElementById('onglet'); if (d) d.hidden = true; try { ONGLET.bc && ONGLET.bc.postMessage({ t: 'actif', id: ONGLET.id }); } catch (e) { /* canal fermé */ } }
+function ongletMettreEnAttente() {
+  if (ONGLET.inactif) return; ONGLET.inactif = true;
+  const enLigne = !!(Net && Net.peer); try { netReset(); } catch (e) { /* réseau déjà fermé */ }
+  if (enLigne && G.race && G.race.state !== 'attract') { try { toMenu(); } catch (e) { /* écran déjà changé */ } }
+  let d = document.getElementById('onglet');
+  if (!d) { d = document.createElement('div'); d.id = 'onglet'; d.style.cssText = 'position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;background:rgba(10,8,30,.82)';
+    d.innerHTML = '<div class="gate-box acct-box"><h2>Wild Kart est ouvert ailleurs</h2><p>Le jeu tourne dans un autre onglet de cet appareil. Un seul onglet peut jouer à la fois.</p><button class="btn red" id="onglet-ici"><span>Jouer ici</span></button></div>';
+    document.body.appendChild(d); d.querySelector('#onglet-ici').onclick = ongletActiver; }
+  d.hidden = false;
+}
+try { if (typeof BroadcastChannel !== 'undefined') { ONGLET.bc = new BroadcastChannel('wild-kart-onglet'); ONGLET.bc.onmessage = (e) => { const m = e.data || {}; if (m.t === 'actif' && m.id !== ONGLET.id) ongletMettreEnAttente(); }; setTimeout(ongletActiver, 0); } } catch (e) { /* navigateur sans canal */ }
+async function frPoll() { if (FR.busy || typeof acctCall !== 'function' || ONGLET.inactif) return; if (FR.compteRequis && !SAVE.acct && Date.now() - FR.compteRequis < 300e3) return; /* invité (option B) : pas de relance inutile pendant 5 min */ FR.busy = true; const hot = frHot() && FR.open && (FR.lpFail || 0) < 3 && !FR.quick, t0 = Date.now(); let again = false; FR.quick = false;
   const ac = FR.ac = hot && typeof AbortController !== 'undefined' ? new AbortController() : null;
   try { const r = await acctCall('fpoll', { me: Object.assign(frMe(), { st: frStatusV(), pu: SAVE.acct ? SAVE.acct.u : '' }), since: FR.since || 0, ack: FR.since || 0, ids: frIds(), groups: grList().map((g) => g.code), wait: hot ? 10 : 0 }, ac && ac.signal);
     if (ac && ac.signal.aborted) { again = true; FR.quick = true; return; }
     if (r.ok && r.msgs && r.msgs.length) FR.quick = true;   // messages reçus : on revient vite (groupes et amis à jour)
     if (hot) { FR.lpFail = r.ok ? (r.msgs && r.msgs.length) || Date.now() - t0 > 2500 ? 0 : (FR.lpFail || 0) + 1 : (FR.lpFail || 0) + 1; } else FR.lpFail = 0; again = r.ok;   // serveur sans attente : on revient au rythme normal
-    if (!r.ok) { FR.open = false; frRender(); return; } FR.open = true;
+    if (!r.ok) { FR.open = false; if (r.code === 'compte-requis') FR.compteRequis = Date.now(); frRender(); return; } FR.open = true; FR.compteRequis = 0; /* #34.Q6 : invité refusé par le serveur (option B) */
     for (const [id, t] of Object.entries(r.online || {})) FR.status.set(id, !!t && r.now - t < 90e3);
     for (const [code, g] of Object.entries(r.groups || {})) { if (g) grMerge(g, true); else { const lg = grFind(code); if (lg && lg.owner === frMyId()) acctCall('gsave', { group: lg, me: frMe() }); } }   // ancien groupe (d'avant le serveur) : son créateur le remet en ligne
     for (const m of r.msgs || []) { FR.since = Math.max(FR.since || 0, m.at); try { frOnData(null, m); } catch (e) { /* rien */ } }
@@ -3070,7 +4041,7 @@ const FRU = { tab: 'amis', open: null };
 function frRender() { const root = $('#fr-root'); if (!root || UI.screen !== 'friends') return; const me = frMyId(), L = frList(), Gs = grList(), inParty = !!(Net.peer && Net.code), esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
   const st = (id) => FR.status.has(id) ? (FR.status.get(id) ? '<b class="on">en ligne</b>' : '<b class="off">hors ligne</b>') : '<b class="off">…</b>';
   let h = '<header class="sh-head"><button class="back" data-go="frback" aria-label="Retour">←</button><h2>Amis et groupes</h2></header>';
-  h += '<div class="group"><h3>Ton nom</h3><div class="set-row"><span><b class="fr-me">' + esc(SAVE.name || SAVE.acct && SAVE.acct.u || 'Joueur') + '</b><small>Donne-le à tes amis pour qu\'ils t\'ajoutent. Tu peux le changer dans Mon compte. ' + (FR.open ? 'Connecté.' : 'Connexion au serveur…') + '</small></span><button class="btn sm" id="fr-copy"><span>Copier</span></button></div>'
+  h += '<div class="group"><h3>Ton nom</h3><div class="set-row"><span><b class="fr-me">' + esc(SAVE.name || SAVE.acct && SAVE.acct.u || 'Joueur') + '</b><small>Donne-le à tes amis pour qu\'ils t\'ajoutent. Tu peux le changer dans Mon compte. ' + (FR.open ? 'Connecté.' : FR.compteRequis && !SAVE.acct ? 'Les amis et les groupes demandent un compte : connecte-toi dans Mon compte.' : 'Connexion au serveur…') + '</small></span><button class="btn sm" id="fr-copy"><span>Copier</span></button></div>'
      + '<div class="set-row"><small>' + (SAVE.acct ? 'Compte : ' + esc(SAVE.acct.u) : 'Pas de compte : crée-le pour tout retrouver sur un autre téléphone.') + '</small><button class="btn sm ghost" id="fr-acct"><span>' + (SAVE.acct ? 'Mon compte' : 'Créer un compte') + '</span></button></div></div>';
   h += '<div class="seg fr-tabs"><button data-t="amis" aria-pressed="' + (FRU.tab === 'amis') + '">Amis (' + L.length + ')</button><button data-t="groupes" aria-pressed="' + (FRU.tab === 'groupes') + '">Groupes (' + Gs.length + ')</button></div>';
   if (FRU.tab === 'amis') {
@@ -3310,12 +4281,31 @@ function chefButtons() { const on = isChef(); document.querySelectorAll('.chef-o
 const WK_API = window.TK_API || 'https://wild-kart-serveur.uncreeper5431.workers.dev/api/compte';   // serveur gratuit (Cloudflare) ; il reprend tout seul les comptes de l'ancien serveur Netlify
 // tout est dans le compte (kart, réglages, calibrage, records…) sauf : la clé du chef (secrète), ce qui sert à revenir dans une partie
 // en cours sur CET appareil, et les graphismes (qui dépendent de la puissance de chaque téléphone)
-const ACC_SKIP = new Set(['acct', 'chefKey', 'uid', 'lastCode', 'lastCodeAt', 'quality', 'fps', 'accSeen', 'updSeen', 'braquage', 'v']);
-const ACU = { tab: 'creer', busy: false, msg: '', rec: '', timer: 0, lastUp: 0, open: false };
+const ACC_SKIP = new Set(['acct', 'chefKey', 'uid', 'lastCode', 'lastCodeAt', 'quality', 'fps', 'accSeen', 'updSeen', 'braquage', 'v', 'salonGar']);   /* salonGar (#34.G17) : retour arrière d'un garage de salon, propre à l'appareil */
+const ACU = { tab: 'creer', busy: false, msg: '', rec: '', timer: 0, lastUp: 0, open: false, autre: null };
+const ACC_AUTH = new Set(['fpoll', 'fsend', 'sigreg', 'sigpoll', 'sigsend', 'sigdel', 'find', 'ginv', 'gjoin', 'gleave', 'gren', 'gsave']);   // #34.Q3/Q6 : toute action réseau ou d'amis présente la session
+/* #34.Q — Un seul appareil connecté par compte. Le serveur a ouvert la session ailleurs (ou changé le mot de passe) : cet appareil
+   se déconnecte, quitte le jeu en ligne et le salon, et garde toutes ses données locales (elles se refusionnent à la reconnexion).
+   Une réponse tardive portant un ancien jeton (déjà remplacé ici par une nouvelle connexion) est ignorée. */
+const ACC_RAISONS = { 'autre-appareil': 'Ton compte vient d\'être ouvert sur un autre appareil.', 'mot-de-passe': 'Le mot de passe de ton compte a été changé.', deconnexion: 'Ton compte a été déconnecté.' };
+function acctRevoque(raison, tok) {
+  if (!SAVE.acct || (tok && SAVE.acct.tok !== tok)) return;
+  SAVE.acct = null; clearTimeout(ACU.timer); store();
+  const enLigne = !!(Net && Net.peer); try { netReset(); } catch (e) { /* réseau déjà fermé */ }
+  if (enLigne && G.race && G.race.state !== 'attract') { try { toMenu(); } catch (e) { /* écran déjà changé */ } }
+  acctRequire(); ACU.tab = 'co'; ACU.msg = (ACC_RAISONS[raison] || ACC_RAISONS['autre-appareil']) + ' Tes données restent sur ce téléphone. Reconnecte-toi pour jouer ici.'; acctRender(); acctInfo();
+}
 async function acctCall(a, body, ext) {
   const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null, tm = setTimeout(() => ctl && ctl.abort(), 15000); if (ext && ctl) ext.addEventListener('abort', () => ctl.abort());
-  try { const r = await fetch(WK_API, { method: 'POST', headers: { 'content-type': 'text/plain;charset=UTF-8' }, body: JSON.stringify(Object.assign({ a }, body)), signal: ctl ? ctl.signal : undefined, keepalive: a === 'save' });
-    let j = {}; try { j = await r.json(); } catch (e) { /* rien */ } if (!r.ok && !j.e) j.e = 'Serveur des comptes indisponible (' + r.status + ').'; j.status = r.status; return j; }
+  // #34.Q : la présence et le jeu en ligne présentent la session du compte, pour qu'un appareil déconnecté ne puisse plus jouer.
+  const auth = ACC_AUTH.has(a) && SAVE.acct ? { auth: { pseudo: SAVE.acct.u, tok: SAVE.acct.tok } } : null, tokEnvoye = (body && body.tok) || (auth && auth.auth.tok);
+  try { const r = await fetch(WK_API, { method: 'POST', headers: { 'content-type': 'text/plain;charset=UTF-8' }, body: JSON.stringify(Object.assign({ a }, body, auth, ACC_AUTH.has(a) ? { cv: 2 } : null)), signal: ctl ? ctl.signal : undefined, keepalive: a === 'save' });
+    // Le délai de 15 s couvre l'attente de la réponse, pas la lecture de son corps : sur un appareil saturé, l'annulation tardive
+    // coupait la lecture et remplaçait le message du serveur par « indisponible » (banc comptes.cjs intermittent, 5 nov.).
+    clearTimeout(tm);
+    let j = {}; try { j = await r.json(); } catch (e) { /* corps illisible */ } if (!r.ok && !j.e) j.e = 'Serveur des comptes indisponible (' + r.status + ').'; j.status = r.status;
+    if (r.status === 401 && j.code === 'session-remplacee') acctRevoque(j.raison, tokEnvoye);
+    return j; }
   catch (e) { return { e: 'Pas de connexion au serveur des comptes (' + (e && e.name === 'AbortError' ? 'trop lent' : 'réseau') + ').' }; } finally { clearTimeout(tm); } }
 // Le nom public est modifiable ; le pseudo de connexion et les liens d'amitié restent stables.
 function acctName() { if (!SAVE.name && SAVE.acct) { SAVE.name = SAVE.acct.u; store(); } }
@@ -3357,7 +4347,9 @@ setInterval(() => { if (document.visibilityState === 'visible') acctPull(); }, 3
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') acctPull(); });
 // sauvegarde automatique (quelques secondes après un changement)
 function acctDirty() { if (!SAVE.acct || ACU.applying) return; clearTimeout(ACU.timer); ACU.timer = setTimeout(acctUpload, Math.max(4000, 20000 - (Date.now() - ACU.lastUp))); }
-async function acctUpload() { if (!SAVE.acct) return; clearTimeout(ACU.timer); ACU.lastUp = Date.now(); const r = await acctCall('save', { pseudo: SAVE.acct.u, tok: SAVE.acct.tok, save: acctPack() });
+async function acctUpload() { if (!SAVE.acct) return; clearTimeout(ACU.timer); ACU.lastUp = Date.now(); const tok = SAVE.acct.tok; const r = await acctCall('save', { pseudo: SAVE.acct.u, tok, save: acctPack() });
+  // Réponse arrivée après une déconnexion ou un changement de mot de passe (nouveau jeton) : ignorée, sans déconnecter le compte.
+  if (!SAVE.acct || SAVE.acct.tok !== tok) return r;
   if (r.ok) { SAVE.acct.at = r.at; if (r.name && SAVE.name !== r.name) { SAVE.name = r.name; acctRefreshUI(); frKick(); } ACU.applying = true; store(); ACU.applying = false; acctInfo(); } else if (r.status === 401) { toast('Ton compte s\'est déconnecté : reconnecte-toi.', 5000); SAVE.acct = null; store(); acctInfo(); accessTick(); } return r; }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && SAVE.acct && ACU.timer) acctUpload(); });
 function acctInfo() { const nm = $('#set-name'); if (nm) nm.textContent = SAVE.name || '—'; const t = SAVE.acct ? 'Connecté : ' + SAVE.acct.u + (SAVE.acct.at ? ' · sauvegardé ' + new Date(SAVE.acct.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : '') : 'Pas de compte sur ce téléphone.';
@@ -3378,6 +4370,7 @@ function acctRender() { const d = $('#acct'); if (!d || !ACU.open) return; const
     if (ACU.tab === 'choix') h += '<p>Un compte est nécessaire pour jouer.<br><small>Il garde tes amis, ton code d\'accès, ton kart et tes records, même si tu changes de téléphone.</small></p><div class="acct-choice"><button class="btn red" data-t="creer"><span>Créer un compte</span></button><button class="btn" data-t="co"><span>Se connecter</span></button></div>';
     else h += '<button class="btn sm ghost acct-back" data-t="choix"><span>← Retour</span></button>';
     if (ACU.tab === 'creer') h += '<p><small>Ton pseudo sera ton premier nom de joueur. Tu pourras ensuite changer de nom dans Mon compte.</small></p>' + inp('ac-u', 'Pseudo (ex. Lea_92)') + inp('ac-p', 'Mot de passe (4 caractères ou plus)', 'password') + '<button class="btn red" id="ac-go"><span>Créer mon compte</span></button>';
+    else if (ACU.tab === 'co' && ACU.autre) h += '<p class="acct-autre"><b>Ton compte est déjà ouvert sur un autre appareil.</b><br><small>Si tu continues ici, l\'autre appareil sera déconnecté et quittera la partie en ligne. Aucune donnée n\'est perdue : tout reste sauvegardé.</small></p><div class="acct-row"><button class="btn red" id="ac-force"><span>Continuer ici</span></button><button class="btn sm ghost" id="ac-annule"><span>Annuler</span></button></div>';
     else if (ACU.tab === 'co') h += '<p><small>Les données de ce téléphone seront remplacées par celles de ton compte.</small></p>' + inp('ac-u', 'Pseudo') + inp('ac-p', 'Mot de passe', 'password') + '<button class="btn red" id="ac-go"><span>Se connecter</span></button><p><button class="btn sm ghost" data-t="perdu"><span>Mot de passe oublié ?</span></button></p>';
     else if (ACU.tab === 'perdu') h += '<p><small>Mets ton code de secours, ou un code de réinitialisation demandé au chef.</small></p>' + inp('ac-u', 'Pseudo') + inp('ac-c', 'Code de secours ou code du chef') + inp('ac-p', 'Nouveau mot de passe', 'password') + '<button class="btn red" id="ac-go"><span>Réinitialiser</span></button>';
   }
@@ -3388,13 +4381,19 @@ function acctWire() { const q = (s) => $('#acct ' + s), v = (s) => (q(s) ? q(s).
   const cl = q('#ac-close'); if (cl) cl.onclick = acctClose;
   const ok = q('#ac-ok'); if (ok) ok.onclick = () => { ACU.rec = ''; location.reload(); };
   const busy = async (fn) => { if (ACU.busy) return; ACU.busy = true; acctRender(); let r; try { r = await fn(); } finally { ACU.busy = false; } if (r && r.e) ACU.msg = r.e; acctRender(); return r; };
+  // Connexion (#34.Q) : le serveur prévient si le compte est ouvert ailleurs ; « Continuer ici » reprend avec force.
+  const seConnecter = async (u, p, force) => { ACU.autre = null; const r = await acctCall('login', { pseudo: u, pass: p, v2: true, force });
+    if (!r.ok && r.code === 'autre-session') { ACU.autre = { u, p, depuis: r.depuis }; return null; }
+    if (r.ok) { const fidWas = SAVE.fid; acctApply(r); if (fidWas !== SAVE.fid) frRestart(); acctUpload(); frSyncName(); toast('Connecté ! Tout est récupéré.', 2500); acctClose(); G.locked = false; accessTick(); } return r; };
   const go = q('#ac-go'); if (go) go.onclick = () => { const u = v('#ac-u'), p = q('#ac-p').value, cd = v('#ac-c'); busy(async () => {
     if (ACU.tab === 'creer') { const r = await acctCall('create', { pseudo: u, pass: p, fid: frMyId(), save: acctPack() }); if (r.ok) { const old = SAVE.fid; acctApply(r); ACU.rec = r.rec; if (old !== r.fid) frRestart(); frSyncName(); toast('Compte créé.', 2500); acctRender(); } return r; }
-    if (ACU.tab === 'co') { const r = await acctCall('login', { pseudo: u, pass: p }); if (r.ok) { const fidWas = SAVE.fid; acctApply(r); if (fidWas !== SAVE.fid) frRestart(); acctUpload(); frSyncName(); toast('Connecté ! Tout est récupéré.', 2500); acctClose(); G.locked = false; accessTick(); } return r; }
+    if (ACU.tab === 'co') return seConnecter(u, p, false);
     const r = await acctCall('reset', { pseudo: u, code: cd, pass: p }); if (r.ok) { acctApply(r); frSyncName(); ACU.rec = r.rec; acctRender(); } return r; }); };
+  const fo = q('#ac-force'); if (fo) fo.onclick = () => { const a = ACU.autre; if (a) busy(() => seConnecter(a.u, a.p, true)); };
+  const an = q('#ac-annule'); if (an) an.onclick = () => { ACU.autre = null; ACU.msg = ''; acctRender(); };
   const rn = q('#ac-rename'); if (rn) rn.onclick = () => { const name = v('#ac-name'); busy(async () => { const r = await acctSetName(name); if (r.ok) ACU.msg = 'Nom modifié. Tes amis et groupes sont conservés.'; return r; }); };
   const sv = q('#ac-save'); if (sv) sv.onclick = () => busy(async () => { const r = await acctUpload(); if (r && r.ok) { ACU.msg = 'Sauvegardé.'; acctRender(); } return r; });
-  const out = q('#ac-out'); if (out) out.onclick = () => busy(async () => { await acctUpload(); await acctCall('logout', { pseudo: SAVE.acct.u, tok: SAVE.acct.tok }); SAVE.acct = null; store(); ACU.tab = 'choix'; ACU.msg = 'Déconnecté. Tes données restent sur ce téléphone.'; G.locked = true; acctRender(); });
+  const out = q('#ac-out'); if (out) out.onclick = () => busy(async () => { const acc = SAVE.acct; if (!acc) return; await acctUpload(); const a2 = SAVE.acct || acc; await acctCall('logout', { pseudo: a2.u, tok: a2.tok }); SAVE.acct = null; store(); ACU.tab = 'choix'; ACU.msg = 'Déconnecté. Tes données restent sur ce téléphone.'; G.locked = true; acctRender(); });
   const pw = q('#ac-pass'); if (pw) pw.onclick = () => { const po = q('#ac-old').value, pn = q('#ac-new').value; busy(async () => { const r = await acctCall('pass', { pseudo: SAVE.acct.u, tok: SAVE.acct.tok, old: po, pass: pn }); if (r.ok) { SAVE.acct.tok = r.tok; store(); ACU.msg = 'Mot de passe changé.'; acctRender(); } return r; }); };
 }
 // au lancement : on récupère la dernière sauvegarde du compte (si un autre téléphone a joué entre-temps)
@@ -3574,7 +4573,10 @@ function frontItemInput() { const st = padMode() === 'stick' && Input.stick; ret
 // Joystick lu seulement en mode joystick : un geste resté actif ne doit pas orienter un lancer en inclinaison ou en boutons.
 function rearItemInput() { const kk = Input.keys, p = Input.pad, st = padMode() === 'stick' && Input.stick; return !!(kk.ArrowDown || kk.KeyS || p.brake || (st && st.active && st.y > .45)); }
 // Mémoriser la visée au toucher, même si le doigt est relâché avant le prochain pas de physique.
-function queueItem(back = rearItemInput(), fwd = frontItemInput()) { Input.itemBack = back; Input.itemFwd = fwd; Input.itemEdge = true; }
+// Commandes d'objets cohérentes (demande du propriétaire, 3 novembre) : le bouton OBJET agit TOUJOURS vers l'avant (pièges lancés devant,
+// projectiles devant) sauf si le joueur tire le joystick vers le bas ou maintient FREIN ; le bouton OBJET ↓ agit TOUJOURS vers l'arrière
+// (pièges posés derrière, projectiles lancés derrière). Avant : OBJET posait les pièges derrière et OBJET ↓ les lançait… devant.
+function queueItem(back = rearItemInput(), fwd = !back) { Input.itemBack = back; Input.itemFwd = fwd && !back; Input.itemEdge = true; }
 function screenAngle() { let a = 0; if (screen.orientation && typeof screen.orientation.angle === 'number') a = screen.orientation.angle; else if (typeof window.orientation === 'number') a = window.orientation; return ((a % 360) + 360) % 360; }
 function onOrient(e) {
   if (e.beta == null || e.gamma == null) return; Input.tiltSeen = true;
@@ -3608,7 +4610,7 @@ window.addEventListener('keyup', (e) => { Input.keys[e.code] = false; });
 window.addEventListener('blur', () => { Input.keys = {}; });
 $$('#pad .pbtn').forEach((b) => {
   const k = b.dataset.k; const ids = new Set(); if (k === 'gas' || k === 'drift') return;
-  const down = (e) => { e.preventDefault(); ids.add(e.pointerId); try { b.setPointerCapture(e.pointerId); } catch (_) {} Input.pad[k] = true; b.classList.add('on'); if (k === 'item' || k === 'itemBack') { const alt = k === 'itemBack'; queueItem(alt || rearItemInput(), alt || frontItemInput()); } }; // bouton secondaire = « autre direction », interprétée au lancer : derrière (projectile) ou devant (piège)
+  const down = (e) => { e.preventDefault(); ids.add(e.pointerId); try { b.setPointerCapture(e.pointerId); } catch (_) {} Input.pad[k] = true; b.classList.add('on'); if (k === 'item' || k === 'itemBack') { const back = k === 'itemBack' || rearItemInput(); queueItem(back, !back); } }; // OBJET = devant, OBJET ↓ = derrière, pour tous les objets
   const up = (e) => { ids.delete(e.pointerId); if (!ids.size) { Input.pad[k] = false; b.classList.remove('on'); } };
   b.addEventListener('pointerdown', down); b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('lostpointercapture', up);
   b.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -3688,9 +4690,9 @@ const G = { W: null, race: null, karts: [], hazards: [], rockets: [], autopilot:
 const UI = { screen: 'title', mode: 'quick', track: (SAVE.track || 0) < TRACKS.length ? SAVE.track || 0 : 0, gp: null, afterCalib: null };
 
 function makeKart(cfg, isPlayer, ccIdx) {
-  const st = statsFor(cfg.body, cfg.wheels, cfg.glider), cc = CC[ccIdx];
+  const st = statsFor(cfg.body, cfg.wheels, cfg.glider, cfg.engine, cfg), cc = CC[ccIdx];
   const k = { cfg, isPlayer, name: cfg.name, st, maxSpeed: cc.v * (.9 + .2 * st.speed), accel: 15 + 22 * st.accel, turn: 1.8 + .9 * st.handling,
-    weight: .6 + .8 * st.weight, offFactor: .46 + .42 * st.off, x: 0, z: 0, y: 0, h: 0, vh: 0, speed: 0, idx: 0, lap: 0, halfway: false, prog: 0, lat: 0, groundY: 0,
+    weight: .6 + .8 * st.weight, offFactor: .46 + .42 * st.off, brakeK: st.brakeK, driftK: st.driftK, boostK: st.boostK, gripK: st.gripK, landK: st.landK, recep: st.recep, rollK: st.roll, x: 0, z: 0, y: 0, h: 0, vh: 0, speed: 0, idx: 0, lap: 0, halfway: false, prog: 0, lat: 0, groundY: 0,
     drift: 0, driftT: 0, driftLock: false, boost: 0, spin: 0, spinAng: 0, shield: 0, star: 0, ghost: 0, item: null, roll: 0, hop: 0, bumpCd: 0, wallCd: 0, off: false,
     finished: false, finishTime: 0, lapStart: 0, lapTimes: [], bestLap: Infinity, place: 1, wrongT: 0, sparkT: 0,
     ai: { lane: rand(-.3, .3), laneGoal: rand(-.35, .35), laneT: rand(1, 4), skill: rand(.965, 1.02), itemT: 0, drifty: Math.random() < .55 },
@@ -3702,10 +4704,76 @@ function placeOnGrid(k, slot) {
   k.P = S; k.idx = i; k.x = S.px[i] + S.rx[i] * lat; k.z = S.pz[i] + S.rz[i] * lat; k.h = k.vh = S.hd[i]; k.y = k.groundY = S.py[i]; k.lat = lat; k.prog = i - S.N;
 }
 
+// Compilation parallèle des shaders (KHR_parallel_shader_compile) avec attente bornée. Remplace renderer.compileAsync (three r158) :
+// son minuteur continuait après notre délai et levait « reading 'isReady' » si le monde était libéré entre-temps (essai quitté tôt).
+// Ici, un matériau sans programme (libéré, remplacé) est simplement retiré de l'attente.
+function compilerShaders(scene, cam, max) {
+  const set = renderer.compile(scene, cam); if (!set || typeof set.forEach !== 'function') return Promise.resolve();
+  const t0 = performance.now();
+  return new Promise((res) => { const tick = () => { set.forEach((m) => { const pr = renderer.properties.get(m).currentProgram; if (!pr || typeof pr.isReady !== 'function' || pr.isReady()) set.delete(m); });
+    if (!set.size || performance.now() - t0 > max) res(); else setTimeout(tick, 10); }; tick(); });
+}
 function setWorld(ti) {
   LAPS = TRACKS[ti].sections ? 1 : RACE_OPTS.laps || TRACKS[ti].laps || 3;
-  if (G.W) disposeWorld(G.W);
-  G.W = buildWorld(ti); G.hazards = []; G.rockets = []; G.karts = [];
+  const pre = G.prebuilt; G.prebuilt = null;
+  if (pre && pre.ti === ti && pre.seed === RACE_OPTS.seed) { if (G.W && G.W !== pre.W) disposeWorld(G.W); G.W = pre.W; } // monde déjà construit par tranches (launchPrepared)
+  else { if (pre && pre.W !== G.W) disposeWorld(pre.W); if (G.W) disposeWorld(G.W); G.W = buildWorld(ti); }
+  G.hazards = []; G.rockets = []; G.karts = [];
+}
+// Écran de chargement d'un circuit : animé uniquement par des transformations CSS (le compositeur du navigateur les fait tourner
+// même quand le fil principal est occupé), pour ne jamais donner l'impression d'un gel.
+const RACE_LOADER = (() => { let el = null, bar = null;
+  const make = () => { el = document.createElement('div'); el.id = 'race-loader'; el.setAttribute('role', 'status');
+    el.style.cssText = 'position:fixed;inset:0;z-index:150;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:radial-gradient(ellipse at 50% 45%,#133375 0%,#081940 45%,#030719 100%);color:#fff;font:800 clamp(16px,4vw,24px) var(--f-display,system-ui),sans-serif;letter-spacing:.06em;text-align:center;padding:16px';
+    el.innerHTML = '<style>@keyframes wkrl{to{transform:rotate(360deg)}}#race-loader .rl-roue{width:64px;height:64px;border-radius:50%;border:7px solid rgba(255,255,255,.18);border-top-color:#ffc531;border-right-color:#ff4f3a;animation:wkrl .8s linear infinite;will-change:transform}#race-loader .rl-bar{width:min(70vw,360px);height:8px;border-radius:99px;background:#091639;border:1px solid #23588e;overflow:hidden}#race-loader .rl-fill{height:100%;width:100%;background:linear-gradient(90deg,#17baff,#6380ff);transform-origin:0 50%;transform:scaleX(0);transition:transform .25s linear;will-change:transform}#race-loader small{font-size:12px;letter-spacing:.2em;color:#90b9f2}</style><div class="rl-roue"></div><div class="rl-nom"></div><div class="rl-bar"><div class="rl-fill"></div></div><small>CHARGEMENT DU CIRCUIT</small>';
+    document.body.appendChild(el); bar = el.querySelector('.rl-fill'); };
+  return { show(nom) { if (!el) make(); el.querySelector('.rl-nom').textContent = nom || ''; bar.style.transform = 'scaleX(0)'; el.hidden = false; el.style.display = 'flex'; },
+    set(p) { if (bar) bar.style.transform = 'scaleX(' + clamp(p, 0, 1).toFixed(3) + ')'; },
+    hide() { if (el) { el.hidden = true; el.style.display = 'none'; } }, visible() { return !!el && !el.hidden; } }; })();
+// Lancement d'une course sans gel visible : le monde est construit par tranches (buildWorldSteps, runSliced) sous l'écran de
+// chargement, puis les shaders sont compilés en parallèle et les textures envoyées une par une, enfin une image est rendue avant
+// d'afficher la course (même méthode que le démarrage). En cas d'erreur : construction d'un bloc, comme avant.
+let LAUNCH_ID = 0;
+const prepSlice = (t0) => { const d = performance.now() - t0; if (G.prepT && d > (G.prepT.maxSlice || 0)) G.prepT.maxSlice = Math.round(d); }; // plus longue tranche (relevé)
+// Variante de runSliced pour l'écran de chargement d'un circuit : entre deux tranches, on rend la main par une simple tâche
+// (le navigateur traite les touches et fait tourner la roue CSS), et on n'attend une image que toutes les 120 ms pour la barre.
+// Attendre une image à chaque tranche multipliait la durée totale (une image peut coûter cher pendant l'envoi à la carte graphique).
+function runSlicedLoad(gen, onP) {
+  return new Promise((resolve, reject) => { let lastF = performance.now();
+    const step = () => { const t0 = performance.now();
+      try { for (;;) { const r = gen.next(); if (r.done) { prepSlice(t0); resolve(r.value); return; } if (typeof r.value === 'number' && onP) onP(r.value); if (performance.now() - t0 > 30) break; } }
+      catch (e) { reject(e); return; }
+      prepSlice(t0);
+      if (performance.now() - lastF > 120) requestAnimationFrame(() => { lastF = performance.now(); setTimeout(step, 0); }); else setTimeout(step, 0); };
+    step(); });
+}
+async function launchPrepared(ti, cc, who) {
+  if (G.prep) return; // double appui pendant la préparation : ignoré
+  if (window.WK_ESSAI && Net.peer) { window.WK_ESSAI = null; toast('Essai d\'un tour indisponible pendant une partie en ligne.', 3200); return; }   // #34.G17 : l'essai solo casserait le salon
+  ATTRACT_ID++; // annule la construction du décor du menu en cours
+  resetPerf(); // définition et qualité du joueur pour la nouvelle course (C2-4)
+  const id = ++LAUNCH_ID, yieldFrame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+  const PT = G.prepT = { ti, t0: performance.now() }, mk = (k) => { PT[k] = Math.round(performance.now() - PT.t0); };
+  RACE_LOADER.show(TRACKS[ti] && TRACKS[ti].name); G.prep = true; if (ATTRACT_P) { try { await ATTRACT_P; } catch (e) { /* rien */ } } const cv = renderer.domElement; await yieldFrame(); cv.style.visibility = 'hidden'; mk('ecran'); // canvas 3D caché pendant la préparation : l'écran de chargement s'affiche sans recomposer la 3D
+  try {
+    RACE_OPTS.laps = (window.WK_ESSAI && window.WK_ESSAI.laps) || SAVE.laps || 0; RACE_OPTS.obst = SAVE.obst !== false; RACE_OPTS.seed = (Math.random() * 4294967295) >>> 0; RACE_OPTS.music = SAVE.musicPick || 'auto';   /* essai de l'atelier : un tour */
+    if (G.W) { disposeWorld(G.W); G.W = null; } G.race = null; // le menu derrière n'est plus rendu : mémoire libérée avant de construire
+    PIXEL_JOBS = []; let W;
+    try { W = await runSlicedLoad(buildWorldSteps(ti), (p) => RACE_LOADER.set(p * .75)); } finally { while (PIXEL_JOBS.length) texReady({ userData: { wkFill: PIXEL_JOBS.shift() } }); PIXEL_JOBS = null; }
+    mk('monde'); if (id !== LAUNCH_ID) { disposeWorld(W); return; }
+    G.prebuilt = { ti, W, seed: RACE_OPTS.seed }; const seed = RACE_OPTS.seed;
+    { const a = performance.now(); startRace(ti, cc, who); PT.startRaceMs = Math.round(performance.now() - a); } RACE_OPTS.seed = seed; G.paused = true; RACE_LOADER.set(.8); mk('course');
+    // compileAsync (three r158) ne se termine jamais si un matériau change pendant l'attente (erreur dans son minuteur) : 5 s au plus.
+    try { await compilerShaders(G.W.scene, camera, 5000); } catch (e) { /* compilation au premier rendu */ }
+    mk('shaders'); RACE_LOADER.set(.9);
+    try { await texturesPretes(G.W.scene); await runSlicedLoad(televerser(G.W.scene)); } catch (e) { /* téléversement au premier rendu */ }
+    mk('textures'); RACE_LOADER.set(1);
+    // Premières images rendues sous l'écran de chargement (envoi des géométries, ombres, premiers dessins) : la course n'apparaît
+    // qu'une fois ces images passées. (Un envoi par petits lots a été essayé : il multiplie les attentes de la carte graphique.)
+    cv.style.visibility = ''; for (let n = 0; n < 2; n++) { const a = performance.now(); renderer.render(G.W.scene, camera); PT['rendu' + n] = Math.round(performance.now() - a); await yieldFrame(); }
+    mk('fin');
+  } catch (e) { console.error(e); G.prebuilt = null; startRace(ti, cc, who); }
+  finally { if (id === LAUNCH_ID) { renderer.domElement.style.visibility = ''; G.prep = false; if (G.race) G.paused = false; RACE_LOADER.hide(); } }
 }
 
 const BOT_LV = [
@@ -3720,7 +4788,7 @@ function applyBotLevel(lv) {
 }
 function startRace(ti, ccIdx, who, roster) {
   G.police = null; Secret.last = -99; setTimeout(ghostStart, 0); if (REPLAY.on) { REPLAY.on = false; REPLAY.added = new Set(); REPLAY.live = null; const el = $('#replay'); if (el) el.hidden = true; } recReset();
-  if (!roster) { RACE_OPTS.laps = SAVE.laps || 0; RACE_OPTS.obst = SAVE.obst !== false; RACE_OPTS.seed = (Math.random() * 4294967295) >>> 0; RACE_OPTS.music = SAVE.musicPick || 'auto'; }
+  if (!roster && !(G.prebuilt && G.prebuilt.ti === ti)) { RACE_OPTS.laps = SAVE.laps || 0; RACE_OPTS.obst = SAVE.obst !== false; RACE_OPTS.seed = (Math.random() * 4294967295) >>> 0; RACE_OPTS.music = SAVE.musicPick || 'auto'; }
   setWorld(ti); G.netKarts = new Map();
   if (roster) {
     for (const e of roster) { const isP = e.id === Net.id; const k = makeKart(cleanCfg(e.cfg), isP, ccIdx); k.netId = e.id; k.isAI = !!e.ai; k.isRemote = !isP && !(Net.host && e.ai);
@@ -3743,9 +4811,66 @@ function startRace(ti, ccIdx, who, roster) {
 function startAttract(ti) {
   RACE_OPTS.laps = 0; RACE_OPTS.obst = true;
   setWorld(ti);
+  attractSetup(ti);
+}
+// Décor du menu (circuit de démonstration) reconstruit par tranches, sans figer le menu (C2-1 : toucher une carte de circuit, ou
+// revenir au menu, reconstruisait tout le monde d'un bloc : 2 à 5 s de gel sur téléphone). L'ancien décor reste affiché jusqu'à ce
+// que le nouveau soit prêt ; un lancement de course (launchPrepared) ou un nouveau choix annule la construction en cours.
+let ATTRACT_ID = 0, ATTRACT_P = null, ATTRACT_TI = -1;
+// Textures d'une scène (cartes des matériaux et textures des uniformes de shaders).
+function texturesScene(scene) { const seen = new Set(), add = (t) => { if (t && t.isTexture && !t.isRenderTargetTexture) seen.add(t); };
+  scene.traverse((o) => { for (const m of [].concat(o.material || [])) { for (const k in m) add(m[k]); for (const U of [m.uniforms, m.userData && m.userData.uniforms]) if (U) for (const k in U) add(U[k] && U[k].value); } }); return seen; }
+// Avant le téléversement par tranches (ticket #27 : Samsung, tâche de 1,2 s au premier rendu) : les images des matériaux PBR
+// (chargées à part) doivent être arrivées, sinon elles sont décodées et envoyées toutes ensemble dans la première image ; et on
+// les décode hors du fil principal (img.decode), pour que chaque tranche ne fasse plus que l'envoi. 3 s d'attente au plus.
+async function texturesPretes(scene) {
+  const borne = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(r, ms))]);
+  try { await borne(Promise.all([window.WKSurfaces, window.WKNature].filter((m) => m && m.ready).map((m) => m.ready())), 3000); } catch (e) { /* rien */ }
+  const imgs = [...texturesScene(scene)].map((t) => t.image).filter((im) => im && typeof HTMLImageElement !== 'undefined' && im instanceof HTMLImageElement && im.decode);
+  try { await borne(Promise.all(imgs.map((im) => im.decode().catch(() => {}))), 3000); } catch (e) { /* rien */ } }
+// Téléversement des textures une par une (une tranche chacune) ; les textures déjà envoyées ne coûtent rien.
+function* televerser(scene) { for (const t of texturesScene(scene)) { renderer.initTexture(t); yield; } }
+function attractAsync(ti) {
+  if (ATTRACT_P && ATTRACT_TI === ti) return ATTRACT_P; // déjà en cours pour ce circuit
+  const id = ++ATTRACT_ID; ATTRACT_TI = ti;
+  const run = (async () => { if (ATTRACT_P) { try { await ATTRACT_P; } catch (e) { /* rien */ } } // une seule construction à la fois (PIXEL_JOBS partagé)
+    if (id !== ATTRACT_ID || G.prep) return;
+    const guard = function* (g) { for (;;) { if (id !== ATTRACT_ID || G.prep) return null; const r = g.next(); if (r.done) return r.value; yield r.value; } };
+    const o = { laps: RACE_OPTS.laps, obst: RACE_OPTS.obst }; RACE_OPTS.laps = 0; RACE_OPTS.obst = true;
+    PIXEL_JOBS = []; let W = null;
+    try { W = await runSlicedLoad(guard(buildWorldSteps(ti))); } finally { while (PIXEL_JOBS && PIXEL_JOBS.length) texReady({ userData: { wkFill: PIXEL_JOBS.shift() } }); PIXEL_JOBS = null; }
+    if (!W) { Object.assign(RACE_OPTS, o); return; }
+    if (id !== ATTRACT_ID || G.prep || (G.race && G.race.state !== 'attract')) { disposeWorld(W); Object.assign(RACE_OPTS, o); return; }
+    LAPS = TRACKS[ti].sections ? 1 : RACE_OPTS.laps || TRACKS[ti].laps || 3;
+    if (G.W) disposeWorld(G.W); G.W = W; G.hazards = []; G.rockets = []; G.karts = []; attractSetup(ti); })();
+  ATTRACT_P = run; run.finally(() => { if (ATTRACT_P === run) { ATTRACT_P = null; ATTRACT_TI = -1; } }).catch(() => {});
+  return run;
+}
+// Démarrage : même circuit de fond, construit par tranches (étapes de buildWorldSteps, puis un kart par tranche).
+async function startAttractSliced(ti, onP) {
+  RACE_OPTS.laps = 0; RACE_OPTS.obst = true;
+  LAPS = TRACKS[ti].sections ? 1 : RACE_OPTS.laps || TRACKS[ti].laps || 3;
+  if (G.W) disposeWorld(G.W);
+  PIXEL_JOBS = []; try { G.W = await runSliced(buildWorldSteps(ti), (p) => onP(p * .85)); } finally { while (PIXEL_JOBS.length) texReady({ userData: { wkFill: PIXEL_JOBS.shift() } }); PIXEL_JOBS = null; }
+  G.hazards = []; G.rockets = []; G.karts = [];
+  await runSliced(attractSteps(ti)); onP(1);
+}
+// Exécute un générateur par tranches de 30 ms au plus, une image de l'animation affichée entre deux tranches.
+function runSliced(gen, onP) {
+  return new Promise((resolve, reject) => {
+    const step = () => { const t0 = performance.now();
+      try { for (;;) { const r = gen.next(); if (r.done) { resolve(r.value); return; } if (typeof r.value === 'number' && onP) onP(r.value); if (performance.now() - t0 > 30) break; } }
+      catch (e) { reject(e); return; }
+      requestAnimationFrame(() => setTimeout(step, 0)); };
+    step();
+  });
+}
+function attractSetup(ti) { const g = attractSteps(ti); while (!g.next().done); }
+function* attractSteps(ti) {
   for (let slot = 0; slot < 8; slot++) {
     const cfg = slot === 4 ? myCfg() : RIVALS[slot > 4 ? slot - 1 : slot];
     const k = makeKart(cfg, false, 1); placeOnGrid(k, slot); k.speed = 0; G.W.scene.add(k.mesh.g); G.karts.push(k);
+    yield; // un kart par tranche au démarrage
   }
   G.race = { state: 'attract', t: 0, timer: 0, cc: 1, player: null, order: [], camK: 4, camMode: 0, camT: 0, ti };
   camSnap = true; showHud(false);
@@ -3788,10 +4913,15 @@ function matchMouthHeights(q, S, i0, i1, wallD, bhw, blend = 12) {
 function smoothKinks(q, minR, iterations = 60) {
   const n = q.length; if (n < 7) return 0; let moved = 0;
   const radius = (k) => { const ax = q[k].x - q[k - 1].x, az = q[k].z - q[k - 1].z, bx = q[k + 1].x - q[k].x, bz = q[k + 1].z - q[k].z, la = Math.hypot(ax, az), lb = Math.hypot(bx, bz), t = Math.abs(Math.atan2(ax * bz - az * bx, ax * bx + az * bz)); return t < 1e-6 ? Infinity : (la + lb) / 2 / t; };
+  const touche = new Uint8Array(n);
   for (let it = 0; it < iterations; it++) { let any = false;
     for (let k = 3; k < n - 3; k++) if (radius(k) < minR) { any = true; moved++;
-      for (let d = -1; d <= 1; d++) { const j = k + d, mx = (q[j - 1].x + q[j + 1].x) / 2, mz = (q[j - 1].z + q[j + 1].z) / 2; q[j].x += (mx - q[j].x) * .5; q[j].z += (mz - q[j].z) * .5; } }
+      for (let d = -1; d <= 1; d++) { const j = k + d, mx = (q[j - 1].x + q[j + 1].x) / 2, mz = (q[j - 1].z + q[j + 1].z) / 2; q[j].x += (mx - q[j].x) * .5; q[j].z += (mz - q[j].z) * .5; touche[j] = 1; } }
     if (!any) break; }
+  // Le lissage local à 3 points laisse une oscillation pair/impair (courbure 2,5 / 6 / 3 / 6°/m en dents de scie, contrôleur du
+  // concepteur) : deux passes de lissage uniforme (¼ ½ ¼) sur les points déplacés et leurs voisins (±3), extrémités fixes.
+  if (moved) { const zone = new Uint8Array(n); for (let j = 0; j < n; j++) if (touche[j]) for (let d = -3; d <= 3; d++) if (j + d > 0 && j + d < n - 1) zone[j + d] = 1;
+    for (let pass = 0; pass < 2; pass++) { const px = q.map((v) => v.x), pz = q.map((v) => v.z); for (let j = 1; j < n - 1; j++) if (zone[j]) { q[j].x = .25 * px[j - 1] + .5 * px[j] + .25 * px[j + 1]; q[j].z = .25 * pz[j - 1] + .5 * pz[j] + .25 * pz[j + 1]; } } }
   return moved;
 }
 function buildBranches(W) {
@@ -3840,6 +4970,13 @@ function buildBranches(W) {
     const B = { id, N: M, seg: L / (pts.length - 1), px: new Float32Array(M), py: new Float32Array(M), pz: new Float32Array(M), i0, i1, side, hw: (b.width || 16) / 2, def: b, name: b.name || '', offroad: !!b.offroad, narrow: !!b.narrow };
     seg.forEach((q, j) => { B.px[j] = q.x; B.py[j] = q.y; B.pz[j] = q.z; });
     finishPath(B, false);
+    // Envol (grand tremplin) : portion de branche sans route, survolée en planeur (b.glide = [début, fin] en fractions de la branche).
+    // b.envol : le vol va du premier point intermédiaire (crête, lèvre du tremplin) au dernier (réception), mesurés sur la branche construite.
+    if (b.envol && mids.length >= 2) { const near = (m) => { let bj = 0, bd = 1e18; for (let j = 0; j < M; j++) { const d = (B.px[j] - m.x) ** 2 + (B.pz[j] - m.z) ** 2; if (d < bd) { bd = d; bj = j; } } return bj; };
+      // b.vol : [indice du point de crête, indice du point de réception] (concepteur : corniche d'élan avant le tremplin).
+      const [va, vb] = Array.isArray(b.vol) ? b.vol : [0, mids.length - 1]; b.glide = [near(mids[va]) / (M - 1), near(mids[vb]) / (M - 1)]; }
+    if (b.glide) { const g0 = Math.round(b.glide[0] * (M - 1)), g1 = Math.round(b.glide[1] * (M - 1)); B.glideA = g0; B.glideB = g1;
+      for (let j = g0; j <= g1; j++) { B.glide[j] = 1; B.glideT[j] = (j - g0) / Math.max(1, g1 - g0); } }
     B.wallD = B.hw + W.curbW + 3; B.lim = B.wallD - 1.3;
     // zones où les deux routes se touchent encore : murs ouverts
     const need = W.wallD + B.wallD + 1; let mi = i0;
@@ -3847,6 +4984,45 @@ function buildBranches(W) {
     let jA = 0; mi = i0; while (jA < M - 1 && sep(jA) < need) jA++; const mA = mi;
     let jB = M - 1; mi = i1; while (jB > jA && sep(jB) < need) jB--; const mB = mi;
     B.jA = jA; B.jB = jB; B.winA = [i0 - 3, mA + 6]; B.winB = [mB - 6, i1 + 3];
+    // Envol : la rampe ne monte qu'une fois les deux routes séparées (avant, le mur intérieur n'existe pas encore et un kart quittait
+    // la rampe par le côté) ; montée en S jusqu'à la lèvre, même règle à la réception.
+    // Jusqu'à la séparation, la branche reste exactement au niveau de la route (sinon, plus haute de 2,5 m, elle ignorait le muret de
+    // séparation, règle des branches hautes, et un kart passait au-dessus).
+    const mainY = (j, g) => { let bi = g, bd = 1e18; for (let o = -40; o <= 40; o++) { const i = ((g + o) % N + N) % N, d = (S.px[i] - B.px[j]) ** 2 + (S.pz[i] - B.pz[j]) ** 2; if (d < bd) { bd = d; bi = i; } } return bi; };
+    if (B.glideA != null && B.glideA > jA + 8) { const a = jA + 2; let g = i0; for (let j = 0; j <= a; j++) { g = mainY(j, g); B.py[j] = S.py[g]; }
+      const y0 = B.py[a], y1 = B.py[B.glideA]; for (let j = a + 1; j < B.glideA; j++) B.py[j] = y0 + (y1 - y0) * smoothstep(a, B.glideA, j); }
+    if (B.glideB != null && B.glideB < jB - 8) { const a = jB - 2; let g = i1; for (let j = M - 1; j >= a; j--) { g = mainY(j, g); B.py[j] = S.py[g]; }
+      const y0 = B.py[a], y1 = B.py[B.glideB]; for (let j = B.glideB + 1; j < a; j++) B.py[j] = y1 + (y0 - y1) * smoothstep(B.glideB, a, j); }
+    // Toutes les autres branches : tant que leur chaussée chevauche celle de la route (bouche), elles restent exactement à son niveau,
+    // puis rejoignent leur profil sur 10 échantillons. Avant, une branche qui montait dès sa bouche (ARÊTE de la Glissade) flottait
+    // jusqu'à 0,8 m au-dessus de la route encore dessinée sous elle : marche et vide visibles (« morceau invisible », Samsung).
+    let fixe = B.glideA != null;
+    // Branches à vol (ENVOL) : profil déjà raccordé plus haut ; seule leur réception épouse la route (Cascades, Plongeon) — au départ,
+    // la rampe d'envol garde son profil (sinon son vibreur traversait la route : Glissade).
+    if (!B.offroad) { const needR = W.hw + B.hw + 1, orig = Float32Array.from(B.py), envol = B.glideA != null; mi = i0; let jR = 0; while (jR < M - 1 && sep(jR) < needR) jR++; mi = i1; let jS = M - 1; while (jS > jR + 20 && sep(jS) < needR) jS--;
+      const plat = (from, to, dir, g0) => { let g = g0, y = 0; for (let j = from; dir > 0 ? j <= to : j >= to; j += dir) { g = mainY(j, g); y = S.py[g]; if (Math.abs(B.py[j] - y) > .02) fixe = true; B.py[j] = y; } return y; };
+      // Longueur du raccord adaptée au dénivelé : pente ≤ 15 % (ou la pente propre de la branche si elle est plus forte). Avec 10 échantillons
+      // fixes, la CORNICHE DES EMBRUNS de Cascades rattrapait 15 m en 20 m (88 %) : tremplin involontaire juste avant son bord ouvert,
+      // bots qui décollaient et tombaient (régression signalée par Claude 2).
+      const raccord = (y0, prof, j0, dir) => { const lim = Math.max(10, Math.floor((jS - jR) / 2)); let best = 10;
+        for (let L = 10; L <= lim; L += 2) { let mx = 0, own = 0; const at = (q) => { const j = j0 + dir * q; return y0 + (prof[j] - y0) * smoothstep(0, L, q); };
+          for (let q = 1; q <= L; q++) { mx = Math.max(mx, Math.abs(at(q) - at(q - 1)) / B.seg); own = Math.max(own, Math.abs(prof[j0 + dir * q] - prof[j0 + dir * (q - 1)]) / B.seg); }
+          best = L; if (mx <= Math.max(.15, own * 1.05)) break; }
+        return best; };
+      if (!envol && jR > 0 && jR < jS) { const yA = plat(0, jR, 1, i0), L = raccord(yA, orig, jR, 1); for (let j = jR + 1; j <= Math.min(jS - 1, jR + L); j++) B.py[j] = yA + (orig[j] - yA) * smoothstep(jR, jR + L, j); B.raccordA = L; }
+      if (!envol && jS < M - 1 && jS > jR) { const yB = plat(M - 1, jS, -1, i1), prof = Float32Array.from(B.py), L = raccord(yB, prof, jS, -1); for (let j = jS - 1; j >= Math.max(jR + 1, jS - L); j--) B.py[j] = yB + (prof[j] - yB) * smoothstep(jS, jS - L, j); B.raccordB = L; }
+      // Bouche : la chaussée de la branche (rendu ET physique) épouse la vraie surface de la route principale tant qu'elle la recouvre,
+      // puis rejoint son propre profil sur 8 m. Mise à plat seule (hauteur de l'axe) : la route principale montant dans son sens, l'écart
+      // en travers de la branche atteignait 0,36 m (ARÊTE de la Glissade : route principale au-dessus de la branche d'un côté, branche
+      // qui dépasse de l'autre ; contrôleur du concepteur). Même principe que les cartes de production (production.js, heightAt).
+      const gi = new Int32Array(M).fill(-1); if (!envol && jR > 0) { let g = i0; for (let j = 0; j <= Math.min(M - 1, jR + 12); j++) gi[j] = g = nearestOn(S, B.px[j], B.pz[j], g, 40)[0]; }
+      if (jS < M - 1) { let g = i1; for (let j = M - 1; j >= Math.max(0, jS - 12); j--) gi[j] = g = nearestOn(S, B.px[j], B.pz[j], g, 40)[0]; }
+      if (gi.some((g) => g >= 0)) B.hAct = (j) => gi[clamp(j, 0, M - 1)] >= 0, B.heightAt = (x, z, j, base) => { const g0 = gi[clamp(j, 0, M - 1)]; if (g0 < 0) return base; const m = nearestOn(S, x, z, g0, 8)[0]; if (S.wz && S.wz[m]) return base;
+        const along = (x - S.px[m]) * S.fx[m] + (z - S.pz[m]) * S.fz[m], n = along >= 0 ? (S.closed === false ? Math.min(N - 1, m + 1) : (m + 1) % N) : (S.closed === false ? Math.max(0, m - 1) : (m - 1 + N) % N);
+        const y = S.py[m] + (S.py[n] - S.py[m]) * Math.min(1, Math.abs(along) / S.seg), u = clamp((Math.abs(latOn(S, m, x, z)) - W.hw - (W.curbW || 1.6)) / 8, 0, 1), w = (1 - u * u * (3 - 2 * u)) * smoothstep(1.5, .6, Math.abs(base - y));
+        // w : poids de la route principale ; nul dès que la branche s'en écarte de plus de 1,5 m en altitude (jamais rabattue en vol).
+        return base + (y - base) * w; }; }
+    if (fixe) finishPath(B, false);
     W.branches.push(B);
   });
 }
@@ -3915,6 +5091,13 @@ function aheadOn(k, n, wantB) {
   if (wantB && k.idx <= (wantB.winA ? Math.max(wantB.i0 + 3, wantB.winA[1]) : wantB.i0 + 3) && i >= wantB.i0) { const j = i - wantB.i0; if (j < wantB.N) return [wantB, j]; return [S, (wantB.i1 + j - wantB.N + 1) % S.N]; }
   return [S, ((i % S.N) + S.N) % S.N];
 }
+// Même parcours que aheadOn, mais renvoie directement la courbure de l'échantillon (aucun tableau créé).
+function aheadCurv(k, n, wantB) {
+  const S = G.W.S; const P = k.P || S; const i = k.idx + n;
+  if (P !== S) { if (i < P.N) return P.curv[i]; return S.curv[(P.i1 + (i - P.N + 1)) % S.N]; }
+  if (wantB && k.idx <= (wantB.winA ? Math.max(wantB.i0 + 3, wantB.winA[1]) : wantB.i0 + 3) && i >= wantB.i0) { const j = i - wantB.i0; if (j < wantB.N) return wantB.curv[j]; return S.curv[(wantB.i1 + j - wantB.N + 1) % S.N]; }
+  return S.curv[((i % S.N) + S.N) % S.N];
+}
 function aiBranch(k) {
   const W = G.W, S = W.S; if ((k.P || S) !== S || !W.branches.length) return null; const ai = k.ai; ai.br = ai.br || {};
   for (const B of W.branches) { const d = B.i0 - k.idx; if (d >= -Math.max(3, B.winA ? B.winA[1] - B.i0 : 3) && d < 70) {
@@ -3940,37 +5123,74 @@ function nearAllFn(W, cell = 24) {
 const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 const TERRAIN_TINT = { lavender: '#e8e2a0', autumn: '#ffc890', tropic: '#fff0c0', antique: '#f0e0b0', grass: '#e2ea86', jungle: '#a8dc7a', moss: '#9ccf98', snow: '#c4d4ff', sand: '#f4d098', redsand: '#f0a070', sakura: '#eaf2a0', savanna: '#f6dc96', rock: '#d0d8b8', moon: '#c8c8dc', ash: '#b08a7a', candy: '#ffd6f2', graveyard: '#a8b4a0', seabed: '#b0f0dc', cloud: '#dfe8ff', concrete: '#c8c8d2' };
 const TERRAIN_ROCK = { lavender: '#a89c88', autumn: '#8a7060', tropic: '#c8b088', antique: '#c8c0b0', grass: '#8a8a7c', jungle: '#6e705c', moss: '#5c6a5c', snow: '#a2acc4', sand: '#c49a64', redsand: '#a04a2c', sakura: '#8a8478', savanna: '#a88a5a', rock: '#8a8a84', moon: '#7a7a86', ash: '#3a3034', candy: '#e0a0c8', graveyard: '#4a4a52', seabed: '#5a8a8a', cloud: '#c8d0e8', concrete: '#6a6a74' };
+// Wild Kart Studio : pinceaux de terrain. « relief » ajoute une bosse (h > 0) ou un creux (h < 0) en cloche de rayon r ;
+// « lisser » ramène le relief naturel vers 0 dans le rayon (prairie plate). Appliqués avant le raccord à la route.
+function sculptHeight(list, x, z, h) { for (let q = 0; q < list.length; q++) { const s = list[q], d2 = ((x - s.x) ** 2 + (z - s.z) ** 2) / (s.r * s.r); if (d2 >= 1) continue; const w = (1 - d2) * (1 - d2);
+  if (s.m === 'lisser') h *= 1 - w * clamp(Math.abs(s.h) / 10, .2, 1); else h += s.h * w; } return h; }
 function buildTerrain(W, ext, cx, cz) {
   const { th, scene } = W; const tr = th.terrain; if (!tr) return;
-  const size = 2 * (ext + 520), segs = W.def.production ? 150 : ({ high: 180, medium: 150, low: 110 }[SAVE.quality] || 150), step = size / segs, R1 = segs + 1;
+  // Massifs (specials.massifs, concepteur) : relief plus fin pour des falaises nettes au ras des routes.
+  const MS = W.def.massifs || [], massif = MS.length > 0;
+  const size = 2 * (ext + 520), segs = W.def.production ? 150 : massif ? ({ high: 240, medium: 200, low: 160 }[SAVE.quality] || 200) : ({ high: 180, medium: 150, low: 110 }[SAVE.quality] || 150), step = size / segs, R1 = segs + 1;
   const nL = fbm(3, 5, tr.seed || 17), nR = tileNoise(16, (tr.seed || 17) + 5);
   const x0 = cx - size / 2, z0 = cz - size / 2, flat = W.wallD + step * 1.7, blend = tr.blend || 64, reach = flat + blend + 4, drop = W.def.pond ? W.def.pond.depth : tr.drop || 22; // étang (option de carte) : creux modéré sous le planeur au lieu d'un ravin
   // distance à la route la plus proche (projection des échantillons sur la grille)
-  const D = new Float32Array(R1 * R1).fill(1e9), HB = new Float32Array(R1 * R1), GP = new Uint8Array(R1 * R1), HM = new Float32Array(R1 * R1).fill(1e9), F2 = (flat + 8) ** 2;
+  const D = new Float32Array(R1 * R1).fill(1e9), HB = new Float32Array(R1 * R1), GP = new Uint8Array(R1 * R1), HM = new Float32Array(R1 * R1).fill(1e9), F2 = (flat + 8) ** 2, TN = new Uint8Array(R1 * R1);
+  let tnCur = 0; // classe du tunnel de l'échantillon en cours (massifs) : 1 roche au-dessus, 2 bouche (terrain découpé sous la coque)
   const splat = (x, z, h, gap) => { const ix0 = Math.max(0, Math.floor((x - reach - x0) / step)), ix1 = Math.min(segs, Math.ceil((x + reach - x0) / step)), iz0 = Math.max(0, Math.floor((z - reach - z0) / step)), iz1 = Math.min(segs, Math.ceil((z + reach - z0) / step));
-    for (let iz = iz0; iz <= iz1; iz++) { const dz = z0 + iz * step - z; for (let ix = ix0; ix <= ix1; ix++) { const dx = x0 + ix * step - x, d = dx * dx + dz * dz, q = iz * R1 + ix; if (d < D[q]) { D[q] = d; HB[q] = h; GP[q] = gap; } if (!gap && d < F2 && h < HM[q]) HM[q] = h; } } };
-  const S = W.S; for (let i = 0; i < S.N; i += 2) splat(S.px[i], S.pz[i], S.py[i], S.glide[i]);
-  for (const B of W.branches) for (let j = 0; j < B.N; j += 2) splat(B.px[j], B.pz[j], B.py[j], 0);
+    for (let iz = iz0; iz <= iz1; iz++) { const dz = z0 + iz * step - z; for (let ix = ix0; ix <= ix1; ix++) { const dx = x0 + ix * step - x, d = dx * dx + dz * dz, q = iz * R1 + ix; if (d < D[q]) { D[q] = d; HB[q] = h; GP[q] = gap; TN[q] = tnCur; } if (!gap && d < F2 && h < HM[q]) HM[q] = h; } } };
+  // Ligne d'eau (même formule que buildDecor, appelé plus tard) : le rivage du relief y descend sous la mer.
+  if (W.th.water && W.waterX == null) { let mx = -Infinity; for (let i = 0; i < W.S.N; i++) mx = Math.max(mx, W.S.px[i]); W.waterX = mx + 55; }
+  const S = W.S, tnS = new Uint8Array(S.N), mB = Math.ceil(step * 1.5 / (S.seg || 2)), flatM = W.wallD + step * 1.45, toit = massif ? Math.max(...MS.map((m) => m.toit || 30)) : 0;
+  if (massif) for (const [a, b] of W.def.tunnels || []) { const ia = Math.floor(a * S.N), ib = Math.floor(b * S.N); for (let i = ia; i <= ib; i++) tnS[i % S.N] = i < ia + mB || i > ib - mB ? 0 : i < ia + 2 * mB || i > ib - 2 * mB ? 2 : 1; } // bouche découpée bien à l'intérieur de la coque
+  for (let i = 0; i < S.N; i += 2) { tnCur = tnS[i]; splat(S.px[i], S.pz[i], S.py[i], S.glide[i]); } tnCur = 0;
+  for (const B of W.branches) for (let j = 0; j < B.N; j += 2) splat(B.px[j], B.pz[j], B.py[j], B.glide && B.glide[j] ? 1 : 0); // envol : ravin sous le vol
+  // Hauteur des massifs : pics (altitude absolue h, rayon r, raideur k) ; rugosité fondue vers le pied.
+  const massifAt = (x, z, u, v) => { let m = -Infinity; for (const M of MS) for (const pk of M.pics || []) { const dd = Math.hypot(x - pk.x, z - pk.z); if (dd >= pk.r) continue; const w = dd / pk.r;
+    let hh = pk.h * (1 - Math.pow(w, pk.k || 1.4)); hh *= 1 + (M.rugosite != null ? M.rugosite : .12) * (nR(u, v) - .5) * 2 * (1 - w); m = Math.max(m, hh); } return m; };
+  const cls = massif ? new Uint8Array(R1 * R1) : null; // 1 roche de tunnel, 2 bouche, 3 aplani (couloir des routes)
+  if (massif) W.massifTunnel = { lat: flatM + 6, haut: toit + 4 };
   const H = new Float32Array(R1 * R1); let minH = Infinity;
   for (let iz = 0; iz <= segs; iz++) for (let ix = 0; ix <= segs; ix++) {
     const q = iz * R1 + ix, x = x0 + ix * step, z = z0 + iz * step, u = ix / segs, v = iz / segs;
     const far = Math.hypot(x - cx, z - cz) / (ext + 120);
-    const hn = (nL(u, v) - .38) * tr.h + Math.max(0, far - .9) * tr.h * .9 + (tr.ridges ? Math.abs(nR(u, v) - .5) * tr.h * .5 : 0);
+    let hn = (nL(u, v) - .38) * tr.h + Math.max(0, far - .9) * tr.h * .9 + (tr.ridges ? Math.abs(nR(u, v) - .5) * tr.h * .5 : 0);
+    if (tr.sculpt) hn = sculptHeight(tr.sculpt, x, z, hn); // Wild Kart Studio : pinceaux (la route garde sa plate-forme)
     let h = hn; const d = Math.sqrt(D[q]);
-    if (d < reach) { const base = GP[q] ? HB[q] - drop : Math.min(HB[q], HM[q]) - 1.2; const t = smoothstep(flat, flat + blend, d); h = lerp(base, GP[q] ? Math.min(hn, base + 6) : hn, t); }
+    if (massif) { const M = massifAt(x, z, u, v), T0 = Math.max(hn, M);
+      if (d < reach && TN[q] === 1) { const roof = HB[q] + toit; h = d < flatM ? Math.max(T0, roof) : Math.max(T0, lerp(roof, T0, smoothstep(flatM, flatM + blend, d))); if (d < flatM) cls[q] = 1; }
+      else if (d < reach) { const base = GP[q] ? HB[q] - drop : Math.min(HB[q], HM[q]) - 1.2, cut = M > HB[q] + 4, f0 = cut ? flatM : flat, bl = cut ? (MS[0].falaise || 14) : blend;
+        h = lerp(base, GP[q] ? Math.min(T0, base + 6) : T0, smoothstep(f0, f0 + bl, d)); if (d < flatM) cls[q] = TN[q] === 2 ? 2 : 3; }
+      else h = T0; }
+    else if (d < reach) { const base = GP[q] ? HB[q] - drop : Math.min(HB[q], HM[q]) - 1.2; const t = smoothstep(flat, flat + blend, d); h = lerp(base, GP[q] ? Math.min(hn, base + 6) : hn, t); }
+    // Rivage (cartes avec mer à l'est, W.waterX) : le relief descend sous le niveau de la mer à partir de la ligne d'eau.
+    if (W.waterX != null && x > W.waterX - 120) h = Math.min(h, (W.waterX - x) * .1 - .8);
     h = Math.max(h, tr.min != null ? tr.min : -60); H[q] = h; if (h < minH) minH = h;
   }
   if (W.def.production) W.terrainStats = { resolution: segs, ...window.WKProduction.lowerTerrain(H, R1) };
+  /* #37 Grande Cascade — relief des LIEUX posé avant le maillage : la grille (~12 m) est trop lâche pour un lit de rivière ; les cellules
+     touchées sont retirées et remplacées par une pièce fine (~1,7 m) qui suit EXACTEMENT le terrain sur leur frontière (creusement nul au
+     bord des zones), plus le lit, les berges et la mare creusés. W.hAt rend la même hauteur (placement, Nature, mesures). */
+  const hBrut = (x, z) => { const fx = (x - x0) / step, fz = (z - z0) / step; if (fx < 0 || fz < 0 || fx >= segs || fz >= segs) return minH; const ix = Math.floor(fx), iz = Math.floor(fz), tx = fx - ix, tz = fz - iz, q = iz * R1 + ix;
+    const a = H[q], b = H[q + 1], d = H[q + R1], e = H[q + R1 + 1]; return tx + tz <= 1 ? a + (b - a) * tx + (d - a) * tz : e + (d - e) * (1 - tx) + (b - e) * (1 - tz); };
+  const LX = W.lieux ? W.lieux(W, hBrut) : null, trou = LX ? new Uint8Array(segs * segs) : null; let nTrou = 0;
+  if (LX) for (const Z of LX.zones) { const i0 = Math.max(0, Math.floor((Z.x - Z.r - x0) / step)), i1 = Math.min(segs - 1, Math.floor((Z.x + Z.r - x0) / step)), j0 = Math.max(0, Math.floor((Z.z - Z.r - z0) / step)), j1 = Math.min(segs - 1, Math.floor((Z.z + Z.r - z0) / step));
+    for (let iz = j0; iz <= j1; iz++) for (let ix = i0; ix <= i1; ix++) { const cx0 = x0 + ix * step, cz0 = z0 + iz * step, dx = Math.max(cx0 - Z.x, 0, Z.x - cx0 - step), dz = Math.max(cz0 - Z.z, 0, Z.z - cz0 - step); if (dx * dx + dz * dz < Z.r * Z.r && !trou[iz * segs + ix]) { trou[iz * segs + ix] = 1; nTrou++; } } }
+  W.terrainGrid = { H, x0, z0, step, segs }; // hauteur du sol réel (dessous des routes surélevées)
   const pos = new Float32Array(R1 * R1 * 3), uv = new Float32Array(R1 * R1 * 2), idx = new Uint32Array(segs * segs * 6); let ii = 0;
   let col = null; if (tr.colors) col = new Float32Array(R1 * R1 * 3); const c = new T.Color(), c2 = new T.Color();
   for (let iz = 0; iz <= segs; iz++) for (let ix = 0; ix <= segs; ix++) {
     const q = iz * R1 + ix, x = x0 + ix * step, z = z0 + iz * step, h = H[q];
     pos[q * 3] = x; pos[q * 3 + 1] = h; pos[q * 3 + 2] = z; uv[q * 2] = x / 40; uv[q * 2 + 1] = -z / 40;
     if (col) { const L = tr.colors; let k = 0; while (k < L.length - 1 && h > L[k + 1][0]) k++; const a = L[k], b = L[Math.min(k + 1, L.length - 1)]; const t = b[0] === a[0] ? 0 : clamp((h - a[0]) / (b[0] - a[0]), 0, 1); c.set(a[1]); c2.set(b[1]); c.lerp(c2, t); col[q * 3] = c.r; col[q * 3 + 1] = c.g; col[q * 3 + 2] = c.b; }
-    if (ix < segs && iz < segs) { const a = q, b = q + 1, d = q + R1, e = d + 1; idx[ii++] = a; idx[ii++] = d; idx[ii++] = b; idx[ii++] = b; idx[ii++] = d; idx[ii++] = e; }
+    if (ix < segs && iz < segs) { const a = q, b = q + 1, d = q + R1, e = d + 1;
+      // Massifs : pas de triangle à la bouche d'un tunnel (bande découpée à l'intérieur de la coque, qui la couvre).
+      const bad = cls && ((tri) => tri.some((v) => cls[v] === 2));
+      if (trou && trou[iz * segs + ix]) continue;   // cellule remplacée par la pièce de relief des lieux
+      if (!bad || !bad([a, d, b])) { idx[ii++] = a; idx[ii++] = d; idx[ii++] = b; } if (!bad || !bad([b, d, e])) { idx[ii++] = b; idx[ii++] = d; idx[ii++] = e; } }
   }
   const g = new T.BufferGeometry(); g.setAttribute('position', new T.BufferAttribute(pos, 3)); g.setAttribute('uv', new T.BufferAttribute(uv, 2)); if (col) g.setAttribute('color', new T.BufferAttribute(col, 3));
-  g.setIndex(new T.BufferAttribute(idx, 1)); g.computeVertexNormals();
+  g.setIndex(new T.BufferAttribute(ii < idx.length ? idx.slice(0, ii) : idx, 1)); g.computeVertexNormals();
   if (W.def.production) window.WKProduction.terrainNormals(g);
   { const nrm = g.attributes.normal, n = R1 * R1, C = col || new Float32Array(n * 3).fill(1), pn = fbm(2, 4, (tr.seed || 17) + 33), pn2 = fbm(6, 3, (tr.seed || 17) + 71);
     const tint = new T.Color(TERRAIN_TINT[th.ground] || '#e8e4c8'), rk = new T.Color(TERRAIN_ROCK[th.ground] || '#a8a296'); let h0 = Infinity, h1 = -Infinity; for (let q = 0; q < n; q++) { h0 = Math.min(h0, H[q]); h1 = Math.max(h1, H[q]); }
@@ -3981,10 +5201,24 @@ function buildTerrain(W, ext, cx, cz) {
   const tex = groundTex(th.ground); const mat = W.def.production ? window.WKScenery.groundMaterial() : gfxDetail(new T.MeshLambertMaterial({ map: tex, vertexColors: !!col }), 'ground');
   if (tr.caustics) { const ct = canvasTex(256, 256, (x, w) => { x.fillStyle = '#000'; x.fillRect(0, 0, w, w); x.strokeStyle = 'rgba(160,240,255,.55)'; x.lineWidth = 3; for (let i = 0; i < 26; i++) { x.beginPath(); const px = Math.random() * w, py = Math.random() * w, rx = rand(14, 40), ry = rand(10, 30), ro = rand(0, 3); for (const ox of [-w, 0, w]) for (const oy of [-w, 0, w]) { x.moveTo(px + ox + rx, py + oy); x.ellipse(px + ox, py + oy, rx, ry, ro, 0, TAU); } x.stroke(); } }); ct.repeat.set(.5, .5); mat.emissiveMap = ct; mat.emissive = new T.Color('#5fd8ff'); mat.emissiveIntensity = .5; W.caustic = ct; }
   const mesh = new T.Mesh(g, mat); mesh.receiveShadow = true; scene.add(mesh); W.terrain = mesh;
+  if (LX && nTrou) { const m = Math.max(2, Math.round(step / 1.7)), f = step / m, F1 = segs * m + 1, map = new Map(), P = [], U = [], Cc = [], I = [], cb = new T.Color(LX.couleurLit || '#7d6a4a'), tmp = new T.Color();
+    const sommet = (gx, gz) => { const k = gz * F1 + gx; let v = map.get(k); if (v !== undefined) return v; const x = x0 + gx * f, z = z0 + gz * f, cr = LX.creuse(x, z), ix = Math.min(segs - 1, Math.floor(gx / m)), iz = Math.min(segs - 1, Math.floor(gz / m)), tx = gx / m - ix, tz = gz / m - iz, q = iz * R1 + ix;
+      const v3 = [0, 0, 0]; for (let k3 = 0; k3 < 3; k3++) { const a = col[q * 3 + k3], b = col[(q + 1) * 3 + k3], d = col[(q + R1) * 3 + k3], e = col[(q + R1 + 1) * 3 + k3]; v3[k3] = (a * (1 - tx) + b * tx) * (1 - tz) + (d * (1 - tx) + e * tx) * tz; } tmp.setRGB(v3[0], v3[1], v3[2]);
+      tmp.lerp(cb, smoothstep(.05, .7, -cr) * .75); v = P.length / 3; P.push(x, hBrut(x, z) + cr, z); U.push(x / 40, -z / 40); Cc.push(tmp.r, tmp.g, tmp.b); map.set(k, v); return v; };
+    for (let iz = 0; iz < segs; iz++) for (let ix = 0; ix < segs; ix++) { if (!trou[iz * segs + ix]) continue;
+      for (let b2 = 0; b2 < m; b2++) for (let a2 = 0; a2 < m; a2++) { const gx = ix * m + a2, gz = iz * m + b2, A = sommet(gx, gz), B = sommet(gx + 1, gz), D2 = sommet(gx, gz + 1), E = sommet(gx + 1, gz + 1); I.push(A, D2, B, B, D2, E); } }
+    const pg = new T.BufferGeometry(); pg.setAttribute('position', new T.Float32BufferAttribute(P, 3)); pg.setAttribute('uv', new T.Float32BufferAttribute(U, 2)); pg.setAttribute('color', new T.Float32BufferAttribute(Cc, 3)); pg.setIndex(I); pg.computeVertexNormals();
+    const piece = new T.Mesh(pg, mat); piece.receiveShadow = true; piece.name = 'Relief des lieux'; scene.add(piece); W.terrainPiece = piece; W.lieuxStats = { cellules: nTrou, sousPas: +f.toFixed(2), triangles: I.length / 3 }; }
   W.hAt = (x, z) => { const fx = (x - x0) / step, fz = (z - z0) / step; if (fx < 0 || fz < 0 || fx >= segs || fz >= segs) return minH; const ix = Math.floor(fx), iz = Math.floor(fz), tx = fx - ix, tz = fz - iz, q = iz * R1 + ix;
     const a = H[q], b = H[q + 1], d = H[q + R1], e = H[q + R1 + 1];
     // Même diagonale et même interpolation affine que les deux triangles du terrain rendu.
     return tx + tz <= 1 ? a + (b - a) * tx + (d - a) * tz : e + (d - e) * (1 - tx) + (b - e) * (1 - tz); };
+  if (LX) { const h0 = W.hAt, mP = W.terrainPiece ? Math.max(2, Math.round(step / 1.7)) : 1, fP = step / mP, hv = (gx, gz) => { const x = x0 + gx * fP, z = z0 + gz * fP; return hBrut(x, z) + LX.creuse(x, z); };
+    // Dans une cellule remplacée : interpolation des sommets de la pièce fine (même diagonale que ses triangles) = surface rendue.
+    W.hAt = (x, z) => { const fx = (x - x0) / step, fz = (z - z0) / step; if (fx < 0 || fz < 0 || fx >= segs || fz >= segs || !trou[Math.floor(fz) * segs + Math.floor(fx)]) return h0(x, z);
+      const gxf = (x - x0) / fP, gzf = (z - z0) / fP, gx = Math.floor(gxf), gz = Math.floor(gzf), tx = gxf - gx, tz = gzf - gz, a = hv(gx, gz), b = hv(gx + 1, gz), d = hv(gx, gz + 1);
+      return tx + tz <= 1 ? a + (b - a) * tx + (d - a) * tz : (() => { const e = hv(gx + 1, gz + 1); return e + (d - e) * (1 - tx) + (b - e) * (1 - tz); })(); };
+    W.lieuxRelief = LX; }   // hauteur du relief des lieux : exactement la surface rendue de la pièce fine
   W.terrainMin = minH;
 }
 
@@ -4007,9 +5241,10 @@ function buildBranchGeo(W, B, mats) {
     else scene.add(new T.Mesh(bandGeo(B, [th.skirtDepth ? { o: d, y: -th.skirtDepth } : { o: d, y: th.groundY != null ? th.groundY : -1, abs: true }, { o: d, y: .07 }], { vScale: 10, skip: sk }), mats.skirt));
   }
   // boîtes à mi-parcours + turbo
-  const jm = Math.floor(B.N * .5);
+  const jm = B.glideA != null ? Math.max(B.jA + 8, B.glideA - 40) : Math.floor(B.N * .5); // boîtes avant la rampe d'un envol
   if (!OFF) for (const f of [-.45, 0, .45]) { const x = B.px[jm] + B.rx[jm] * f * hw, z = B.pz[jm] + B.rz[jm] * f * hw; W.addBox(x, z, B.py[jm]); }
-  if (B.def.boost) { const jb = Math.floor(B.N * .3); scene.add(new T.Mesh(quadAt(B, jb, 0, 2.6, 4.5, .16), mats.pad)); W.pads.push({ i: jb, lat: 0, P: B }); }
+  // boost : true (une plaque à 30 %) ou liste de fractions de la branche (concepteur : raccourci rendu utile par ses turbos).
+  for (const f of Array.isArray(B.def.boost) ? B.def.boost : B.def.boost ? [.3] : []) { const jb = Math.floor(B.N * f); scene.add(new T.Mesh(quadAt(B, jb, 0, 2.6, 4.5, .16), mats.pad)); W.pads.push({ i: jb, lat: 0, P: B }); }
   if (B.def.tunnel) tunnelOn(W, B, [[B.jA + 6, B.jB - 6]], B.def.tunnel);
   // panneau d'embranchement
   const si = Math.max(0, B.i0 - 30) % W.S.N, S = W.S, dd = B.side * (W.wallD + 1.4);
@@ -4223,7 +5458,7 @@ function buildHaunted(W, ext, cx, cz, scatter, ring, q) {
 /* ---------- fantôme de ton meilleur tour (courses solo) : un kart transparent refait ton record ---------- */
 const GH = { rec: null, play: null, mesh: null };
 const ghostKey = () => 'wk-ghost-' + TRACKS[G.race.ti].id + '-' + (G.race.cc || 0);
-function ghostOk() { const R = G.race; return !!(R && R.player && !R.online && !R.bombMode && !G.W.def.arena && UI.mode !== 'party'); }
+function ghostOk() { const R = G.race; return !!(R && R.player && !R.online && !R.bombMode && !G.W.def.arena && UI.mode !== 'party' && !window.WK_ESSAI); }   // essai de l'atelier : pas de fantôme
 function ghostStart() { GH.rec = null; GH.play = null; if (GH.mesh) { G.W.scene.remove(GH.mesh.g); GH.mesh = null; } if (!ghostOk()) return;
   try { const j = JSON.parse(localStorage.getItem(ghostKey()) || 'null'); if (j && j.d && j.d.length > 40) GH.play = j; } catch (e) { /* rien */ }
   if (!GH.play) return; const m = kartMesh(myCfg()); m.g.traverse((o) => { if (o.material) { o.material = o.material.clone(); o.material.transparent = true; o.material.opacity = .32; o.material.depthWrite = false; } }); m.g.visible = false; G.W.scene.add(m.g); GH.mesh = m; }
@@ -4268,7 +5503,7 @@ function startDrift(k, dir) {
 function endDrift(k, give) {
   const tier = k.driftTier || 0; k.drift = 0; k.driftT = 0; k.driftTier = 0;
   if (!give || k.spin > 0 || !tier) return;
-  k.boost = Math.max(k.boost, DRIFT_BOOST[tier]); k.boostTier = tier; k.driftCd = 1; if (k.isPlayer) styleAdd([0, 40, 100, 220][tier] || 0, tier >= 3 ? 'Super dérapage' : tier === 2 ? 'Beau dérapage' : '');
+  k.boost = Math.max(k.boost, DRIFT_BOOST[tier] * (k.boostK || 1)); k.boostTier = tier; k.driftCd = 1; if (k.isPlayer) styleAdd([0, 40, 100, 220][tier] || 0, tier >= 3 ? 'Super dérapage' : tier === 2 ? 'Beau dérapage' : '');
   if (k.isPlayer) { AudioSys.sfx(tier >= 2 ? 'boost' : 'mini'); vibrate(tier >= 3 ? [20, 30, 40] : 25); }
 }
 // compatibilité avec l'ancien code
@@ -4280,12 +5515,13 @@ function kartPhysics(k, inp, dt) { if (k.spect) return;
   if (cageStep(k, dt)) return;
   itemStatus11(k, inp, dt);
   let steer = inp.steer;
-  const ox0 = k.x, oz0 = k.z;
+  let ox0 = k.x, oz0 = k.z;
   if (k.spin > 0) { k.spin -= dt; steer = 0; k.speed *= Math.pow(.2, dt); k.spinAng += dt * 13; if (k.drift) endDrift(k, false); }
   else k.spinAng = lerp(k.spinAng, Math.round(k.spinAng / TAU) * TAU, 1 - Math.exp(-dt * 10));
   const P0 = k.P || S, j0 = clamp(k.idx, 0, P0.N - 1), os0 = openSide(P0, j0);
   k.off = !k.air && (P0.offroad || (Math.abs(k.lat) > (P0.hw || W.hw) + W.curbW * .5 && !(os0 && Math.sign(k.lat) === os0)));
   const EV = zoneEnv(k); let vmax = k.maxSpeed * (k.off && k.boost <= 0 && k.star <= 0 ? k.offFactor * (EV && EV.offK || 1) : 1) * (EV ? EV.vmax : 1);
+  { const fv = vivantFactor(W, k); if (fv < 1) { vmax *= fv; if (k.speed > vmax) k.speed = lerp(k.speed, vmax, 1 - Math.exp(-dt * 3)); } } // neige d'avalanche : ralentit, ne bloque pas
   if (k.off && !(k.star > 0) && mudAt(W, k)) { vmax *= .6; if (k.speed > vmax) k.speed = lerp(k.speed, vmax, 1 - Math.exp(-dt * 4)); if (W.parts && Math.random() < .5) W.parts.emit(k.x + rand(-1, 1), k.y + .3, k.z + rand(-1, 1), rand(-2, 2), rand(1, 3), rand(-2, 2), '#5a3d22', .4); if (k.isPlayer && !k.mudMsg) { k.mudMsg = true; banner('Boue !', .9, true); } }
   if (k.boost > 0) { k.boost -= dt; vmax = k.maxSpeed * (k.nitro > 0 ? 1.46 : 1.36); if (k.speed < vmax) k.speed = Math.min(vmax, k.speed + 95 * dt); }
   if (k.star > 0) { k.star -= dt; vmax = Math.max(vmax, k.maxSpeed * 1.22); if (k.speed < vmax) k.speed += 40 * dt; }
@@ -4296,7 +5532,7 @@ function kartPhysics(k, inp, dt) { if (k.spect) return;
   if (k.spin <= 0) {
     if (inp.brake && !k.air) {
       // frein, puis marche arrière si on reste appuyé à l'arrêt (pratique pour se dégager)
-      if (k.speed > .5) { k.speed -= 50 * dt; k.revT = 0; } else { k.revT = (k.revT || 0) + dt; k.speed = k.revT > .35 && G.race && G.race.state === 'race' ? Math.max(-14, k.speed - 26 * dt) : Math.max(0, k.speed - 50 * dt); }
+      if (k.speed > .5) { k.speed -= 50 * (k.brakeK || 1) * dt; k.revT = 0; } else { k.revT = (k.revT || 0) + dt; k.speed = k.revT > .35 && G.race && G.race.state === 'race' ? Math.max(-14, k.speed - 26 * dt) : Math.max(0, k.speed - 50 * dt); }
     }
     else if (inp.throttle > 0) { k.revT = 0; if (k.speed < -.6) k.speed = Math.min(0, k.speed + 60 * dt); else if (k.speed < vmax) k.speed += (k.accel * (EV ? EV.accel : 1) * (1 - Math.max(0, k.speed) / vmax) + 4) * dt * inp.throttle + Math.max(0, -k.speed); else k.speed -= (k.speed - vmax) * 1.6 * dt; }
     else { k.speed *= Math.pow(.72, dt); if (Math.abs(k.speed) < .3) k.speed = 0; }
@@ -4318,7 +5554,7 @@ function kartPhysics(k, inp, dt) { if (k.spect) return;
       // contre-braquage maintenu : le drift bascule de l'autre côté (on garde le turbo déjà chargé)
       if (a < -.55) k.ctrT = (k.ctrT || 0) + dt; else k.ctrT = 0;
       if (k.ctrT > .2 && k.isPlayer) { const nd = -k.drift, keep = k.driftT * .5; endDrift(k, false); startDrift(k, nd); k.driftT = keep; k.ctrT = 0; k.driftA = 1; steerEff = nd * .9; }   // changer de côté ne donne plus de turbo
-      k.driftT += dt * (1 + .5 * Math.max(0, a) + (k.isPlayer ? 0 : .1)) * (k.wallT > 0 || k.driftCd > 0 ? 0 : 1);   // pas de charge contre un mur ni juste après un turbo
+      k.driftT += dt * (k.driftK || 1) * (1 + .5 * Math.max(0, a) + (k.isPlayer ? 0 : .1)) * (k.wallT > 0 || k.driftCd > 0 ? 0 : 1);   // pas de charge contre un mur ni juste après un turbo
       let tier = 0; for (let t = 1; t < DRIFT_TIERS.length; t++) if (k.driftT >= DRIFT_TIERS[t]) tier = t;
       if (tier > k.driftTier) { k.driftTier = tier; if (k.isPlayer) { AudioSys.tone([0, 880, 1100, 1320][tier], .09, 'square', .07); vibrate(12); } }
     }
@@ -4338,8 +5574,10 @@ function kartPhysics(k, inp, dt) { if (k.spect) return;
     const yaw = yawBase + Math.max(0, yawNeed - yawBase) * smoothstep(.45, .95, Math.abs(steerEff));
     k.h -= steerEff * yaw * (EV ? EV.turn : 1) * (k.drift ? 1.32 : 1) * dt * airF * (k.speed < 0 ? -1 : 1);
   } else k.h -= steerEff * k.turn * (EV ? EV.turn : 1) * (k.drift ? 1.32 : 1) * ts * dt * airF * (k.speed < 0 ? -1 : 1);
-  const ice = (W.def.grip || 1) * (EV ? EV.grip : 1) * (W.wx ? W.wx.grip : 1); const grip = k.air ? 3 : (k.drift ? 5.6 : (k.off ? 6.5 : 11)) * (k.off ? 1 : ice);
+  const ice = (W.def.grip || 1) * (EV ? EV.grip : 1) * (W.wx ? W.wx.grip : 1); const grip = k.air ? 3 : (k.drift ? 5.6 : (k.off ? 6.5 : 11)) * (k.off ? 1 : ice) * (k.gripK || 1);
   k.vh += angDiff(k.vh, k.h) * (1 - Math.exp(-grip * dt));
+  // Montée frontale (expérimental) : gravité le long de la pente affichée, moins la part déjà portée par la pente physique de la rampe.
+  if (S.montee && P0 === S && S.montee[j0] && !k.air) k.speed = Math.max(k.maxSpeed * .2, k.speed - 9.8 * Math.max(0, S.montee[j0] - (S.slope[j0] || 0)) * dt);
   const ws = S.wscale && P0 === S ? S.wscale[j0] : 1; // zones anti-gravité : la piste dépliée est plus courte
   // Seule la composante longitudinale (le long de la tangente f) est mise à l'échelle : le rendu applique la largeur sans
   // déformation (wo + wr·lat), donc le déplacement latéral reste à 100 % et le pilote garde tout son contrôle dans les loopings.
@@ -4347,6 +5585,9 @@ function kartPhysics(k, inp, dt) { if (k.spect) return;
     if (ws !== 1) { const fx = S.fx[j0], fz = S.fz[j0], along = dx * fx + dz * fz, cut = along * (1 - ws); k.x += dx - fx * cut; k.z += dz - fz * cut; }
     else { k.x += dx; k.z += dz; } }
   { const wd = envWind(W, k); if (wd && P0 === S) { k.x += S.rx[j0] * wd * dt; k.z += S.rz[j0] * wd * dt; } }
+  // Adhérence des parois verticales (z.adherence, opt-in : parois du concepteur seulement) : sous la vitesse d'adhérence, la gravité
+  // fait glisser le kart vers le bas du mur (côté où la chaussée affichée descend), proportionnellement à l'inclinaison réelle.
+  if (S.adh && P0 === S && S.adh[j0] && !k.air && S.wr) { const v0 = S.adh[j0], f = clamp(1 - (k.speed / v0) ** 2, 0, 1); if (f > 0) { const ry = S.wr[j0 * 3 + 1], d = -Math.sign(ry) * Math.abs(ry) * 14 * f * dt; k.x += S.rx[j0] * d; k.z += S.rz[j0] * d; k.speed *= 1 - .35 * f * dt; } }
   trackLocate(k);
   { const P1 = k.P || S, lim1 = P1.lim || W.lim; if (Math.abs(k.lat) > lim1 + 8 && !(P1.glide && P1.glide[k.idx])) relocateAny(k); }
   // ---- murs (en l'air au-dessus d'un ravin : plus de liberté, retour doux vers la route) ----
@@ -4359,6 +5600,8 @@ function kartPhysics(k, inp, dt) { if (k.spect) return;
   const eo = edgeOpen(P, i, k.lat);
   if (eo && !k.air && !overGap && Math.abs(k.lat) > (P.hw || W.hw) + W.curbW + 1) { startFall(k); return; }
   gateBlock(k, W);
+  // Éjection ou renvoi d'une porte : déplacement imposé, pas un mouvement à balayer contre les murs (il s'arrêtait sur le muret gore).
+  if (k.gateJump) { ox0 = k.x; oz0 = k.z; k.gateJump = false; }
   if (W.barriers) {
     // Cartes historiques : un mur arrête tout kart à ±4 m de son niveau, même en vol (comme l'ancienne règle) ; les murets gore sont
     // posés à mi-hauteur entre deux chemins qui ne sont pas au même niveau. Deux étages de pont sont séparés d'au moins 6 m.
@@ -4411,6 +5654,9 @@ function kartPhysics(k, inp, dt) { if (k.spect) return;
   if (k.squash > 0) k.squash -= dt;
   // ---- plaques turbo, tremplins, obstacles ----
   springLaunch(k, W);
+  // Anneaux turbo d'un envol (une fois par anneau et par tour) : passer au travers, au centre (85 % du rayon).
+  if (k.air && W.anneaux) for (const a of W.anneaux) { if (a.P !== P || Math.abs(k.idx - a.j) > 1 || Math.abs(k.lat - (a.lat || 0)) > a.r * .85 || Math.abs(k.y - a.y) > a.r * .85) continue;
+    const key = (k.lap || 0) + ':' + a.q; k.anneauxPris = k.anneauxPris || {}; if (k.anneauxPris[key]) continue; k.anneauxPris[key] = 1; k.boost = Math.max(k.boost, .6); if (k.isPlayer) AudioSys.sfx('boost'); }
   if (!k.air) {
     for (const p of W.pads) { if ((p.P || S) !== P) continue; let di = Math.abs(k.idx - p.i); if (P.closed) di = Math.min(di, P.N - di); if (di <= 2 && Math.abs(k.lat - p.lat) < 2.9) { if (k.boost < .9 && k.isPlayer) AudioSys.sfx('boost'); k.boost = Math.max(k.boost, 1.1); } }
     kickerLaunch(k, W, P0, j0);
@@ -4427,6 +5673,10 @@ function launchJump(k, r) {
 }
 function airPhysics(k, P, overGap, inp, pressed, dt) {
   const W = G.W, hop = !!W.def.hop;
+  if (overGap && !k.air && P.glideKind && P.glideKind[k.idx] === 2) {   // saut de retour d'un plafond : pas de planeur
+    k.air = 'hop'; k.vy = 6; k.airH = Math.max(k.airH || 0, .2); k.trickOK = true; k.trick = false; if (k.drift) endDrift(k, true);
+    if (k.isPlayer) { AudioSys.sfx('glide'); banner('Saut retourné !', 1); } else if (Math.random() < .6) k.aiTrickAt = rand(.1, .35);
+  }
   if (overGap && !k.air) {
     k.air = hop ? 'hop' : 'glide'; k.vy = hop ? 10.5 : 11.5; k.airH = Math.max(k.airH || 0, .2); k.trickOK = true; k.trick = false;
     if (k.drift) endDrift(k, true);
@@ -4440,6 +5690,7 @@ function airPhysics(k, P, overGap, inp, pressed, dt) {
   if (k.trickOK && !k.trick && wantTrick && k.airT < 1.2) { k.trick = true; k.trickT = .45; k.trickDir = Math.random() < .5 ? -1 : 1; k.aiTrickAt = null; if (k.isPlayer) { AudioSys.tone(660, .12, 'square', .08, 1.8); vibrate(15); } }
   let g;
   if (k.air === 'glide') g = overGap ? 9 : 30; else if (k.air === 'hop') g = overGap ? 7 : 22; else g = 24;
+  if (k.gfall) g = k.gcut > 0 ? -k.gfall : 36;   // coupure anti-gravité : le kart se décroche du plafond, puis l'adhérence le ramène
   k.vy -= g * dt * ((zoneEnv(k) || {}).grav || 1);
   const dive = k.air === 'glide' && overGap && k.isPlayer && !G.autopilot && inp && inp.drift && !(k.trickT > 0) && k.airT > .5;
   if (dive) { k.vy += (-9 - k.vy) * (1 - Math.exp(-dt * 3)); k.speed = Math.min(k.maxSpeed * 1.1, k.speed + 14 * dt); }   // piqué
@@ -4451,8 +5702,12 @@ function airPhysics(k, P, overGap, inp, pressed, dt) {
   }
   if (k.airH <= 0 && !overGap) {
     // atterrissage
-    const hard = k.vy < -9; if (k.isPlayer) camKick = Math.min(.55, Math.max(.12, -k.vy * .025)); k.air = false; k.airH = 0; k.vy = 0; k.airT = 0; k.squash = hard ? .3 : .2; k.hop = .12;
-    if (k.trick) { k.boost = Math.max(k.boost, .85); if (k.isPlayer) { AudioSys.sfx('mini'); banner('Figure réussie !', .9); } }
+    k.gfall = 0;
+    const hard = k.vy < -9, enAir = k.airT || 0; if (k.isPlayer) camKick = Math.min(.55, Math.max(.12, -k.vy * .025)); k.air = false; k.airH = 0; k.vy = 0; k.airT = 0;
+    // Suspension (#34.G16) : réception dure → vitesse gardée landK ; vrai saut (≥ 0,6 s) → turbo de réception recep (Souple, Rallye).
+    if (hard && k.landK && k.landK !== 1) k.speed *= k.landK;
+    if (k.recep && enAir >= .6 && k.speed > 0) k.boost = Math.max(k.boost, k.recep); k.squash = hard ? .3 : .2; k.hop = .12;
+    if (k.trick) { k.boost = Math.max(k.boost, .85 * (k.boostK || 1)); if (k.isPlayer) { AudioSys.sfx('mini'); banner('Figure réussie !', .9); } }
     k.trick = false; k.trickOK = false;
     if (k.isPlayer) { AudioSys.sfx('land'); vibrate(hard ? 35 : 20); }
   }
@@ -4635,6 +5890,7 @@ function planObstacles(W) {
   for (const B of W.branches) { block(B.i0 - 30, 66); block(B.i1, 34); }
   for (const p of W.pads) if (!p.P) block(p.i, 12); for (const t of def.items) block(Math.floor(t * N), 14);
   for (const [a, b] of def.tunnels || []) for (let i = Math.floor(a * N); i <= Math.floor(b * N); i++) block(i % N, 6);
+  for (const v of def.vivants || []) block(Math.floor(v.at * N) % N, 60); // décor interactif (avalanche) : rien d'autre dans sa zone
   const straight = (i, r) => { let c = 0; for (let o = -r; o <= r; o += 2) c += Math.abs(S.curv[((i + o) % N + N) % N]); return c; };
   const pickSpot = (r, maxC) => { for (let tries = 0; tries < 900; tries++) { const i = Math.floor(N * (.1 + rng() * .8)); let ok = true; for (let o = -r; o <= r; o++) if (blocked[((i + o) % N + N) % N]) { ok = false; break; } if (ok && straight(i, 14) < maxC) return i; } return -1; };
   for (const b of W.bumps || []) block(b.i, 40);
@@ -4646,7 +5902,7 @@ function planObstacles(W) {
   const raB = def.rafts && W.branches[def.rafts.branch]; if (raB) W.obst.push(raftsMake(W, raB, def.rafts));
   // zones d'obstacles
   // Budget de dangers par coupe (docs/COUPES-ET-RESEAU.md §3) : la difficulté monte avec la coupe, et avec la longueur du tour.
-  const cup = clamp(def.cup || 1, 1, 6), zones = def.obstZones || Math.max([2, 3, 4, 5, 6, 7][cup - 1], clamp(Math.round(S.L / 520), 2, 4));
+  const cup = clamp(def.cup || 1, 1, 6), zones = def.obstZones != null ? def.obstZones : Math.max([2, 3, 4, 5, 6, 7][cup - 1], clamp(Math.round(S.L / 520), 2, 4));
   // Pas de danger juste après un looping/vrille ni à la réception d'un planeur.
   if (S.wz) for (let i = 0; i < N; i++) if (S.wz[i] && !S.wz[(i + 1) % N]) block(i + 30, 30);
   for (let i = 0; i < N; i++) if (S.glide[i] && !S.glide[(i + 1) % N]) block(i + 30, 30);
@@ -4673,7 +5929,10 @@ function planObstacles(W) {
     }
   }
   // Croque-pétales (fleurs carnivores originales) au bord de la piste, sur les biomes végétaux : nombre selon la coupe.
-  if (SNAPPER_BIOMES[th.decor]) {
+  // Bac à sable (def.bacPlants) : positions imposées en fraction du tour, côtés alternés.
+  if (def.bacPlants) def.bacPlants.forEach((f, q) => { const i = Math.round(f * N) % N, side = q % 2 ? 1 : -1;
+    W.obst.push({ kind: 'snapper', style: SNAPPER_BIOMES[th.decor] || 'daisy', P: S, i, side, lat: side * (W.hw + W.curbW + 2.6), reach: 6.2, r: 2.1, ph: q * 1.3 }); });
+  else if (SNAPPER_BIOMES[th.decor]) {
     const n = [0, 1, 2, 2, 3, 4][cup - 1];
     for (let q = 0; q < n; q++) { let i = pickSpot(26, .5); if (i < 0) i = pickSpot(16, .9); if (i < 0) break; block(i, 50); const side = (q % 2 ? 1 : -1) * (rng() < .5 ? 1 : -1);
       W.obst.push({ kind: 'snapper', style: SNAPPER_BIOMES[th.decor], P: S, i, side, lat: side * (W.hw + W.curbW + 2.6), reach: 6.2, r: 2.1, per: 3.6 + rng() * 1.2, ph: rng() * TAU }); }
@@ -4695,13 +5954,14 @@ function obstState(o, t) {
 }
 function obstacleHits(k, dt, ax, az) {
   const W = G.W; if (!W.obst || k.isRemote) return; if (ax == null) { ax = k.x; az = k.z; }
+  if (k.obstCd > 0) k.obstCd -= dt || 1 / 60; // immunité après une touche d'obstacle (voir plus bas)
   for (const o of W.obst) {
     if (o.kind === 'rockfall') { rockfallHits(k, o); continue; }
     if (o.kind === 'bridge') { bridgeHits(k, o); continue; }
     if (o.kind === 'rafts') { raftsHits(k, o); continue; }
     if (o.kind === 'crusher' && !o.down) continue;
-    if (o.kind === 'jet') { if ((k.x - o.x) ** 2 + (k.z - o.z) ** 2 < (o.r + .9) ** 2 && Math.abs(k.y - o.y) < 4) obstHit11(k, o); continue; }
-    if (o.kind === 'snapper') { if (o.down && (k.x - o.x) ** 2 + (k.z - o.z) ** 2 < (o.r + .9) ** 2 && Math.abs(k.y - o.y) < 4) obstHit11(k, o); continue; }
+    if (o.kind === 'jet') { if (!(k.obstCd > 0) && (k.x - o.x) ** 2 + (k.z - o.z) ** 2 < (o.r + .9) ** 2 && Math.abs(k.y - o.y) < 4) { obstHit11(k, o); if (k.spin > 0) k.obstCd = 2.2; } continue; }
+    if (o.kind === 'snapper') { if (snapperHits(k, o, ax, az)) obstHit11(k, o); continue; }
     const R = o.r + 1.1, bx = k.x, bz = k.z; if ((bx - o.x) ** 2 + (bz - o.z) ** 2 > (R + 4) ** 2 && (ax - o.x) ** 2 + (az - o.z) ** 2 > (R + 4) ** 2) continue;
     if (Math.abs(k.y - o.y) > (o.kind === 'pillar' ? 5 : 3)) continue;
     // point d'entrée du segment (position avant → après) dans le cercle de l'obstacle
@@ -4712,16 +5972,27 @@ function obstacleHits(k, dt, ax, az) {
     let cx = ax + dx * t, cz = az + dz * t; let nx = cx - o.x, nz = cz - o.z; let nl = Math.hypot(nx, nz);
     if (nl < 1e-4) { nx = -Math.sin(k.vh); nz = -Math.cos(k.vh); nl = 1; } nx /= nl; nz /= nl;
     k.x = o.x + nx * (R + .02); k.z = o.z + nz * (R + .02);
+    // Véhicule ou bille qui pousse le kart dans son axe : sortie latérale progressive (0,3 m par pas, vers le centre de la piste),
+    // sinon le kart en toupie était charrié devant l'obstacle et refrappé à la fin de chaque toupie (jusqu'à 4 fois en 8 s).
+    if ((o.kind === 'traffic' || o.kind === 'ball') && o.h != null) { const fx = Math.sin(o.h), fz = Math.cos(o.h); if (Math.abs(nx * fx + nz * fz) > .5) {
+      const P2 = o.P, j2 = clamp(o.i | 0, 0, P2.N - 1), latK = (k.x - P2.px[j2]) * P2.rx[j2] + (k.z - P2.pz[j2]) * P2.rz[j2], latO = (o.x - P2.px[j2]) * P2.rx[j2] + (o.z - P2.pz[j2]) * P2.rz[j2];
+      let sd = Math.sign(latK - latO); if (!sd) sd = latO > 0 ? -1 : 1; if (Math.abs(latK + sd * .3) > (P2.lim || W.lim)) sd = -sd; k.x += P2.rx[j2] * sd * .3; k.z += P2.rz[j2] * sd * .3; } }
     const vx = Math.sin(k.vh) * Math.sign(k.speed || 1), vz = Math.cos(k.vh) * Math.sign(k.speed || 1), vn = vx * nx + vz * nz;
     if (o.kind === 'pillar' && o.style === 'bumper') { obstHit11(k, o, R, nx, nz, vn); continue; }
-    if (vn < 0) {
+    // Obstacle « danger » qui met le kart en toupie (ou le touche pendant sa toupie) : le kart est seulement repoussé hors de
+    // l'obstacle. Avant, il subissait en plus le freinage de face et la redirection le long du bord (jusqu'à 136° de la piste,
+    // 3,1 à 4,3 s ralenti) : double peine par rapport à une touche d'objet (toupie, vitesse ×0,3, 2,2 s). Piliers, bumpers et
+    // karts étoilés gardent le comportement solide.
+    const toupie = o.kind !== 'pillar' && !(k.star > 0) && !(k.ghost > 0) && (k.spin > 0 || !(k.shield > 0));
+    if (vn < 0 && !toupie) {
       const tx = vx - nx * vn, tz = vz - nz * vn, tl = Math.hypot(tx, tz);
       k.speed *= Math.max(0, 1 - .9 * (-vn) * (-vn) - .15 * (-vn));                 // de face : on est bloqué net
       if (tl > .15) { const nh = Math.atan2(tx * Math.sign(k.speed || 1), tz * Math.sign(k.speed || 1)); k.vh = nh; k.h += angDiff(k.h, nh) * .4; }
       if (k.drift && -vn > .4) { endDrift(k, false); k.driftLock = true; }
     }
     if (o.kind === 'pillar' || (o.kind === 'crusher' && o.style !== 'geyser')) { if (k.isPlayer && k.bumpCd <= 0) { AudioSys.sfx('wall'); vibrate(30); k.bumpCd = .4; } }
-    if (o.kind !== 'pillar' && k.star <= 0) { hitKart(k, null); if (k.isPlayer && k.spin > 0) banner('Aïe !', .8, true); }
+    // Une seule touche par contact : immunité de 2,2 s (toupie de 1,15 s puis le temps de repartir) ; l'obstacle reste solide.
+    if (o.kind !== 'pillar' && k.star <= 0 && !(k.obstCd > 0)) { hitKart(k, null); if (k.spin > 0) { k.obstCd = 2.2; if (k.isPlayer) banner('Aïe !', .8, true); } }
   }
 }
 // dos d'âne : bosses arrondies intégrées à la route (remplacent les tremplins)
@@ -4730,8 +6001,9 @@ function planBumps(W) {
   const blocked = new Uint8Array(N); const block = (i, r) => { for (let o = -r; o <= r; o++) blocked[((i + o) % N + N) % N] = 1; };
   block(0, Math.round(N * .08)); for (let i = 0; i < N; i++) if (S.glide[i]) block(i, 34);
   for (const B of W.branches) { block(B.i0, 45); block(B.i1, 40); } for (const [t] of def.boosts) block(Math.floor(t * N), 16);
-  for (const z of def.warp || []) for (let i = Math.floor(z.from * N) - 20; i <= Math.floor(z.to * N) + 20; i++) block(((i % N) + N) % N, 0); for (const t of def.tricks || []) block(Math.floor(t * N), 30); for (const t of def.items) block(Math.floor(t * N), 16);
+  for (const z of def.warp || []) for (let i = Math.floor(z.from * N) - 20; i <= Math.floor(z.to * N) + 20; i++) block(((i % N) + N) % N, 0); for (const t of def.tricks || []) block(Math.floor(clearOfJunctions(W, t) * N), 30); for (const t of def.items) block(Math.floor(t * N), 16);
   for (const [a, b] of def.tunnels || []) for (let i = Math.floor(a * N) - 8; i <= Math.floor(b * N) + 8; i++) block(((i % N) + N) % N, 0);
+  for (const v of def.vivants || []) block(Math.floor(v.at * N) % N, 60); // décor interactif (avalanche) : ni bosse ni tremplin dans sa zone
   const straight = (i) => { let c = 0; for (let o = -16; o <= 16; o += 2) c += Math.abs(S.curv[((i + o) % N + N) % N]); return c; };
   const n = S.L > 1800 ? 3 : 2, half = 9, h = 1.7;
   for (let q = 0; q < n; q++) {
@@ -4758,6 +6030,262 @@ function obstVisual(o, t) {
 
 /* ================= v8 : quatre grands mondes (Sakura, Safari, Fête foraine, Espace) ================= */
 function addTick(W, f) { (W.tick = W.tick || []).push(f); }
+
+/* ================= #36/#37 Scène témoin : la Grande Cascade (Cascades) =================
+   Lot vertical : falaise en massif (face rocheuse, plateau, pente arrière, extrémités fondues dans le sol), vraie cascade animée,
+   bassin de pierre, brume, écume, végétation accrochée, pont de corde suspendu (repère, 20 m au-dessus de la route) et geysers
+   annoncés qui jaillissent sur la moitié de la route côté falaise (ralentissent sans faire tourner, l'autre moitié reste libre,
+   les bots les évitent). Tracé, largeur, physique de la route : inchangés. Tout est hors de l'enveloppe roulable sauf les geysers
+   (obstacles du système existant, actifs seulement si les obstacles sont activés). */
+/* ================= #37 Grande Cascade (construction TEST, accord #35 §5 ter) =================
+   Choix de conception du propriétaire : le RELIEF et les LIEUX d'abord (lit et berges de la rivière, mare, vallon du lagon), puis le tracé
+   existant raccordé au paysage. Base : P1 (bassin aménagé) et P5 (cascade dégagée) de 009bf73 ; décors par les recettes WKDecors
+   (decors.js, format convenu). WK_GC_AVANT (ou __decorsAvant) rétablit l'ancien témoin pour les comparaisons. Route, largeur, collisions
+   et physique inchangées : tout est hors de l'enveloppe roulable, l'eau passe sous la route par un ponceau décoratif. */
+/* Variante du bassin P1 (CHOIX ouvert, voir docs/maquettes/grande-cascade/riviere-lagon/CHOIX.md) : 'b' (par défaut) placement de 009bf73,
+   eau à 1 m sous la chaussée, parapet à claire-voie ; 'c' eau à 0,3 m, bassin décalé derrière la barrière (mesuré : pas plus visible). */
+const gcP1 = () => (window.WK_GC_P1 === 'c' ? 'c' : 'b');
+function gcBassin(W, route0) { const v = gcP1(), pR = 9; return v === 'b' ? { v, pR, lat: W.hw + 14.8, eauY: route0 - 1, top: route0 - .25 } : { v, pR, lat: W.wallD + pR + 3.85, eauY: route0 - .3, top: route0 + .32 }; }
+// Portions du bord où le muret visible cède la place à un parapet de pierre (même collision, muret invisible) : au droit du bassin
+// (côté falaise) et au droit du ponceau (deux côtés) ; k = écart en échantillons au centre du témoin.
+const GC_PARAPETS = [{ cote: 1, de: -10, a: 10, nom: 'bassin' }, { cote: 0, de: -16, a: -8, nom: 'ponceau' }];
+function gcParapetAt(W, sgn) { const N = W.S.N, c = W.temoin.c, Z = GC_PARAPETS.filter((z) => z.cote === 0 || (z.cote === 1) === (sgn === W.temoin.side)); if (!Z.length) return null;
+  return (i) => { let k = (i - c) % N; if (k > N / 2) k -= N; if (k < -N / 2) k += N; return Z.some((z) => k >= z.de && k < z.a); }; }
+function grandeCascadeActive(W) { return !!(window.WKDecors && !window.WK_GC_AVANT && !window.__decorsAvant && W.temoin && W.def && W.def.id === 'cascade' && !window.__temoinSur); }
+// Repère de la scène : s (m) le long de la route depuis le centre du témoin, b (m) latéral, positif côté falaise.
+function gcCadre(W) { const S = W.S, N = S.N, c = W.temoin.c, sd = W.temoin.side, seg = S.seg || 2, at = (i) => ((i % N) + N) % N;
+  return (s, b) => { const f = c + s / seg, i0 = Math.floor(f), t = f - i0, a = at(i0), d = at(i0 + 1), rx = lerp(S.rx[a], S.rx[d], t), rz = lerp(S.rz[a], S.rz[d], t);
+    return { x: lerp(S.px[a], S.px[d], t) + rx * sd * b, z: lerp(S.pz[a], S.pz[d], t) + rz * sd * b, y: lerp(S.py[a], S.py[d], t), ox: rx * sd, oz: rz * sd }; }; }
+/* Lieux (appelé par buildTerrain avant le maillage, sur le relief brut) : bassin P1 de 009bf73, rivière A (de l'exutoire du bassin, sous
+   la route par un ponceau, puis le long du remblai d'en face vers le point bas relevé par descente de pente) et mare. Renvoie le creusement
+   (lit, berges, mare ; nul hors des zones) et les zones à affiner. Les niveaux d'eau ne remontent jamais dans le sens de l'écoulement. */
+function grandeCascadeLieux(W, hBrut) {
+  const hw = W.hw, wallD = W.wallD, cadre = gcCadre(W), route0 = cadre(0, 0).y, BS = gcBassin(W, route0), lat = BS.lat, pR = BS.pR, eauY = BS.eauY, sP = -24;
+  const amont = [[-12.6, lat - 1], [-16.5, lat - 3.4], [-20, wallD + 3.2], [-22.6, wallD + 1.3]], sous = [[sP, 0]], aval = [[-25.4, -(wallD + 1.3)], [-29, -(wallD + 5)], [-40, -(wallD + 8)], [-62, -(wallD + 9.5)], [-92, -(wallD + 10.4)], [-122, -(wallD + 11.4)], [-146, -(wallD + 13.4)], [-158, -(wallD + 15.5)]];
+  const mare = { s: -168, b: -(wallD + 18.5), r: 9 };
+  // échantillonnage (Catmull-Rom) puis niveaux : déversoir sur 9 m depuis le bassin, ensuite toujours sous le terrain naturel
+  const ctl = amont.concat(sous, aval), pts = [];
+  for (let i = 0; i < ctl.length - 1; i++) { const p0 = ctl[Math.max(0, i - 1)], p1 = ctl[i], p2 = ctl[i + 1], p3 = ctl[Math.min(ctl.length - 1, i + 2)], m = Math.max(1, Math.round(Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) / 2));
+    for (let k = 0; k < m; k++) { const t = k / m, t2 = t * t, t3 = t2 * t, f = (a, b, c, d) => .5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3); pts.push([f(p0[0], p1[0], p2[0], p3[0]), f(p0[1], p1[1], p2[1], p3[1])]); } }
+  pts.push(ctl[ctl.length - 1].slice());
+  let h = eauY, len = 0; const chemin = []; let cible = null;
+  for (let i = 0; i < pts.length; i++) { const [s, b] = pts[i], P = cadre(s, b); if (i) len += Math.hypot(s - pts[i - 1][0], b - pts[i - 1][1]); const sousRoute = Math.abs(b) < wallD + .6, nat = hBrut(P.x, P.z) - .35;
+    if (len < 9) { if (cible == null) { let L2 = 0; for (let k = 1; k < pts.length && L2 < 9; k++) { L2 += Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]); cible = hBrut(cadre(...pts[k]).x, cadre(...pts[k]).z) - .35; } } h = lerp(eauY, Math.min(eauY, cible), smoothstep(0, 9, len)); }
+    else if (!sousRoute) h = Math.min(h, nat); chemin.push({ s, b, x: P.x, z: P.z, h, l: len < 9 ? 3.6 : sousRoute ? 3.2 : Math.min(6, 4 + len * .02), sousRoute }); }
+  const lvMare = chemin[chemin.length - 1].h, M0 = cadre(mare.s, mare.b);
+  // creusement : lit en berceau sous l'eau, berges en pente douce jusqu'au terrain ; mare en cuvette. Toujours un abaissement (≤ 0).
+  const segsR = []; for (let i = 0; i < chemin.length - 1; i++) segsR.push([chemin[i], chemin[i + 1]]);
+  const creuse = (x, z) => { let dh = 0; const base = hBrut(x, z);
+    { let best = Infinity, hh = 0, w = 3; for (const [A, B] of segsR) { const dx = B.x - A.x, dz = B.z - A.z, L = dx * dx + dz * dz || 1, t = clamp(((x - A.x) * dx + (z - A.z) * dz) / L, 0, 1), d = Math.hypot(x - A.x - t * dx, z - A.z - t * dz); if (d < best) { best = d; hh = lerp(A.h, B.h, t); w = lerp(A.l, B.l, t) / 2; } }
+      if (best < w + 4.5) { const cib = best < w ? hh - .45 - .6 * (1 - (best / w) ** 2) : lerp(hh + .25, base, smoothstep(0, 1, (best - w) / 4.5)); dh = Math.min(dh, cib - base); } }
+    { const d = Math.hypot(x - M0.x, z - M0.z); if (d < mare.r + 4.5) { const cib = d < mare.r ? lvMare - .4 - 1.3 * (1 - (d / mare.r) ** 2) : lerp(lvMare + .25, base, smoothstep(0, 1, (d - mare.r) / 4.5)); dh = Math.min(dh, cib - base); } }
+    return dh; };
+  const zones = []; for (let i = 0; i < chemin.length; i += 2) zones.push({ x: chemin[i].x, z: chemin[i].z, r: chemin[i].l / 2 + 5 }); zones.push({ x: M0.x, z: M0.z, r: mare.r + 5.5 });
+  // ponceau : une tête de chaque côté du remblai, au droit du passage, tournée vers l'extérieur ; ouverture à hauteur d'eau
+  const tetes = [1, -1].map((sg) => { const p = chemin.reduce((a, q) => (Math.sign(q.b) === sg && !q.sousRoute && Math.abs(Math.abs(q.b) - (wallD + 1.3)) < Math.abs(Math.abs(a.b) - (wallD + 1.3)) ? q : a), chemin.find((q) => Math.sign(q.b) === sg && !q.sousRoute));
+    const P = cadre(p.s, sg * (wallD + 1.5)), base = p.h - .4; return { x: P.x, y: base, z: P.z, nx: P.ox * sg, nz: P.oz * sg, hauteur: Math.max(2.6, P.y - .35 - base), largeur: 9 }; });
+  W.gc = { cadre, lat, pR, eauY, top: BS.top, p1: BS.v, route0, chemin, mare: Object.assign({ x: M0.x, z: M0.z, niveau: lvMare }, mare), ponceau: { s: sP, tetes }, longueur: Math.round(len), denivele: +(eauY - lvMare).toFixed(2) };
+  return { creuse, zones, couleurLit: '#7a6a4c' };
+}
+/* Scène de la Grande Cascade posée par les recettes WKDecors sur les lieux (relief déjà creusé par buildTerrain). */
+function grandeCascadeBuild(W) {
+  const D = window.WKDecors, S = W.S, N = S.N, hw = W.hw, wallD = W.wallD, sd = W.temoin.side, c = W.temoin.c, scene = W.scene, low = SAVE.quality === 'low', q = low ? 'low' : 'high', at = (i) => ((i % N) + N) % N;
+  const gH = (x, z, d) => (W.hAt ? W.hAt(x, z) : d), sol = (x, z) => gH(x, z, S.py[c] - 3), G = W.gc || Object.assign({ cadre: gcCadre(W), route0: S.py[c], chemin: [], mare: null, ponceau: null }, gcBassin(W, S.py[c]));
+  const cadre = G.cadre, poses = [], pose = (nom, r) => { scene.add(r.groupe); if (r.maj) addTick(W, (dt, now) => r.maj(dt, now)); W.noDecor = W.noDecor || []; for (const e of r.emprise) W.noDecor.push(e); poses.push({ nom, cout: r.cout, infos: r.infos || null }); return r; };
+  // ---- P2 paroi en masses, avec la fente de la cascade (P5, ouverte vers l'approche) ; __temoinRecul : défaut injecté par les bancs
+  const pied = window.__temoinRecul != null ? (s) => hw + window.__temoinRecul + 2.5 * Math.exp(-((s / 30) ** 2)) : (s) => G.lat + G.pR + .2 + 2.5 * Math.exp(-((s / 30) ** 2)), FENTE = { s0: 3, demi: 9, prof: 4.5 };   // pied juste derrière l'anneau du bassin
+  const PAROI = pose('paroi', D.paroiMasses(T, { cadre, sol, pied, longueur: 88, hauteur: 40, fente: FENTE, qualite: q, graine: 1, lod: { centre: cadre(0, G.lat), distance: 95 } }));
+  const sf = PAROI.infos.sommetFente;
+  // ---- P1 bassin aménagé (009bf73) : anneau de pierre en gradins, ouvert vers la chute (lobe d'eau sous le rideau) et au déversoir
+  const pc = [cadre(0, G.lat).x, cadre(0, G.lat).z], pR = G.pR, eauY = G.eauY, yr = G.route0, top = G.top, dirMonde = (s, b) => { const A = cadre(s, b); return Math.atan2(A.x - pc[0], A.z - pc[1]); };
+  let solMin = Infinity; for (let a = 0; a < TAU; a += .3) solMin = Math.min(solMin, gH(pc[0] + Math.cos(a) * (pR + 3.4), pc[1] + Math.sin(a) * (pR + 3.4), yr - 3));
+  const pro = [[pR - .6, eauY - 1.4], [pR, eauY - .2], [pR, eauY + .22], [pR + .9, eauY + .22], [pR + .9, eauY + .48], [pR + 1.8, eauY + .48], [pR + 1.8, top], [pR + 3.2, top], [pR + 3.35, top - .15], [pR + 3.35, solMin - 1.2]];
+  const ouvertures = [[dirMonde(0, G.lat + 20), 1.15], [dirMonde(-20, G.lat), .34]].sort((a, b) => a[0] - b[0]);   // vers la chute ; déversoir vers la rivière (amont)
+  const stoneM = (Graphics && Graphics.material ? Graphics.material('rock', '#9a8f7e') : lam('#8a7f70')).clone(); stoneM.vertexColors = true; stoneM.color = new T.Color('#ffffff'); stoneM.side = T.DoubleSide; stoneM.userData.wkProduction = true;
+  const arcs = []; for (let k = 0; k < ouvertures.length; k++) { const [a0, w0] = ouvertures[k], [a1, w1] = ouvertures[(k + 1) % ouvertures.length]; let deb = a0 + w0 / 2, fin = a1 - w1 / 2; if (fin <= deb) fin += TAU; arcs.push([deb, fin - deb]); }
+  const bassin = new T.Group(); for (const [phi, len] of arcs) { const lg = new T.LatheGeometry(pro.map(([r, y]) => new T.Vector2(r, y)), Math.max(8, Math.round(48 * len / TAU)), phi, len); lg.computeVertexNormals();
+    const P0 = lg.attributes.position, col = new Float32Array(P0.count * 3), cA = new T.Color('#b9a68a'), cB = new T.Color('#8f7f6a'), cc = new T.Color();
+    for (let k = 0; k < P0.count; k++) { const y = P0.getY(k), a = Math.atan2(P0.getZ(k), P0.getX(k)); cc.copy(cB).lerp(cA, smoothstep(eauY, top, y)).multiplyScalar(.9 + .1 * Math.sin(a * 23) * Math.sin(y * 9)); col.set([cc.r, cc.g, cc.b], k * 3); }
+    lg.setAttribute('color', new T.Float32BufferAttribute(col, 3)); const m = new T.Mesh(lg, stoneM); m.position.set(pc[0], 0, pc[1]); m.castShadow = m.receiveShadow = true; bassin.add(m); }
+  scene.add(bassin); W.noDecor.push({ x: pc[0], z: pc[1], r: pR + 4.5 });
+  // eau du bassin : cercle + lobe qui entre dans la fente jusque sous le rideau
+  const dirC = dirMonde(0, G.lat + 20), cont = []; for (let k = 0; k < (low ? 28 : 48); k++) { const th = k / (low ? 28 : 48) * TAU, d = Math.atan2(Math.sin(th - dirC), Math.cos(th - dirC)), r = pR - .05 + (pied(FENTE.s0) + FENTE.prof - 1 - G.lat - pR) * Math.pow(Math.max(0, Math.cos(d)), 8);
+    cont.push([pc[0] + Math.sin(th) * r, pc[1] + Math.cos(th) * r]); }
+  const EAU = pose('bassin', D.eauProfondeur(T, { contour: cont, centre: pc, niveau: eauY, sol, qualite: q, profondeur: 2.4 }));
+  // ---- P5 cascade logée dans la fente, rideau tourné vers l'approche ; elle tombe dans le lobe du bassin
+  const CASC = pose('cascade', D.cascadeLogee(T, { cadre, s0: FENTE.s0, b: sf.b, angle: .45, yHaut: sf.y, yBas: eauY, largeur: 20, qualite: q }));
+  if (W.parts) { const sp = CASC.infos.pied; addTick(W, () => { if (camera.position.distanceToSquared(new T.Vector3(sp.x, sp.y, sp.z)) < 160 * 160) for (let k = 0; k < (low ? 1 : 3); k++) W.parts.emit(sp.x + rand(-4, 4), sp.y, sp.z + rand(-4, 4), rand(-2, 2), rand(3, 9), rand(-2, 2), pick(['#ffffff', '#e9fbff', '#cdeffc']), .9, 0); }); }
+  // ---- P1-b : parapet de pierre à claire-voie à la place visuelle du muret, le long du bassin (le muret invisible garde la collision)
+  if (W.p1bMuret) for (const Z of GC_PARAPETS) for (const sg of Z.cote === 1 ? [sd] : [-1, 1]) { const pts = []; for (let k = Z.de; k <= Z.a; k++) { const i = at(c + k); pts.push({ x: S.px[i] + S.rx[i] * sg * wallD, y: S.py[i], z: S.pz[i] + S.rz[i] * sg * wallD }); } pose('parapet-' + Z.nom, D.parapet(T, { points: pts })); }
+  // ---- rivière, ponceau et mare (lit et berges déjà dans le relief)
+  let RIV = null; if (G.chemin.length) { RIV = pose('riviere', D.riviere(T, { chemin: G.chemin.filter((p) => !p.sousRoute), sol, qualite: q }));
+    pose('ponceau', D.ponceau(T, { tetes: G.ponceau.tetes, rayon: 1.6 }));
+    const M = G.mare, cm = []; for (let k = 0; k < (low ? 18 : 30); k++) { const a = k / (low ? 18 : 30) * TAU, r = M.r * (1 + .1 * Math.sin(a * 3.1) + .06 * Math.sin(a * 7.3)); cm.push([M.x + Math.sin(a) * r, M.z + Math.cos(a) * r]); }
+    pose('mare', D.eauProfondeur(T, { contour: cm, centre: [M.x, M.z], niveau: M.niveau, sol, qualite: q, profondeur: 1.6 })); }
+  // ---- lagon L1 : plan d'eau à −3 m dans le vallon survolé par le planeur (berge naturelle : le terrain plus haut cache l'eau)
+  let LAG = null; if (G.chemin.length && (W.def.glide || []).length) { const [a, b] = W.def.glide[0], im = at(Math.floor((a + b) / 2 * N)); let best = Infinity, cx = S.px[im], cz = S.pz[im];
+    for (let gx = -140; gx <= 140; gx += 10) for (let gz = -140; gz <= 140; gz += 10) { const x = S.px[im] + gx, z = S.pz[im] + gz, h = gH(x, z, 0); if (h < best) { best = h; cx = x; cz = z; } }
+    LAG = pose('lagon', D.lagon(T, { centre: [cx, cz], rayon: 125, niveau: -3, sol, qualite: q })); W.lagon = Object.assign({ centre: [+cx.toFixed(1), +cz.toFixed(1)], fond: +best.toFixed(1) }, LAG.infos); }
+  // la Nature ne plante ni dans l'eau ni dans le lit : même test que l'étang de planeur (option de carte)
+  if (!W.inPond) { const LX = W.lieuxRelief, lagNiv = LAG ? -3 : -Infinity; W.inPond = (x, z) => gH(x, z, 0) < lagNiv + .2 || (LX ? LX.creuse(x, z) < -.08 : false); }
+  // ---- P3 végétation au pied de la chute, P4 lisière en groupes en face (hors du lit), sous-étage
+  const presRiv = (x, z) => G.chemin.some((p) => Math.hypot(p.x - x, p.z - z) < p.l / 2 + 5.5) || (G.mare && Math.hypot(G.mare.x - x, G.mare.z - z) < G.mare.r + 6);
+  const arbres = [], bus = []; let rs = 6203; const rt = () => ((rs = (Math.imul(rs, 1664525) + 1013904223) >>> 0) / 4294967296);
+  const planter = (s, b, v) => { if (b > 0) b = Math.min(b, pied(s) - 4.5); const P = cadre(s, b); if (presRiv(P.x, P.z) || Math.hypot(P.x - pc[0], P.z - pc[1]) < pR + 5 || Math.abs(b) < wallD + 3) return; arbres.push({ x: P.x, y: gH(P.x, P.z, yr - 3) - .15, z: P.z, ry: rt() * TAU, s: .85 + rt() * .35, v }); };
+  for (const [s, db] of [[-24, 2], [-30, 5], [-19, 8], [21, 0], [26, 4], [22, 8]]) planter(s, G.lat + db, rt() < .5 ? 0 : 1);
+  for (const [s0, n] of [[-76, 3], [-42, 4], [6, 3], [44, 4], [78, 3]]) for (let k = 0; k < n; k++) { const s = s0 + (k - n / 2) * 5.5 + (rt() - .5) * 2, b = s < -18 ? -(hw + 30 + rt() * 5) : -(hw + 13 + rt() * 4 + (k % 2) * 3.5); planter(s, b, 2); }
+  for (const a of arbres) for (let k = 0; k < (a.v < 2 ? 3 : 2); k++) { const x = a.x + (rt() - .5) * 8, z = a.z + (rt() - .5) * 8; if (presRiv(x, z) || Math.hypot(x - pc[0], z - pc[1]) < pR + 5) continue; bus.push({ x, y: gH(x, z, yr - 3) - .1, z, ry: rt() * TAU, s: .7 + rt() * .7 }); }
+  const VEG = pose('vegetation', D.feuillusPlaques(T, { arbres, buissons: bus, qualite: q, lod: { centre: cadre(0, G.lat), distance: 95 } }));
+  // ---- pont de corde et tour (repère conservé) : du point haut du plateau, en aval, à une tour de l'autre côté
+  const sp = PAROI.infos.plateau.filter((p) => p.s > 24 && p.s < 46).sort((a, b) => b.H - a.H)[0], jb = at(c + Math.round(sp.s / (S.seg || 2))), A = new T.Vector3(sp.x, sp.y - .9, sp.z), ob = -(hw + 26), Bx = S.px[jb] + S.rx[jb] * sd * ob, Bz = S.pz[jb] + S.rz[jb] * sd * ob;
+  const Bg = gH(Bx, Bz, S.py[jb]), Btop = Math.max(Bg + 6, A.y), B = new T.Vector3(Bx, Btop, Bz), wood = lam('#7a5232'); wood.userData.wkProduction = true;
+  if (A.y - S.py[jb] > 22) { const tower = new T.Mesh(new T.CylinderGeometry(.6, .8, Btop - Bg + 1, 8), wood); tower.position.set(Bx, (Btop + Bg) / 2, Bz); scene.add(tower);
+    const planks = []; const n = Math.round(A.distanceTo(B) / 1.1); for (let k = 0; k <= n; k++) { const u = k / n, p = A.clone().lerp(B, u); p.y -= Math.sin(u * Math.PI) * 4.5; planks.push({ x: p.x, y: p.y, z: p.z, r: Math.atan2(B.x - A.x, B.z - A.z), s: 1, sx: 2.6, sy: .18, sz: .7 }); }
+    instanced(scene, [{ geo: new T.BoxGeometry(1, 1, 1), mat: wood, colors: ['#7a5232', '#8a6040', '#6a4628'] }], planks);
+    for (const off of [-1.3, 1.3]) { const pts = []; const perp = new T.Vector3(B.z - A.z, 0, -(B.x - A.x)).normalize().multiplyScalar(off); for (let k = 0; k <= 24; k++) { const u = k / 24, p = A.clone().lerp(B, u).add(perp); p.y += 1 - Math.sin(u * Math.PI) * 4.5; pts.push(p); }
+      scene.add(new T.Mesh(new T.TubeGeometry(new T.CatmullRomCurve3(pts), 40, .07, 5), lam('#d8c08a'))); } }
+  // ---- lumière du témoin (proposition du 3 nov., conservée)
+  if (scene.fog) { scene.fog.color.set('#cfe9e6'); scene.fog.near *= 1.35; scene.fog.far *= 1.4; }
+  if (W.sky && W.sky.material.uniforms) { W.sky.material.uniforms.top.value.set('#2f8fd0'); W.sky.material.uniforms.bottom.value.set('#e2f4ee'); }
+  if (renderer && renderer.setClearColor) renderer.setClearColor('#cfe9e6');
+  // ---- repères et mesures (recette decor-grande-cascade, scripts de mesure) : jamais déclarées, vérifiées par les bancs
+  W.temoin.chute = CASC.groupe.children.filter((o) => o.userData.wkDecorsRole === 'cascade'); W.temoin.bassin = EAU.groupe.children.find((o) => o.userData.wkDecorsRole === 'eau'); W.temoin.pc = pc; W.temoin.pR = pR;
+  W.temoin.stats = { recettes: poses.map((p) => p.nom), appels: poses.reduce((a, p) => a + p.cout.appels, 0), triangles: poses.reduce((a, p) => a + p.cout.triangles, 0), cote: sd };
+  W.decors = { version: 'grande-cascade-1', poses, arbres: VEG.infos, riviere: RIV ? { longueur: G.longueur, denivele: G.denivele, ponceau: G.ponceau.s } : null, lagon: W.lagon || null, lieux: W.lieuxStats || null };
+  { let cMax = 0; for (let o = -60; o <= 60; o++) cMax = Math.max(cMax, Math.abs(S.curv[at(c + o)]));
+    const bouche = Math.min(1e9, ...W.branches.flatMap((Br) => [Br.i0, Br.i1].map((m) => Math.min(Math.abs(c - m), N - Math.abs(c - m))))), jets = (W.obst || []).filter((o) => o.style === 'eau');
+    W.temoin.mesures = { courbureMax: +cMax.toFixed(4), distanceBouche: bouche, rocheHorsRoute: +(PAROI.infos.rocheMin - hw).toFixed(1), pontHauteur: A.y - S.py[jb] > 22 ? +(A.y - 4.5 - S.py[jb]).toFixed(1) : 99,
+      bassinHorsRoute: +(G.lat - pR - 1.4 - hw).toFixed(1), geysers: jets.length, geysersUnCote: jets.every((o) => Math.sign(o.lat) === sd) ? 1 : 0, moitieLibre: jets.length ? +Math.min(...jets.map((o) => Math.abs(o.lat) - o.r)).toFixed(2) : 99 }; }
+}
+/* Localisation de la scène (droite S8), faite AVANT le terrain : le relief des lieux (Grande Cascade) en dépend. */
+function temoinLieu(W) {
+  if (W.temoin || W.temoinRefus) return W.temoin;
+  // Carte de la scène : Cascades dans le jeu ; __temoinSur (bancs du concepteur seulement) tente la même recette sur une autre carte.
+  const cible = window.__temoinSur || 'cascade'; if (!W.def || W.def.id !== cible || W.def.production || window.__noTemoin) return null;   // __noTemoin : captures « avant » des bancs
+  if (W.th && (W.th.floating || W.th.noGround)) { W.temoinRefus = 'carte sans sol (routes suspendues) : une falaise y flotterait'; return null; }
+  const S = W.S, N = S.N, hw = W.hw, bad = (i) => { const j = ((i % N) + N) % N; return (S.wz && S.wz[j]) || (S.glide && S.glide[j]) || (S.tun && S.tun[j]) || Math.abs(S.curv[j]) > .006; };
+  const mouth = (i) => W.branches.some((B) => [B.i0, B.i1].some((m) => Math.min(Math.abs(i - m), N - Math.abs(i - m)) < 30));
+  let best = -1, bs = 1e9;
+  for (let c = Math.floor(N * .5); c < Math.floor(N * .78); c += 2) { let ok = true, sc = 0; for (let o = -60; o <= 60 && ok; o += 3) { if (bad(c + o) || mouth(c + o)) ok = false; sc += Math.abs(S.curv[((c + o) % N + N) % N]); } if (ok && sc < bs) { bs = sc; best = c; } }
+  if (best < 0) { W.temoinRefus = 'aucune droite de 240 m sans section spéciale, tunnel ni bouche à moins de 60 m (courbure ≤ 0,006)'; return null; }
+  // Côté : celui sans branche voisine (la falaise ne doit masquer aucune bouche ni raccourci).
+  const side = W.branches.some((B) => B.side < 0 && Math.min(Math.abs(best - B.i0), Math.abs(best - B.i1)) < 120) ? 1 : -1;
+  W.temoin = { c: best, side, L: 70 }; return W.temoin;
+}
+function temoinPlan(W) {
+  if (!temoinLieu(W)) return; const S = W.S, N = S.N, hw = W.hw, best = W.temoin.c, side = W.temoin.side, at3 = (i) => ((i % N) + N) % N;
+  if (W.obst && RACE_OPTS.obst) for (let q = 0; q < 3; q++) { const i = at3(best - 9 + q * 9), lat = side * hw * .48; W.obst.push({ kind: 'jet', style: 'eau', P: S, i, lat, r: 2.4, per: 5.2, ph: q * 1.15, x: S.px[i] + S.rx[i] * lat, z: S.pz[i] + S.rz[i] * lat, y: S.py[i], down: false }); }
+}
+// Plans d'eau des LIEUX (8 nov., style « paysage » du concepteur) : specials.eaux = [{ x, z, r, niveau }] ; chacun remplit le creux réel du
+// terrain jusqu'à son niveau (recette WKDecors.lagon : berge naturelle là où le sol remonte, écume au rivage, couleur selon la
+// profondeur). Purement visuel : aucune collision ; la Nature n'y pose rien. Rend la vallée lisible depuis la route.
+function lieuxEauxBuild(W) {
+  const L = W.def.eaux || []; if (!L.length || !window.WKDecors || !W.hAt) return; W.eaux = []; W.noDecor = W.noDecor || [];
+  for (const e of L) { const r = window.WKDecors.lagon(T, { centre: [e.x, e.z], rayon: e.r, niveau: e.niveau, sol: W.hAt, qualite: SAVE.quality });
+    r.groupe.name = 'Eau des lieux'; W.scene.add(r.groupe); if (r.maj) addTick(W, (dt, now) => r.maj(dt, now)); W.noDecor.push({ x: e.x, z: e.z, r: e.r * .92 }); W.eaux.push(Object.assign({}, e, r.infos || {})); }
+}
+function temoinBuild(W) {
+  const T0 = W.temoin; if (!T0) return;
+  // #37 : recettes WKDecors (decors.js) ; sinon témoin historique ci-dessous (WK_GC_AVANT, __decorsAvant)
+  if (window.WKDecors && !window.WK_GC_AVANT && !window.__decorsAvant) return grandeCascadeBuild(W);
+  const S = W.S, N = S.N, hw = W.hw, sd = T0.side, c = T0.c, L = T0.L, scene = W.scene, low = SAVE.quality === 'low';
+  const at = (i) => ((i % N) + N) % N, gH = (x, z, d) => (W.hAt ? W.hAt(x, z) : d), hash = (a, b) => { const v = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return v - Math.floor(v); };
+  const rockM = Graphics && Graphics.material ? Graphics.material('rock', '#9a8f7e') : lam('#8a7f70'); rockM.userData.wkProduction = true;
+  // --- massif : sections transversales (avant → plateau → pente arrière), hauteur fondue aux extrémités, anse plus profonde au centre
+  // __temoinRecul : défaut injecté par les bancs du concepteur (roche trop près de la route) ; jamais dans le jeu.
+  const recul = window.__temoinRecul != null ? window.__temoinRecul : 15, D = (j) => hw + recul + 9 * Math.exp(-(((j - c) / 18) ** 2)), env = (u) => smoothstep(0, .28, u) * smoothstep(0, .28, 1 - u);
+  const Hc = 46, R = 12, pos = [], uv = [], idx = [], secs = [];
+  for (let k = -L; k <= L; k++) { const j = at(c + k), u = (k + L) / (2 * L), ox = S.rx[j] * sd, oz = S.rz[j] * sd, d = D(c + k);
+    const bx = S.px[j] + ox * d, bz = S.pz[j] + oz * d, g = gH(bx, bz, S.py[j]) - 1.5, H = Math.max(1, Hc * env(u) * (.92 + .1 * Math.sin(k * .13 + 1) + .05 * Math.sin(k * .41)));
+    const pts = []; for (let r = 0; r <= R; r++) { const v = r / R, rough = (hash(k, r) - .5) * 2.2 + Math.sin(v * 7 + k * .21) * 1.1 * v; pts.push([rough - v * 1.2, H * v]); }
+    pts.push([5, H + 1.6], [11, H + 1], [18, H * .82], [18 + H * 1.6, -3]);
+    secs.push({ ox, oz, bx, bz, g, pts, H });
+    let acc = 0; for (let q = 0; q < pts.length; q++) { if (q) acc += Math.hypot(pts[q][0] - pts[q - 1][0], pts[q][1] - pts[q - 1][1]); const [a, h] = pts[q]; pos.push(bx + ox * a, g + h, bz + oz * a); uv.push((k + L) * S.seg / 9, acc / 9); } }
+  const M = secs[0].pts.length; for (let k = 0; k < secs.length - 1; k++) for (let q = 0; q < M - 1; q++) { const a = k * M + q, b = a + M; if (sd > 0) idx.push(a, b, a + 1, b, b + 1, a + 1); else idx.push(a, a + 1, b, b, a + 1, b + 1); }
+  const mg = new T.BufferGeometry(); mg.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); mg.setAttribute('uv', new T.Float32BufferAttribute(uv, 2)); mg.setIndex(idx); mg.computeVertexNormals();
+  // Couleurs par sommet : grès chaud en strates, mousse sur les corniches et le plateau (normale tournée vers le ciel).
+  { const P = mg.attributes.position, Nn = mg.attributes.normal, col = new Float32Array(P.count * 3), cA = new T.Color('#c9ab84'), cB = new T.Color('#9a7b5c'), cM = new T.Color('#6f9a3e'), cc = new T.Color();
+    for (let q = 0; q < P.count; q++) { const y = P.getY(q), st = .5 + .5 * Math.sin(y * .55 + Math.sin(P.getX(q) * .05) * 2); cc.copy(cA).lerp(cB, st * .7); const up = Nn.getY(q); if (up > .5) cc.lerp(cM, smoothstep(.5, .85, up)); col.set([cc.r, cc.g, cc.b], q * 3); }
+    mg.setAttribute('color', new T.Float32BufferAttribute(col, 3)); }
+  const rockV = rockM.clone(); rockV.vertexColors = true; rockV.color = new T.Color('#ffffff'); rockV.userData.wkProduction = true;
+  const massif = new T.Mesh(mg, rockV); massif.castShadow = massif.receiveShadow = true; scene.add(massif);
+  // zones interdites au décor Nature (massif, bassin) : rien ne pousse à travers la roche
+  W.noDecor = W.noDecor || []; for (let k = -L; k <= L; k += 6) { const s0 = secs[k + L]; W.noDecor.push({ x: s0.bx + s0.ox * 12, z: s0.bz + s0.oz * 12, r: 9 + s0.H * .55 }); }
+  // --- cascade : deux rubans d'eau animés devant la face, au fond de l'anse
+  const mid = secs[L], Hm = mid.H, wx = mid.bx - mid.ox * 1.2, wz = mid.bz - mid.oz * 1.2, ang = Math.atan2(mid.ox, mid.oz);
+  const streak = canvasTex(64, 256, (x, w, h) => { const gr = x.createLinearGradient(0, 0, w, 0); gr.addColorStop(0, 'rgba(190,235,255,0)'); gr.addColorStop(.2, 'rgba(210,245,255,.85)'); gr.addColorStop(.8, 'rgba(210,245,255,.85)'); gr.addColorStop(1, 'rgba(190,235,255,0)'); x.fillStyle = gr; x.fillRect(0, 0, w, h);
+    for (let q = 0; q < 140; q++) { x.fillStyle = 'rgba(255,255,255,' + (.25 + Math.random() * .6).toFixed(2) + ')'; x.fillRect(4 + Math.random() * (w - 8), Math.random() * h, 1 + Math.random() * 2.5, 10 + Math.random() * 40); } });
+  streak.wrapS = streak.wrapT = T.RepeatWrapping; streak.repeat.set(1, Math.max(2, Math.round(Hm / 14)));
+  const layers = []; for (const [wd, sp, op, dz] of window.WK_GC_AVANT ? (low ? [[18, 1.5, .9, 0]] : [[18, 1.5, .85, 0], [12, 2.3, .6, -.6], [7, 3.1, .5, -1.1]]) : low ? [[24, 1.5, .95, 0]] : [[24, 1.5, .9, 0], [16, 2.3, .65, -.6], [9, 3.1, .55, -1.1]])   /* P5 : chute élargie (18 → 24 m) pour se lire de loin */ { const t = streak.clone(); t.needsUpdate = true; t.repeat.copy(streak.repeat);
+    const pg = new T.PlaneGeometry(wd, Hm + 2, 1, 10); const pa = pg.attributes.position; for (let q = 0; q < pa.count; q++) { const y = pa.getY(q), v = (y + (Hm + 2) / 2) / (Hm + 2); pa.setZ(q, -2.2 * (1 - v) ** 2); } pg.computeVertexNormals();
+    const wm = new T.MeshBasicMaterial({ map: t, transparent: true, opacity: op, depthWrite: false, side: T.DoubleSide, color: '#e9fbff' }); wm.userData.wkProduction = true;
+    const wf = new T.Mesh(pg, wm); wf.position.set(wx - mid.ox * dz, mid.g + Hm / 2 + .5, wz - mid.oz * dz); wf.rotation.y = ang + Math.PI; scene.add(wf); layers.push({ t, sp, m: wf }); }
+  // --- bassin : rebord de pierre et eau animée (surélevé : le terrain n'est pas modifié)
+  /* #37 Grande Cascade P1 (construction TEST, accord du 7 nov.) : bassin AMÉNAGÉ — r 9 m, rapproché (eau à 5,8 m du bord de chaussée,
+     berge de pierre derrière le rail), eau à 1 m sous la chaussée (avant : r 7 m, 2,5 m sous la route, invisible depuis la course : 0 % de
+     l'écran mesuré), gradins de pierre de l'eau au couronnement, paroi extérieure jusqu'au sol (terrain ~3 m plus bas : remblai).
+     Décor seul : aucune collision, route et physique inchangées. WK_GC_AVANT = témoin (ancien bassin). */
+  const GC1 = !window.WK_GC_AVANT; let pR, pc, pg0;
+  if (!GC1) { pR = 7; pc = [mid.bx - mid.ox * (pR + 1), mid.bz - mid.oz * (pR + 1)]; pg0 = Infinity; for (let a = 0; a < TAU; a += .5) pg0 = Math.min(pg0, gH(pc[0] + Math.cos(a) * pR, pc[1] + Math.sin(a) * pR, mid.g));
+    const rim = new T.Mesh(new T.TorusGeometry(pR, 1, 10, 40), rockM); rim.rotation.x = Math.PI / 2; rim.scale.set(1, 1, 1.4); rim.position.set(pc[0], pg0 + .6, pc[1]); scene.add(rim); }
+  else { pR = 9; const jc = at(c), lat = hw + 14.8, yr = S.py[jc], eauY = yr - 1; pc = [S.px[jc] + S.rx[jc] * sd * lat, S.pz[jc] + S.rz[jc] * sd * lat]; pg0 = eauY - 1.1;
+    let sol = Infinity; for (let a = 0; a < TAU; a += .3) sol = Math.min(sol, gH(pc[0] + Math.cos(a) * (pR + 3.4), pc[1] + Math.sin(a) * (pR + 3.4), yr - 3));
+    const top = yr - .25, pro = [[pR - .6, eauY - 1.4], [pR, eauY - .2], [pR, eauY + .22], [pR + .9, eauY + .22], [pR + .9, eauY + .48], [pR + 1.8, eauY + .48], [pR + 1.8, top], [pR + 3.2, top], [pR + 3.35, top - .15], [pR + 3.35, sol - 1.2]];
+    const lg = new T.LatheGeometry(pro.map(([r, y]) => new T.Vector2(r, y)), 64); lg.computeVertexNormals();
+    { const P0 = lg.attributes.position, col = new Float32Array(P0.count * 3), cA = new T.Color('#b9a68a'), cB = new T.Color('#8f7f6a'), cc = new T.Color();   /* pierres en assises : clair au couronnement, plus sombre vers l'eau */
+      for (let q = 0; q < P0.count; q++) { const y = P0.getY(q), a = Math.atan2(P0.getZ(q), P0.getX(q)); cc.copy(cB).lerp(cA, smoothstep(eauY, top, y)).multiplyScalar(.9 + .1 * Math.sin(a * 23) * Math.sin(y * 9)); col.set([cc.r, cc.g, cc.b], q * 3); }
+      lg.setAttribute('color', new T.Float32BufferAttribute(col, 3)); }
+    const stoneM = rockM.clone(); stoneM.vertexColors = true; stoneM.color = new T.Color('#ffffff'); stoneM.side = T.DoubleSide; stoneM.userData.wkProduction = true;
+    const bord = new T.Mesh(lg, stoneM); bord.position.set(pc[0], 0, pc[1]); bord.castShadow = bord.receiveShadow = true; scene.add(bord);
+    W.noDecor = W.noDecor || []; W.noDecor.push({ x: pc[0], z: pc[1], r: pR + 4.5 });
+    W.temoin.p1 = { eauSousRoute: +(yr - eauY).toFixed(2), bordEauRoute: +(lat - pR - hw).toFixed(2), couronnementRoute: +(lat - pR - 3.35 - hw).toFixed(2), paroiExterieure: +(top - sol).toFixed(2) }; }
+  const rip = canvasTex(128, 128, (x, w, h) => { x.fillStyle = '#3aa6c8'; x.fillRect(0, 0, w, h); for (let q = 0; q < 60; q++) { x.strokeStyle = 'rgba(220,250,255,' + (.15 + Math.random() * .35).toFixed(2) + ')'; x.lineWidth = 1 + Math.random() * 2; x.beginPath(); x.ellipse(Math.random() * w, Math.random() * h, 6 + Math.random() * 18, 2 + Math.random() * 5, 0, 0, TAU); x.stroke(); } });
+  rip.wrapS = rip.wrapT = T.RepeatWrapping; rip.repeat.set(2, 2);
+  const pm = new T.MeshStandardMaterial({ map: rip, color: '#7fd6ef', roughness: .08, metalness: .1, transparent: true, opacity: .9, emissive: '#1d6f8f', emissiveIntensity: .25 }); pm.userData.wkProduction = true;
+  const pool = new T.Mesh(new T.CircleGeometry(GC1 ? pR + .05 : pR - .2, GC1 ? 56 : 40), pm); pool.rotation.x = -Math.PI / 2; pool.position.set(pc[0], pg0 + 1.1, pc[1]); scene.add(pool);
+  // --- écume et brume
+  const foamM = lam('#ffffff', { transparent: true, opacity: .85 }); foamM.userData.wkProduction = true; const foam = []; for (let q = 0; q < 18; q++) { const a = hash(q, 9) * TAU, r = hash(q, 4) * 3.5; foam.push({ x: pc[0] + mid.ox * 3 + Math.cos(a) * r, y: pg0 + 1.2, z: pc[1] + mid.oz * 3 + Math.sin(a) * r, s: .6 + hash(q, 2) * 1.2 }); }
+  instanced(scene, [{ geo: new T.IcosahedronGeometry(1, 1), mat: foamM }], foam);
+  const mistTex = canvasTex(64, 64, (x, w) => { const gr = x.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); gr.addColorStop(0, 'rgba(255,255,255,.75)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = gr; x.fillRect(0, 0, w, w); });
+  const mists = []; for (let q = 0; q < (low ? 3 : 7); q++) { const sm = new T.SpriteMaterial({ map: mistTex, transparent: true, opacity: .45, depthWrite: false }); const sp = new T.Sprite(sm); const s0 = 8 + q * 2.2; sp.scale.set(s0, s0 * .7, 1); sp.position.set(pc[0] + mid.ox * 2 + (hash(q, 1) - .5) * 9, pg0 + 2 + q * 1.4, pc[1] + mid.oz * 2 + (hash(q, 7) - .5) * 9); scene.add(sp); mists.push({ sp, y0: sp.position.y, ph: q }); }
+  // --- végétation accrochée : buissons sur le plateau et en corniche, lianes pendantes
+  const bushes = [], vines = []; for (let k = -L + 8; k <= L - 8; k += 4) { const s0 = secs[k + L]; if (s0.H < 8) continue;
+    bushes.push({ x: s0.bx + s0.ox * (6 + hash(k, 5) * 6), y: s0.g + s0.H + 1.2, z: s0.bz + s0.oz * (6 + hash(k, 5) * 6), s: 1.1 + hash(k, 6) * 1.3 });
+    if (Math.abs(k) > 6 && hash(k, 8) < .55) { const len = 6 + hash(k, 11) * 12; vines.push({ x: s0.bx - s0.ox * .4, y: s0.g + s0.H - len / 2, z: s0.bz - s0.oz * .4, s: 1, sy: len }); } }
+  instanced(scene, [{ geo: decorGeo('bush'), mat: lam('#ffffff'), off: tr(0, .7, 0), colors: ['#3f8f3a', '#4fa23e', '#2f7a34'] }], bushes);
+  instanced(scene, [{ geo: new T.CylinderGeometry(.18, .12, 1, 5), mat: lam('#2f6b2c'), colors: ['#2f6b2c', '#3d7d33'] }], vines);
+  // --- pont de corde : du plateau du massif à une tour de bois de l'autre côté, ≥ 20 m au-dessus de la route (aucune collision)
+  const jb = at(c + 30), sb = secs[L + 30], A = new T.Vector3(sb.bx + sb.ox * 4, sb.g + sb.H + .5, sb.bz + sb.oz * 4), ob = -(hw + 26), Bx = S.px[jb] + S.rx[jb] * sd * ob, Bz = S.pz[jb] + S.rz[jb] * sd * ob;
+  const Bg = gH(Bx, Bz, S.py[jb]), Btop = Math.max(Bg + 6, A.y), B = new T.Vector3(Bx, Btop, Bz), wood = lam('#7a5232'); wood.userData.wkProduction = true;
+  if (A.y - S.py[jb] > 22) {
+    const tower = new T.Mesh(new T.CylinderGeometry(.6, .8, Btop - Bg + 1, 8), wood); tower.position.set(Bx, (Btop + Bg) / 2, Bz); scene.add(tower);
+    const planks = []; const n = Math.round(A.distanceTo(B) / 1.1); for (let q = 0; q <= n; q++) { const u = q / n, p = A.clone().lerp(B, u); p.y -= Math.sin(u * Math.PI) * 4.5; planks.push({ x: p.x, y: p.y, z: p.z, r: Math.atan2(B.x - A.x, B.z - A.z), s: 1, sx: 2.6, sy: .18, sz: .7 }); }
+    instanced(scene, [{ geo: new T.BoxGeometry(1, 1, 1), mat: wood, colors: ['#7a5232', '#8a6040', '#6a4628'] }], planks);
+    for (const off of [-1.3, 1.3]) { const pts = []; const perp = new T.Vector3(B.z - A.z, 0, -(B.x - A.x)).normalize().multiplyScalar(off); for (let q = 0; q <= 24; q++) { const u = q / 24, p = A.clone().lerp(B, u).add(perp); p.y += 1 - Math.sin(u * Math.PI) * 4.5; pts.push(p); }
+      scene.add(new T.Mesh(new T.TubeGeometry(new T.CatmullRomCurve3(pts), 40, .07, 5), lam('#d8c08a'))); }
+  }
+  // --- animation (une fonction, coût négligeable) : eau qui tombe, bassin qui ondule, brume qui respire
+  // écume au sommet de la chute
+  { const lip = new T.Mesh(new T.SphereGeometry(1, 16, 10), foamM); lip.scale.set(9, 1.2, 2.2); lip.position.set(wx - mid.ox * .4, mid.g + Hm + .8, wz - mid.oz * .4); lip.rotation.y = ang; scene.add(lip); }
+  const spray = [pc[0] + mid.ox * 3, pg0 + 1.5, pc[1] + mid.oz * 3];
+  addTick(W, (dt, now) => { if (W.parts && camera.position.distanceToSquared(new T.Vector3(spray[0], spray[1], spray[2])) < 160 * 160) for (let q = 0; q < (low ? 1 : 3); q++) W.parts.emit(spray[0] + rand(-4, 4), spray[1], spray[2] + rand(-4, 4), rand(-2, 2), rand(3, 9), rand(-2, 2), pick(['#ffffff', '#e9fbff', '#cdeffc']), .9, 0); });
+  addTick(W, (dt, now) => { for (const l of layers) l.t.offset.y += dt * l.sp * .35; rip.offset.x += dt * .03; rip.offset.y -= dt * .02; for (const m of mists) { m.sp.position.y = m.y0 + Math.sin(now * .6 + m.ph) * .8; m.sp.material.opacity = .32 + Math.sin(now * .8 + m.ph * 1.7) * .12; } });
+  // Lumière de la scène témoin (direction artistique proposée, soumise au propriétaire) : brume claire bleu-vert au lieu du vert
+  // grisâtre, horizon plus profond, ciel bleu tropical. Données du circuit inchangées (réglage à l'exécution, réversible).
+  if (scene.fog) { scene.fog.color.set('#cfe9e6'); scene.fog.near *= 1.35; scene.fog.far *= 1.4; }
+  if (W.sky && W.sky.material.uniforms) { W.sky.material.uniforms.top.value.set('#2f8fd0'); W.sky.material.uniforms.bottom.value.set('#e2f4ee'); }
+  if (renderer && renderer.setClearColor) renderer.setClearColor('#cfe9e6');
+  W.temoin.stats = { sections: secs.length, triangles: idx.length / 3, hauteur: Hc, cote: sd };
+  W.temoin.chute = layers.map((l) => l.m); W.temoin.bassin = pool; W.temoin.pc = pc; W.temoin.pR = pR;   /* repères des mesures de visibilité (scripts/grande-cascade-mesures.cjs) ; aucun effet sur le rendu */
+  // Mesures de la recette « decor-grande-cascade » (vérifiées par scripts/concepteur-decor.cjs, jamais déclarées) :
+  { let dMin = Infinity; for (let k = -L; k <= L; k++) { const s0 = secs[k + L], j = at(c + k); for (const [a] of s0.pts) { const lat = (s0.bx + s0.ox * a - S.px[j]) * S.rx[j] * sd + (s0.bz + s0.oz * a - S.pz[j]) * S.rz[j] * sd; dMin = Math.min(dMin, lat - hw); } }
+    let cMax = 0; for (let o = -60; o <= 60; o++) cMax = Math.max(cMax, Math.abs(S.curv[at(c + o)]));
+    const bouche = Math.min(1e9, ...W.branches.flatMap((B) => [B.i0, B.i1].map((m) => Math.min(Math.abs(c - m), N - Math.abs(c - m)))));
+    const jets = (W.obst || []).filter((o) => o.style === 'eau');
+    W.temoin.mesures = { courbureMax: +cMax.toFixed(4), distanceBouche: bouche, rocheHorsRoute: +dMin.toFixed(1), pontHauteur: A.y - S.py[jb] > 22 ? +(A.y - 4.5 - S.py[jb]).toFixed(1) : 99 /* pas de pont : aucun risque */,
+      bassinHorsRoute: +(Math.hypot(pc[0] - S.px[c], pc[1] - S.pz[c]) - pR - 1.4 - hw).toFixed(1), geysers: jets.length, geysersUnCote: jets.every((o) => Math.sign(o.lat) === sd) ? 1 : 0,
+      moitieLibre: jets.length ? +Math.min(...jets.map((o) => Math.abs(o.lat) - o.r)).toFixed(2) : 99 }; }
+}
 function stripeTex(a, b, n = 8, vertical = true) { return canvasTex(128, 128, (x, w, h) => { for (let i = 0; i < n; i++) { x.fillStyle = i % 2 ? b : a; if (vertical) x.fillRect(i * w / n, 0, w / n + 1, h); else x.fillRect(0, i * h / n, w, h / n + 1); } }); }
 function glowPoints(W, list, color, size = 5, op = .85) { if (!list.length) return null; const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(list, 3)); const p = new T.Points(g, new T.PointsMaterial({ color, size, map: DOT_TEX, transparent: true, depthWrite: false, blending: T.AdditiveBlending, opacity: op })); W.scene.add(p); return p; }
 function nearBranchWin(W, i, pad = 20) { return W.branches.some((B) => (i >= B.winA[0] - pad && i <= B.winA[1] + pad) || (i >= B.winB[0] - pad && i <= B.winB[1] + pad)); }
@@ -4962,7 +6490,7 @@ function buildSpace(W, ext, cx, cz, scatter, ring, q) {
 
 /* ---------- textures de sol ---------- */
 function groundTex8(kind) {
-  if (kind === 'sakura') { const t = groundTex('grass'); const x = t.image.getContext('2d'); for (let i = 0; i < 900; i++) { x.fillStyle = pick(['rgba(255,190,215,.8)', 'rgba(255,220,235,.7)', 'rgba(255,160,200,.6)']); x.beginPath(); x.ellipse(Math.random() * 512, Math.random() * 512, rand(1.5, 3.5), rand(1, 2), rand(0, 3), 0, TAU); x.fill(); } t.needsUpdate = true; return t; }
+  if (kind === 'sakura') { const t = texReady(groundTex('grass')); const x = t.image.getContext('2d'); for (let i = 0; i < 900; i++) { x.fillStyle = pick(['rgba(255,190,215,.8)', 'rgba(255,220,235,.7)', 'rgba(255,160,200,.6)']); x.beginPath(); x.ellipse(Math.random() * 512, Math.random() * 512, rand(1.5, 3.5), rand(1, 2), rand(0, 3), 0, TAU); x.fill(); } t.needsUpdate = true; return t; }
   if (kind === 'savanna') { const nL = fbm(3, 4, 431), nF = tileNoise(128, 441); const a = rgb('#c8a050'), b = rgb('#e8c878'), c = rgb('#a88a40');
     return pixelTex(512, 512, (u, v) => { let col = mix3(a, b, clamp((nL(u, v) - .3) * 1.8, 0, 1)); col = mix3(col, c, clamp((nF(u, v) - .6) * 2, 0, 1) * .4); return mulc(col, .92 + nF(u, v) * .12); },
       (x, w, h) => { x.lineWidth = 1.3; for (let i = 0; i < 3000; i++) { const px = Math.random() * w, py = Math.random() * h, l = 3 + Math.random() * 7, dx = rand(-1.6, 1.6); x.strokeStyle = Math.random() < .5 ? 'rgba(150,110,40,.3)' : 'rgba(255,230,150,.3)'; wrapDraw(w, h, px, py, 10, (X, Y) => { x.beginPath(); x.moveTo(X, Y); x.lineTo(X + dx, Y - l); x.stroke(); }); } }); }
@@ -5025,7 +6553,7 @@ function buildGrass9(W) {
 }
 /* ================= v10 : Coupe Horizon (Lavande, Automne, Lagon, Ruines antiques) ================= */
 function groundTex10(kind) {
-  const dots = (t, cols, n, rx = [1.5, 3.5], ry = [1, 2.2]) => { const x = t.image.getContext('2d'); for (let i = 0; i < n; i++) { x.fillStyle = pick(cols); x.beginPath(); x.ellipse(Math.random() * 512, Math.random() * 512, rand(rx[0], rx[1]), rand(ry[0], ry[1]), rand(0, 3), 0, TAU); x.fill(); } t.needsUpdate = true; return t; };
+  const dots = (t, cols, n, rx = [1.5, 3.5], ry = [1, 2.2]) => { const x = texReady(t).image.getContext('2d'); for (let i = 0; i < n; i++) { x.fillStyle = pick(cols); x.beginPath(); x.ellipse(Math.random() * 512, Math.random() * 512, rand(rx[0], rx[1]), rand(ry[0], ry[1]), rand(0, 3), 0, TAU); x.fill(); } t.needsUpdate = true; return t; };
   if (kind === 'lavender') return dots(groundTex('grass'), ['rgba(150,110,230,.75)', 'rgba(180,140,240,.6)', 'rgba(255,230,120,.6)', 'rgba(255,255,255,.5)'], 700);
   if (kind === 'autumn') { const nL = fbm(3, 4, 611), nF = tileNoise(128, 621); const a = rgb('#8a8a3a'), b = rgb('#b8943e'), c = rgb('#6a7a32');
     return pixelTex(512, 512, (u, v) => { let col = mix3(a, b, clamp((nL(u, v) - .3) * 1.8, 0, 1)); col = mix3(col, c, clamp((nF(u, v) - .6) * 2, 0, 1) * .4); return mulc(col, .92 + nF(u, v) * .12); },
@@ -5214,6 +6742,59 @@ function buildAntique(W, ext, cx, cz, scatter, ring, q) {
 /* Murs réels : fermer chaque bouche d'embranchement côté extérieur. Le mur de la route principale s'arrêtait avant le début du mur
    extérieur de la branche (et repartait après sa fin) : un kart qui longeait le mur passait dans le champ, derrière la branche
    (AUDIT-DIRECTIVE.md, A1). Un tronçon de barrière visible, avec sa collision, relie les deux bouts libres réellement construits. */
+/* Dessous des routes surélevées (cartes historiques, V1) : la chaussée est une bande à face unique, bordée seulement de jupes latérales ;
+   vue d'en dessous (Ruban, rampe du Flipper, branches « RISQUÉ »), on voyait le ciel au travers. Soffite plan, tourné vers le bas, à 0,5 m
+   sous la chaussée et sur toute la largeur entre les murs, avec deux lèvres latérales qui ferment la tranche. Construit seulement là où la
+   route domine le sol d'au moins 1,5 m (sinon il resterait enfoui sous le terrain) : couleur unie et face unique pour un coût minimal.
+   Aucune collision : la physique arcade du sol est inchangée. */
+function buildUndersides(W, gapS, warpS) {
+  const { S, th, scene, def } = W, paths = [S, ...W.branches], cell = 16; // y compris les pistes hors-route surélevées (FOSSE du Festival)
+  // Altitude la plus basse des routes voisines (terrain aplani à min - 1,2 m autour des routes, buildTerrain).
+  const grid = new Map(), key = (x, z) => Math.floor(x / cell) + ',' + Math.floor(z / cell);
+  // Trouée de planeur : le terrain y est creusé de « drop » sous la route (ravin, étang) ; les routes voisines dominent ce creux.
+  const drop = th.terrain ? (def.pond ? def.pond.depth : th.terrain.drop || 22) : 0;
+  for (const P of paths) for (let i = 0; i < P.N; i++) { const k = key(P.px[i], P.pz[i]), h = P.py[i] - (P === S && S.glide[i] ? drop : 0); const v = grid.get(k); if (v == null || h < v) grid.set(k, h); }
+  const localMin = (x, z, r) => { let m = Infinity; const n = Math.ceil(r / cell); const cx = Math.floor(x / cell), cz = Math.floor(z / cell);
+    for (let a = -n; a <= n; a++) for (let b = -n; b <= n; b++) { const v = grid.get((cx + a) + ',' + (cz + b)); if (v != null && v < m) m = v; } return m; };
+  const floating = !!(th.skirtDepth || th.floating), ground = th.groundY != null ? th.groundY : -1;
+  // Double face : par les trous de la surface du dessus (accotement omis près des bouches), on voit l'épaisseur du tablier et non le vide.
+  const mat = new T.MeshLambertMaterial({ color: new T.Color(th.skirt || '#6a6a74').multiplyScalar(.55), side: T.DoubleSide }), lip = new T.MeshLambertMaterial({ color: mat.color, side: T.DoubleSide });
+  const matBack = new T.MeshLambertMaterial({ color: mat.color }); // face unique : ne masque pas le talus vu de dessus
+  mat.name = 'Dessous de route'; W.underMat = mat; W.underBackMat = matBack; let tris = 0;
+  for (const P of paths) {
+    const d = P === S ? W.wallD : P.wallD, N = P.N, up = new Uint8Array(N);
+    // Cartes à terrain : sol réel (grille de buildTerrain) au centre et aux deux bords ; sous une route posée, il est à 1,2 m sous elle.
+    const TG = W.terrainGrid, terrainAt = (x, z) => { const gx = clamp((x - TG.x0) / TG.step, 0, TG.segs - 1e-3), gz = clamp((z - TG.z0) / TG.step, 0, TG.segs - 1e-3), ix = Math.floor(gx), iz = Math.floor(gz), fx = gx - ix, fz = gz - iz, R1 = TG.segs + 1, H = TG.H;
+      return lerp(lerp(H[iz * R1 + ix], H[iz * R1 + ix + 1], fx), lerp(H[(iz + 1) * R1 + ix], H[(iz + 1) * R1 + ix + 1], fx), fz); };
+    const lowGround = (i) => { if (!TG) return localMin(P.px[i], P.pz[i], d + 8); let m = Infinity; for (const o of [-d, 0, d]) m = Math.min(m, terrainAt(P.px[i] + P.rx[i] * o, P.pz[i] + P.rz[i] * o)); return m; };
+    (W.underDebug = W.underDebug || {})[P === S ? -1 : P.id] = { up, g: (i) => (TG ? lowGround(i) : null) };
+    for (let i = 0; i < N; i++) up[i] = floating || (th.terrain ? P.py[i] - lowGround(i) > (TG ? 1.6 : 1.5) : P.py[i] - ground > 1.5) ? 1 : 0;
+    const nx = (i) => (P.closed === false ? Math.min(i + 1, N - 1) : (i + 1) % N);
+    // Branche encore au niveau de la route principale et dans son emprise (bouche) : son dessous traverserait la chaussée principale
+    // en biais et dépasserait de quelques centimètres (POUDREUSE de la Glissade, signalement « raccourci masqué »).
+    const overMain = (i) => { if (P === S || !P.map) return false; const m = P.map[i]; if (m == null) return false; return Math.hypot(P.px[i] - S.px[m], P.pz[i] - S.pz[m]) < W.wallD + d && Math.abs(P.py[i] - S.py[m]) < 3; };
+    const skip = (i) => !(up[i] || up[nx(i)]) || overMain(i) || overMain(nx(i)) || (P === S ? gapS(i) || warpS(i) : !!(P.glide && (P.glide[i] || P.glide[nx(i)])));
+    const add = (geo, m) => { const mesh = new T.Mesh(geo, m); mesh.name = 'Dessous de route'; scene.add(mesh); tris += geo.index ? geo.index.count / 3 : 0; };
+    add(bandGeo(P, [{ o: d, y: -.5 }, { o: -d, y: -.5 }], { vScale: 10, skip }), mat);
+    // Cartes à terrain : le talus (7 m, -5 m) qui borde la route pend dans le vide sous une route surélevée ; vu d'en dessous, on voyait
+    // le ciel à travers sa face arrière. Face inverse sombre (face unique, orientée vers le bas), seulement là où la route domine le sol.
+    if (th.terrain) for (const sg of [-1, 1]) {
+      const openS = P === S ? 0 : -P.side, nearMain = (j) => j <= P.jA + 2 || j >= P.jB - 2;
+      const talusSkip = P === S ? (W.skirtSkip ? W.skirtSkip[sg] : () => false) : (j) => sg === openS && nearMain(j);
+      // Talus en l'air : sol réel plus bas que son milieu ou son pied (sinon il est enfoui dans le terrain, rien à fermer).
+      const at = (i, o) => terrainAt(P.px[i] + P.rx[i] * sg * o, P.pz[i] + P.rz[i] * sg * o);
+      const air = new Uint8Array(N); for (let i = 0; i < N; i++) air[i] = TG && (P.py[i] - 5 > at(i, d + 7) || P.py[i] - 2.5 > at(i, d + 3.5)) ? 1 : 0;
+      const sk3 = (i) => !(air[i] || air[nx(i)]) || overMain(i) || overMain(nx(i)) || talusSkip(i) || talusSkip(nx(i)) || (P === S ? gapS(i) || warpS(i) : !!(P.glide && (P.glide[i] || P.glide[nx(i)])));
+      add(bandGeo(P, sg > 0 ? [{ o: d + 7, y: -5 }, { o: d, y: P === S ? .06 : .07 }] : [{ o: -d, y: P === S ? .06 : .07 }, { o: -d - 7, y: -5 }], { world: true, skip: sk3 }), matBack);
+    }
+    // Lèvres : seulement où la jupe (ou le talus des cartes à terrain) manque, sur la route principale ; sur les branches, les jupes ne
+    // manquent qu'à la bouche, couverte par la route principale.
+    if (P !== S || !W.skirtSkip) continue;
+    for (const sg of [-1, 1]) { const ss = W.skirtSkip[sg], sk2 = (i) => skip(i) || !(ss(i) || ss(nx(i)));
+      add(bandGeo(P, sg < 0 ? [{ o: -d + .05, y: .06 }, { o: -d + .05, y: -.5 }] : [{ o: d - .05, y: -.5 }, { o: d - .05, y: .06 }], { vScale: 10, skip: sk2 }), lip); }
+  }
+  W.undersideTris = tris;
+}
 function closeJunctionWalls(W, wallMat, railMat) {
   const { scene, S } = W, segs = []; W.junctionClosures = [];
   // Murs et clôtures des branches hors route (matériau différent) : sans elles, leurs bouches restaient ouvertes (Train Fou, Glissade, Festival).
@@ -5235,7 +6816,7 @@ function closeJunctionWalls(W, wallMat, railMat) {
   };
   const connect = (B, end, part, a, b) => {
     if (!a || !b) { W.junctionClosures.push({ branch: B.id, end, part, closed: false }); return; }
-    const L = Math.hypot(b[0] - a[0], b[2] - a[2]); if (L < .6 || L > 60) { W.junctionClosures.push({ branch: B.id, end, part, closed: L < .6, length: +L.toFixed(1) }); return; }
+    const L = Math.hypot(b[0] - a[0], b[2] - a[2]); if (L < .6 || L > 60) { W.junctionClosures.push({ branch: B.id, end, part, closed: L < .6, length: +L.toFixed(1), a: a.map((v) => +v.toFixed(1)), b: b.map((v) => +v.toFixed(1)) }); return; }
     const n = Math.max(1, Math.ceil(L / 2)), pts = []; for (let q = 0; q <= n; q++) pts.push([lerp(a[0], b[0], q / n), lerp(a[1], b[1], q / n), lerp(a[2], b[2], q / n)]);
     build(B, end, part, pts);
   };
@@ -5257,7 +6838,13 @@ function closeJunctionWalls(W, wallMat, railMat) {
     for (const end of ['A', 'B']) {
       // Bout libre du mur principal (dernier point construit avant la bouche) et du mur extérieur de la branche (premier point construit).
       let iM = null, jB = null;
-      if (end === 'A') { for (let q = 0; q < 140; q++) { const i = B.i0 - 60 + q; if (present(S, i, dM) && !present(S, i + 1, dM)) { iM = i; break; } }
+      // Recherche depuis la bouche elle-même (mur absent au point de départ ou d'arrivée de la branche) : sur l'arène, partir 60 échantillons
+      // au-delà tombait sur la bouche voisine et appariait de mauvais bouts (fermetures de 76 à 104 m, non construites). Repli : ancienne recherche.
+      if (end === 'A' && !present(S, B.i0, dM)) { for (let q = 1; q < 140; q++) if (present(S, B.i0 - q, dM)) { iM = B.i0 - q; break; }
+        for (let j = 0; j < Math.min(B.N - 1, 120); j++) if (present(B, j, dB)) { jB = j; break; } }
+      else if (end === 'B' && !present(S, B.i1, dM)) { for (let q = 1; q < 140; q++) if (present(S, B.i1 + q, dM)) { iM = B.i1 + q; break; }
+        for (let j = B.N - 1; j > Math.max(0, B.N - 121); j--) if (present(B, j, dB)) { jB = j; break; } }
+      else if (end === 'A') { for (let q = 0; q < 140; q++) { const i = B.i0 - 60 + q; if (present(S, i, dM) && !present(S, i + 1, dM)) { iM = i; break; } }
         for (let j = 0; j < Math.min(B.N - 1, 120); j++) if (present(B, j, dB)) { jB = j; break; } }
       else { for (let q = 0; q < 140; q++) { const i = B.i1 + 60 - q; if (present(S, i, dM) && !present(S, i - 1, dM)) { iM = i; break; } }
         for (let j = B.N - 1; j > Math.max(0, B.N - 121); j--) if (present(B, j, dB)) { jB = j; break; } }
@@ -5266,9 +6853,11 @@ function closeJunctionWalls(W, wallMat, railMat) {
       const G2 = (W.gores || []).find((g) => g.B === B && g.nose === end), gp = G2 && G2.pts.length > 1 ? G2.pts : null;
       let iR = null, jI = null;
       // Reprise du mur principal : premier point construit après l'intervalle qui suit le bout libre extérieur (jamais avant l'ouverture).
-      if (end === 'A') { const i0 = iM == null ? B.i0 : iM + 1; for (let q = 0; q < 200; q++) { const i = i0 + q; if (present(S, i, dM) && !present(S, i - 1, dM)) { iR = i; break; } }
+      // Une trouée de planeur interrompt la recherche : son bord (premier ou dernier point de la limite de vol, glideEnvelope) sert de reprise.
+      const inGlide = (i) => S.glide && S.glide[((i % N) + N) % N];
+      if (end === 'A') { const i0 = iM == null ? B.i0 : iM + 1; for (let q = 0; q < 200; q++) { const i = i0 + q; if (inGlide(i) || present(S, i, dM) && !present(S, i - 1, dM)) { iR = i; break; } }
         for (let j = 0; j < Math.min(B.N - 1, 160); j++) if (present(B, j, -dB)) { jI = j; break; } }
-      else { const i1 = iM == null ? B.i1 : iM - 1; for (let q = 0; q < 200; q++) { const i = i1 - q; if (present(S, i, dM) && !present(S, i + 1, dM)) { iR = i; break; } }
+      else { const i1 = iM == null ? B.i1 : iM - 1; for (let q = 0; q < 200; q++) { const i = i1 - q; if (inGlide(i) || present(S, i, dM) && !present(S, i + 1, dM)) { iR = i; break; } }
         for (let j = B.N - 1; j > Math.max(0, B.N - 161); j--) if (present(B, j, -dB)) { jI = j; break; } }
       const nose = gp && (end === 'A' ? gp[0] : gp[gp.length - 1]), tail = gp && (end === 'A' ? gp[gp.length - 1] : gp[0]);
       connect(B, end, 'nez', iR == null ? null : ptOn(S, iR, dM), nose);
@@ -5292,6 +6881,18 @@ function glideEnvelope(W, wallMat) {
       const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setIndex(idx);
       window.WKProduction.barrierStrip(g, pos, S.id); for (const sgm of g.userData.barriers) sgm.flight = true;
       const m = new T.Mesh(g, wallMat); m.visible = false; m.name = 'Limite de vol (invisible)'; W.scene.add(m);
+    }
+  }
+  // Envols de branche : même limite, raccordée aux murs de la branche aux deux bords du vide.
+  for (const B of W.branches) {
+    if (B.glideA == null) continue; const lim = B.lim * 1.5 + 1.3, pt = (j, d) => [B.px[j] + B.rx[j] * d, B.py[j], B.pz[j] + B.rz[j] * d];
+    for (const sg of [-1, 1]) {
+      const pts = [pt(B.glideA, sg * B.wallD)]; for (let j = B.glideA + 3; j <= B.glideB - 3; j += 2) pts.push(pt(j, sg * lim)); pts.push(pt(B.glideB, sg * B.wallD));
+      const pos = []; for (const p of pts) pos.push(p[0], p[1] + .06, p[2], p[0], p[1] + 1.12, p[2]);
+      const idx = []; for (let q = 1; q < pts.length; q++) { const k = (q - 1) * 2; idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2); }
+      const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setIndex(idx);
+      window.WKProduction.barrierStrip(g, pos, B.id); for (const sgm of g.userData.barriers) sgm.flight = true;
+      const m = new T.Mesh(g, wallMat); m.visible = false; m.name = 'Limite de vol de l\'envol (invisible)'; W.scene.add(m);
     }
   }
 }
@@ -5364,14 +6965,18 @@ function buildGores(W, mats) {
   const gm = new T.MeshStandardMaterial({ map: GORE_TEX, roughness: .5, side: T.DoubleSide });
   for (const G2 of W.gores) {
     const p = G2.pts; if (p.length < 2) continue; const off = G2.B.offroad;
-    if (W.def.production) for (let j = 0; j < p.length; j++) {
+    if (G2.B.heightAt) for (let j = 0; j < p.length; j++) {
       const B = G2.B, i = G2.nose === 'A' ? B.noseA + j : Math.max(0, B.jB - 4) + j;
       p[j][1] = B.heightAt(p[j][0], p[j][2], i, B.py[i]);
     }
     const pos = [], uv = [], idx = []; let L = 0;
+    // Branche ouverte plus haute que la route de plus de 2,5 m : muret sans collision (voir plus bas) → pas dessiné non plus (un mur
+    // visible mais traversable trompe le joueur ; contrôleur du concepteur, nez de l'ARÊTE de la Glissade).
+    const B0 = G2.B, sansMur = (x, z) => { if (W.def.production || !B0.def.open || !realWalls(W.def) || !B0.map) return false; let bd = 1e18, bj = 0; for (let j = 0; j < B0.N; j++) { const d = (B0.px[j] - x) ** 2 + (B0.pz[j] - z) ** 2; if (d < bd) { bd = d; bj = j; } } return B0.py[bj] - S.py[B0.map[bj]] > 2.5; };
     for (let k = 0; k < p.length; k++) { if (k) L += Math.hypot(p[k][0] - p[k - 1][0], p[k][2] - p[k - 1][2]);
       pos.push(p[k][0], p[k][1] + .05, p[k][2], p[k][0], p[k][1] + (off ? .65 : 1.15), p[k][2]); uv.push(L / 6, 0, L / 6, 1);
-      if (k) { const a = (k - 1) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); } }
+      if (k && !sansMur((p[k][0] + p[k - 1][0]) / 2, (p[k][2] + p[k - 1][2]) / 2)) { const a = (k - 1) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); } }
+    if (!idx.length) continue;
     const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new T.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
     if (realWalls(W.def)) {
       window.WKProduction.barrierStrip(g, pos, G2.B.id); for (const sg of g.userData.barriers) sg.gore = true;
@@ -5399,23 +7004,32 @@ const DIRT_TEX = (() => { const nL = fbm(4, 4, 711), nF = tileNoise(64, 721); co
     (x, w, h) => { for (let i = 0; i < 260; i++) { x.fillStyle = pick(['rgba(200,190,170,.8)', 'rgba(120,100,80,.7)', 'rgba(230,220,200,.6)']); x.beginPath(); x.ellipse(w * rand(.12, .88), Math.random() * h, rand(1, 2.6), rand(.8, 2), rand(0, 3), 0, TAU); x.fill(); } }); })();
 SHARED.add(DIRT_TEX);
 // bande d'un embranchement découpée au bord de la route principale (pas de surfaces superposées)
-function branchBand(B, hwMain, cols, y, uvMode) {
+function branchBand(B, hwMain, cols, y, uvMode, S) {
   // cols : [far, near] décalages "naturels" (unités : côté opposé à la route principale = négatif)
-  const N = B.N, openS = -B.side, pos = [], uv = [], surfaceUV = [], idx = []; let k = 0, open = false, v = 0;
+  const N = B.N, openS = -B.side, pos = [], uv = [], surfaceUV = [], idx = [], vs = new Float32Array(N), lims = [], rows = new Map();
+  // Bouche épousant la route principale (B.hAct / B.heightAt) : colonnes intermédiaires (≈ 1 m) seulement là, pour suivre la surface
+  // sans alourdir le reste de la branche (triangles mobiles).
+  const K = B.heightAt ? Math.max(1, Math.ceil(cols[1] - cols[0])) : 1, act = (j) => !!(B.hAct && B.hAct(j));
   for (let j = 0; j < N; j++) {
     const lim = B.dl[j] - hwMain; // distance (côté route principale) du bord principal au centre du raccourci
     // La découpe suit l'axe latéral du raccourci, oblique par rapport à la route principale : la distance au bord principal est
     // allongée de 1/cos(angle), plus 0,3 m de recouvrement (sinon un triangle de terrain apparaissait au nez, AUDIT-DIRECTIVE A10).
     const cs = B.cosMain ? B.cosMain[j] : 1;
     let far = cols[0], near = Math.min(cols[1], lim / cs + .3);
+    // Coupe exacte (route principale connue) : point de l'axe latéral du raccourci situé 0,3 m à l'intérieur du bord de la route
+    // principale. L'approximation 1/cos (cosinus plafonné à 0,35) s'arrêtait jusqu'à 0,9 m avant le bord, dont le vibreur est retiré à
+    // la bouche : bande sans chaussée (Coup de Soleil, Sieste ; contrôleur du concepteur).
+    if (S && B.map && (j < B.noseA || j > B.noseB)) { const g = B.map[j], d = (o) => { const oo = o * openS, x = B.px[j] + B.rx[j] * oo, z = B.pz[j] + B.rz[j] * oo; const m = nearestOn(S, x, z, g, 30)[0]; return Math.abs(latOn(S, m, x, z)) - (hwMain - .3); };
+      if (d(cols[1]) > 0) near = cols[1]; else if (d(far) <= 0) near = far; else { let lo = far, hi = cols[1]; for (let it = 0; it < 22; it++) { const mid = (lo + hi) / 2; if (d(mid) > 0) lo = mid; else hi = mid; } near = hi; } }
     const inMouth = j < B.noseA || j > B.noseB; if (!inMouth) near = cols[1];
-    const ok = near - far > .05;
-    if (j) v += B.seg;
-    if (!ok) { open = false; continue; }
-    for (const [o, u] of [[far, 0], [near, 1]]) { const oo = o * openS, x = B.px[j] + B.rx[j] * oo, z = B.pz[j] + B.rz[j] * oo; pos.push(x, B.py[j] + y, z); uv.push(uvMode === 'world' ? x / 40 : (o - cols[0]) / (cols[1] - cols[0]), uvMode === 'world' ? -z / 40 : v / (uvMode || 24)); surfaceUV.push(oo / 3, v / 3); }
-    if (open) { const a2 = (k - 1) * 2; idx.push(a2, a2 + 2, a2 + 1, a2 + 1, a2 + 2, a2 + 3); }
-    open = true; k++;
+    if (j) vs[j] = vs[j - 1] + B.seg;
+    lims.push(near - far > .05 && !(B.glideA != null && j > B.glideA && j < B.glideB) ? [far, near] : null);
   }
+  const row = (j, kc) => { const key = j * 64 + kc; if (rows.has(key)) return rows.get(key); const [far, near] = lims[j], base = pos.length / 3, v = vs[j];
+    for (let c = 0; c <= kc; c++) { const o = far + (near - far) * c / kc, oo = o * openS, x = B.px[j] + B.rx[j] * oo, z = B.pz[j] + B.rz[j] * oo; pos.push(x, (B.heightAt ? B.heightAt(x, z, j, B.py[j]) : B.py[j]) + y, z); uv.push(uvMode === 'world' ? x / 40 : (o - cols[0]) / (cols[1] - cols[0]), uvMode === 'world' ? -z / 40 : v / (uvMode || 24)); surfaceUV.push(oo / 3, v / 3); }
+    rows.set(key, base); return base; };
+  for (let j = 1; j < N; j++) { if (!lims[j - 1] || !lims[j]) continue; const kc = act(j - 1) || act(j) ? K : 1, a0 = row(j - 1, kc), b0 = row(j, kc);
+    for (let c = 0; c < kc; c++) { const a = a0 + c, b = b0 + c; idx.push(a, b, a + 1, a + 1, b, b + 1); } }
   // orientation : la face doit regarder vers le haut quel que soit le côté du raccourci
   if (idx.length >= 3) { const P = (q) => [pos[q * 3], pos[q * 3 + 1], pos[q * 3 + 2]]; let ny = 0; for (let t = 0; t < idx.length; t += 3) { const A = P(idx[t]), B2 = P(idx[t + 1]), C = P(idx[t + 2]); ny += (B2[2] - A[2]) * (C[0] - A[0]) - (B2[0] - A[0]) * (C[2] - A[2]); }
     if (ny < 0) for (let t = 0; t < idx.length; t += 3) { const x = idx[t + 1]; idx[t + 1] = idx[t + 2]; idx[t + 2] = x; } }
@@ -5426,22 +7040,29 @@ function buildBranchGeo2(W, B, mats) {
   const { scene, curbW, th } = W, hw = B.hw, wD = B.wallD, S = W.S, H = W.hw; const OFF = B.offroad;
   const nearMain = (j) => j <= B.jA + 2 || j >= B.jB - 2, mouth = (j) => j < B.noseA || j > B.noseB, outside = (j) => j >= B.crossA && j <= B.crossB;
   const openS = -B.side; // côté qui fait face à la route principale (repère du raccourci)
+  const gl = (j) => B.glideA != null && j >= B.glideA && j < B.glideB; // envol : ni route, ni bas-côté, ni mur au-dessus du vide
   // accotements : côté extérieur seulement hors de la route principale ; côté intérieur après le nez
   const shN = openS > 0 ? [{ o: hw + curbW - .05, y: .07 }, { o: wD, y: .07 }] : [{ o: -wD, y: .07 }, { o: -hw - curbW + .05, y: .07 }];
   const shF = openS > 0 ? [{ o: -wD, y: .07 }, { o: -hw - curbW + .05, y: .07 }] : [{ o: hw + curbW - .05, y: .07 }, { o: wD, y: .07 }];
-  scene.add(new T.Mesh(bandGeo(B, shN, { world: true, skip: (j) => mouth(j) }), mats.shoulder));
-  scene.add(new T.Mesh(bandGeo(B, shF, { world: true, skip: (j) => !outside(j) || B.dl[j] + hw + curbW < H + curbW + 1 }), mats.shoulder));
+  scene.add(new T.Mesh(bandGeo(B, shN, { world: true, skip: (j) => mouth(j) || gl(j) }), mats.shoulder));
+  scene.add(new T.Mesh(bandGeo(B, shF, { world: true, skip: (j) => !outside(j) || B.dl[j] + hw + curbW < H + curbW + 1 || gl(j) }), mats.shoulder));
   // chaussée découpée au bord de la route principale
   const roadMat = OFF ? mats.path : mats.road; if (W.roles) W.roles.set(roadMat, 'road');
-  scene.add(new T.Mesh(W.def.production && !OFF ? window.WKProduction.branchMesh(B) : branchBand(B, H, [-(hw + (OFF ? curbW : 0)), hw + (OFF ? curbW : 0)], OFF ? .112 : .115, OFF ? 16 : 24), roadMat));
+  scene.add(new T.Mesh(W.def.production && !OFF ? window.WKProduction.branchMesh(B) : branchBand(B, H, [-(hw + (OFF ? curbW : 0)), hw + (OFF ? curbW : 0)], OFF ? .112 : .115, OFF ? 16 : 24, S), roadMat));
   if (!OFF) {
     const cf = openS > 0 ? [{ o: -hw - curbW, y: .09 }, { o: -hw - curbW * .5, y: .21 }, { o: -hw, y: .12 }] : [{ o: hw, y: .12 }, { o: hw + curbW * .5, y: .21 }, { o: hw + curbW, y: .09 }];
     const cn = openS > 0 ? [{ o: hw, y: .12 }, { o: hw + curbW * .5, y: .21 }, { o: hw + curbW, y: .09 }] : [{ o: -hw - curbW, y: .09 }, { o: -hw - curbW * .5, y: .21 }, { o: -hw, y: .12 }];
-    scene.add(new T.Mesh(bandGeo(B, cf, { vScale: 6, skip: (j) => !outside(j) }), mats.curb));
-    scene.add(new T.Mesh(bandGeo(B, cn, { vScale: 6, skip: (j) => mouth(j) }), mats.curb));
+    // Vibreur posé sur la chaussée d'une AUTRE route (branches qui se croisent à niveau, Rond-Point) : pas dessiné à cet endroit (avant :
+    // bande orange en travers de l'autre route ; contrôleur du concepteur, X « bordure qui traverse une autre chaussée »).
+    const surAutre = (cols) => { const o = (cols[0].o + cols[2].o) / 2, m = new Uint8Array(B.N); for (let j = 0; j < B.N; j++) { const x = B.px[j] + B.rx[j] * o, z = B.pz[j] + B.rz[j] * o;
+      for (const Q of [S, ...W.branches]) { if (Q === B || Q === S && mouth(j)) continue; let bd = 1e18, bq = -1; for (let q = 0; q < Q.N; q += 2) { const d = (Q.px[q] - x) ** 2 + (Q.pz[q] - z) ** 2; if (d < bd) { bd = d; bq = q; } }
+        if (bq < 0 || bd > (Q.hw || H) ** 2 + 16) continue; const lat = Math.abs((x - Q.px[bq]) * Q.rx[bq] + (z - Q.pz[bq]) * Q.rz[bq]); if (lat < (Q.hw || H) - .2 && Math.abs(Q.py[bq] - B.py[j]) < 1.5) { m[j] = 1; break; } } } return m; };
+    const mF = surAutre(cf), mN = surAutre(cn);
+    scene.add(new T.Mesh(bandGeo(B, cf, { vScale: 6, skip: (j) => !outside(j) || gl(j) || mF[j] || mF[Math.min(B.N - 1, j + 1)] }), mats.curb));
+    scene.add(new T.Mesh(bandGeo(B, cn, { vScale: 6, skip: (j) => mouth(j) || gl(j) || mN[j] || mN[Math.min(B.N - 1, j + 1)] }), mats.curb));
   }
   for (const sgn of [-1, 1]) {
-    const d = sgn * wD, inner = sgn === openS, sk0 = (j) => (inner ? nearMain(j) : !outside(j) || B.dl[j] + wD < W.wallD) || wBlk(B, j, sgn) || wBlk(B, j + 1, sgn), sk = (j) => sk0(j) || !!(B.nowall && B.nowall[j]);
+    const d = sgn * wD, inner = sgn === openS, sk0 = (j) => (inner ? nearMain(j) : !outside(j) || B.dl[j] + wD < W.wallD) || wBlk(B, j, sgn) || wBlk(B, j + 1, sgn) || gl(j), sk = (j) => sk0(j) || !!(B.nowall && B.nowall[j]);
     scene.add(new T.Mesh(bandGeo(B, [{ o: d, y: .07 }, { o: d, y: OFF ? .62 : 1.12 }], { vScale: 8, skip: sk, collision: realWalls(W.def) }), OFF ? mats.fence : mats.wall));
     scene.add(new T.Mesh(tubeAlong(B, d, OFF ? .68 : 1.2, OFF ? .1 : .14, 8, 2, sk), OFF ? mats.fenceRail : mats.rail));
     if (OFF) { const posts = []; for (let j = 0; j < B.N; j += 2) { if (sk(j)) continue; posts.push({ x: B.px[j] + B.rx[j] * d, z: B.pz[j] + B.rz[j] * d, y: B.py[j], s: 1, r: B.hd[j] }); }
@@ -5449,9 +7070,10 @@ function buildBranchGeo2(W, B, mats) {
     if (th.terrain) scene.add(new T.Mesh(sgn > 0 ? bandGeo(B, [{ o: d, y: .07 }, { o: d + 7, y: -5 }], { world: true, skip: sk0 }) : bandGeo(B, [{ o: d - 7, y: -5 }, { o: d, y: .07 }], { world: true, skip: sk0 }), mats.shoulder));
     else scene.add(new T.Mesh(bandGeo(B, [th.skirtDepth ? { o: d, y: -th.skirtDepth } : { o: d, y: th.groundY != null ? th.groundY : -1, abs: true }, { o: d, y: .07 }], { vScale: 10, skip: sk0 }), mats.skirt));
   }
-  const jm = Math.floor(B.N * .5);
+  const jm = B.glideA != null ? Math.max(B.jA + 8, B.glideA - 40) : Math.floor(B.N * .5); // boîtes avant la rampe d'un envol
   if (!OFF) for (const f of [-.45, 0, .45]) { const x = B.px[jm] + B.rx[jm] * f * hw, z = B.pz[jm] + B.rz[jm] * f * hw; W.addBox(x, z, B.py[jm]); }
-  if (B.def.boost) { const jb = Math.floor(B.N * .3); scene.add(new T.Mesh(quadAt(B, jb, 0, 2.6, 4.5, .16), mats.pad)); W.pads.push({ i: jb, lat: 0, P: B }); }
+  // boost : true (une plaque à 30 %) ou liste de fractions de la branche (concepteur : raccourci rendu utile par ses turbos).
+  for (const f of Array.isArray(B.def.boost) ? B.def.boost : B.def.boost ? [.3] : []) { const jb = Math.floor(B.N * f); scene.add(new T.Mesh(quadAt(B, jb, 0, 2.6, 4.5, .16), mats.pad)); W.pads.push({ i: jb, lat: 0, P: B }); }
   if (B.def.tunnel) tunnelOn(W, B, [[B.jA + 6, B.jB - 6]], B.def.tunnel); if (B.def.tunnel === 'aqua') aquaExtras(W, B, B.jA + 6, B.jB - 6);
   if (B.def.portal) buildPortal(W, B);
   if (B.def.barn) buildBarn(W, B);
@@ -5464,12 +7086,17 @@ function buildBranchGeo2(W, B, mats) {
   for (const o of [-2.1, 2.1]) { const post = new T.Mesh(new T.CylinderGeometry(.1, .1, 4.2, 8), stdMat('#e9ecf4', .3, .7)); post.position.set(sx + S.fx[si] * 0 + Math.cos(S.hd[si]) * o, by + 1.6, sz - Math.sin(S.hd[si]) * o); scene.add(post); }
 }
 // plaques turbo, boîtes et dos d'âne : jamais dans une jonction
-function clearOfJunctions(W, t) { const S = W.S, N = S.N; let i = Math.floor(t * N); for (let k = 0; k < 80; k++) { const bad = W.branches.some((B) => inWin(i, [B.winA[0] - 10, B.winA[1] + 10]) || inWin(i, [B.winB[0] - 10, B.winB[1] + 10])); if (!bad) return i / N; i = (i + 3) % N; } return t; }
+// … ni dans une section déformée (±12) : une plaque posée à la position physique y flotterait loin de la route affichée (Gravité Zéro).
+function clearOfJunctions(W, t) { const S = W.S, N = S.N; let i = Math.floor(t * N); for (let k = 0; k < 80; k++) { const bad = W.branches.some((B) => inWin(i, [B.winA[0] - 10, B.winA[1] + 10]) || inWin(i, [B.winB[0] - 10, B.winB[1] + 10])) || !!(S.wz && [-12, -6, 0, 6, 12].some((o) => S.wz[((i + o) % N + N) % N])); if (!bad) return i / N; i = (i + 3) % N; } return t; }
 
 /* ================= v11 : moteur étendu ================= */
 // ---------- anti-gravité : la piste se tord (inclinaisons, murs, loopings) ----------
 // La physique reste sur la piste « dépliée » (2D) ; le rendu replie la piste selon un repère local par échantillon.
 // def.warp : [{ from, to, type: 'loop', r } | { from, to, type: 'wall' | 'bank', angle (degrés), side: 1|-1, lift }]
+// Hauteur de l'axe d'une route qui tourne sur elle-même (vrille, plafond) : au moins le cercle de rayon R0 et assez pour que le bord
+// le plus bas reste au-dessus du sol. Avant : max() des deux, cassure de pente au point de bascule (14,8°/m) → chaussée repliée
+// et triangle retourné au retournement du plafond (laboratoire du concepteur, scène « plafond »). Norme 4 : raccord lisse (≤ 3°/m).
+function levage(a, u, R0, hw) { const A = (1 - Math.cos(a)) * R0, B = Math.abs(Math.sin(a)) * hw + .5 * smoothstep(0, .125, u) * smoothstep(0, .125, 1 - u); return Math.pow(A ** 4 + B ** 4, .25); }
 function buildWarp(S, def, hw) {
   const N = S.N; if (!def.warp || !def.warp.length) return;
   const wo = new Float32Array(N * 3), wr = new Float32Array(N * 3), wu = new Float32Array(N * 3), wf = new Float32Array(N * 3), roll = new Float32Array(N); S.wz = new Uint8Array(N); S.wscale = new Float32Array(N).fill(1); S.ag = new Uint8Array(N);
@@ -5481,20 +7108,126 @@ function buildWarp(S, def, hw) {
       // pendant la rotation (cercle de rayon r constant), puis rattrapée à l'entrée et à la sortie : la sortie coïncide avec la
       // route logique. Rotation régulière à accélération continue ; décalage latéral antisymétrique pour que l'entrée et la
       // sortie se croisent côte à côte, jamais l'une dans l'autre.
-      const F0 = [S.fx[i0 % N], 0, S.fz[i0 % N]], R0 = [S.rx[i0 % N], S.rz[i0 % N]], L = n * (S.seg || 2), r = Math.max(z.r || 18, 22), shift = z.shift != null ? z.shift : hw + 16.5, K = .85;
+      const F0 = [S.fx[i0 % N], 0, S.fz[i0 % N]], R0 = [S.rx[i0 % N], S.rz[i0 % N]], L = n * (S.seg || 2), r = Math.max(z.r || 18, 22), shift = (z.shiftDonne === undefined ? z.shift != null : z.shiftDonne) && z.shift != null ? z.shift : hw + 16.5, K = .85;
       const spin = (u) => { const t = clamp((u - .12) / .76, 0, 1); return .6 * t + .4 * t * t * t * (t * (t * 6 - 15) + 10); };
-      z.r = r; z.shift = shift;
-      for (let q = 0; q <= n; q++) { const u = q / n, i = (i0 + q) % N, th = TAU * spin(u), dy = r * (1 - Math.cos(th)), df = L * K * Math.sin(TAU * u) / TAU + r * Math.sin(th), dl = shift * Math.sin(TAU * u);
+      // Décalage imposé par les données (sinon recherché) : mémorisé avant la première construction, car z.shift reçoit la valeur retenue.
+      if (z.shiftDonne === undefined) z.shiftDonne = z.shift != null; z.r = r;
+      // Entrée et sortie (2 novembre) : l'avance du cercle (df) et le décalage latéral (dl) ne s'appliquent que pendant la rotation
+      // (v de 0 à 1 entre u = 0,12 et 0,88) et partent d'une pente nulle (fenêtre w : smoothstep sur un quart de la rotation). Avant, sin(2πu) variait le plus vite
+      // aux extrémités : sur la partie plate, la route affichée virait de 26 à 40° sur le côté alors que la route physique restait
+      // droite ; le kart suivait ce S tout seul et le braquage semblait retenu à l'entrée et à la sortie du looping.
+      // Ancienne formule (retour arrière) : df = L·K·sin(2πu)/2π + r·sin(th), dl = shift·sin(2πu), K = 0,85.
+      const A0 = .12, Lr = L * (1 - 2 * A0), WR = z.wr || .25, KR = z.kr != null ? z.kr : K;
+      // Décalage latéral (entrée d'un côté, sortie de l'autre). Réglage par défaut : il ne commence qu'une fois la route inclinée de
+      // TA à TB degrés, puis bascule de côté au sommet : la partie encore roulée à plat reste alignée avec la route physique (aucun
+      // virage affiché que le joueur n'a pas demandé ; avant : jusqu'à 32-36° à l'entrée). Le moteur vérifie l'écart entre les surfaces
+      // de l'entrée et de la sortie (≥ 4,5 m) et prend le premier réglage qui le respecte, du plus aligné au plus décalé ; sinon
+      // l'ancienne formule (fenêtre sur la rotation). z.ta/z.tb/z.ancien imposent un réglage.
+      const prof = (c) => { const o = [], wr = c.wr || WR, kr = c.kr != null ? c.kr : KR, sh = c.sh != null ? c.sh : shift; for (let q = 0; q <= n; q++) { const u = q / n, th = TAU * spin(u), v = clamp((u - A0) / (1 - 2 * A0), 0, 1), w = smoothstep(0, wr, v) * smoothstep(0, wr, 1 - v), thd = th * 180 / Math.PI;
+        // c.doux : bascule progressive pendant toute la partie retournée (tb → 360 − tb) au lieu de 160-200° (2 novembre, 548bb8f :
+        // saut latéral au sommet → looping tordu, chaussées qui se croisent, constaté sur Samsung).
+        o.push([Lr * kr * Math.sin(TAU * v) / TAU * w + r * Math.sin(th), r * (1 - Math.cos(th)), c.ancien ? sh * Math.sin(TAU * v) * w : sh * c.s * (smoothstep(c.ta, c.tb, thd) - 2 * smoothstep(c.tb, 360 - c.tb, thd) + smoothstep(360 - c.tb, 360 - c.ta, thd))]); } return o; };
+      // Écart entre surfaces avec le même repère que le rendu (tangente par différences, droite horizontale orthogonalisée) : la route
+      // pivote là où le décalage change en pleine pente, ses bords se rapprochent alors plus que l'axe.
+      const gap = (o) => { let m = Infinity; const c = (q) => { const k = clamp(q, 0, n), i = (i0 + k) % N, [df, dy, dl] = o[k]; return [S.px[i] + F0[0] * df + R0[0] * dl, S.py[i] + dy, S.pz[i] + F0[2] * df + R0[1] * dl]; };
+        const pts = []; for (let q = 0; q <= n; q++) { const p = c(q), a = c(q - 1), b = c(q + 1); let fx = b[0] - a[0], fy = b[1] - a[1], fz = b[2] - a[2]; const fl = Math.hypot(fx, fy, fz) || 1; fx /= fl; fy /= fl; fz /= fl;
+          let rx = R0[0], ry = 0, rz = R0[1]; const d = rx * fx + rz * fz; rx -= fx * d; ry -= fy * d; rz -= fz * d; const rl = Math.hypot(rx, ry, rz) || 1;
+          // 7 points en travers de la chaussée (avant : 3 points sur 24 m, un croisement entre deux points passait inaperçu ; contrôleur).
+          const E = hw; pts.push([-hw, -E, -E * 2 / 3, -E / 3, 0, E / 3, E * 2 / 3, E, hw].map((l) => [p[0] + rx / rl * l, p[1] + ry / rl * l, p[2] + rz / rl * l])); }
+        for (let a = 0; a <= n; a++) for (let b = a + 15; b <= n; b++) for (let x = 1; x < 8; x++) { const p = pts[a][x]; for (let y = 1; y < 8; y++) { const q = pts[b][y]; m = Math.min(m, Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2])); } }
+        // Repli : avance d'un bord rapportée à celle de l'axe entre deux échantillons. < 0 : le bord recule, la chaussée se replie sur
+        // elle-même (triangles retournés, Gravité Zéro, contrôleur du concepteur) ; on exige ≥ 0,2 (marge pour l'interpolation du rendu).
+        let rp = Infinity; for (let q = 0; q < n; q++) { const A = pts[q], B = pts[q + 1], cx = B[4][0] - A[4][0], cy = B[4][1] - A[4][1], cz = B[4][2] - A[4][2], c2 = cx * cx + cy * cy + cz * cz || 1;
+          for (const e of [0, 8]) rp = Math.min(rp, ((B[e][0] - A[e][0]) * cx + (B[e][1] - A[e][1]) * cy + (B[e][2] - A[e][2]) * cz) / c2); }
+        o.repli = rp; return m; };
+      // Par défaut : ancienne formule (looping rond, validé visuellement) tant que le profil doux n'est pas validé sur téléphone (z.doux).
+      // Profil doux (entrée alignée, bascule progressive pendant la partie retournée) retenu seulement s'il garde ≥ 4,5 m entre les
+      // surfaces ET une forme saine : variation latérale par échantillon ≤ 1,25 × celle de l'ancienne formule (looping rond). Sinon :
+      // ancienne formule. Contrôle de forme ajouté après 548bb8f (saut latéral au sommet : looping tordu sur Samsung).
+      const pente = (o) => { let m = 0; for (let q = 1; q < o.length; q++) m = Math.max(m, Math.abs(o[q][2] - o[q - 1][2])); return m; };
+      const oA = prof({ ancien: true }), refP = pente(oA);
+      // Écart d'angle (°) entre la route affichée et la route physique sur les 14 premiers et derniers échantillons (partie quasi
+      // horizontale), comme le banc pilotage-transitions : 32° avec l'ancienne formule par défaut (braquage « retenu » à l'entrée).
+      const angle = (o) => { let m = 0; const c = (q) => { const k = clamp(q, 0, n), i = (i0 + k) % N, [df, dy, dl] = o[k]; return [S.px[i] + F0[0] * df + R0[0] * dl, S.py[i] + dy, S.pz[i] + F0[2] * df + R0[1] * dl]; };
+        for (let q = 0; q <= n; q++) { if (q > 14 && q < n - 14) continue; const a = c(q - 1), b = c(q + 1), dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2], hl = Math.hypot(dx, dz); if (hl < .85 * Math.hypot(dx, dy, dz)) continue;
+          const i = (i0 + q) % N; m = Math.max(m, Math.acos(clamp((dx * S.fx[i] + dz * S.fz[i]) / hl, -1, 1)) * 57.3); } return m; };
+      // Candidats : profil doux puis ancienne formule (premier sain retenu). Une recherche sur une grille de réglages de l'ancienne formule
+      // (fenêtre, amplitude, avance) a été essayée le 2 novembre : angle 25-32° au mieux, et la coque du looping passait alors à moins de
+      // 2 m au-dessus de l'entrée (contrôleur) → abandonnée. L'écart d'angle de l'ancienne formule (≈ 32°) reste un défaut ouvert.
+      // z.porte (opt-in, cartes du concepteur, 3 novembre) : formule ronde avec un décalage latéral réduit (demi-largeur + 11 à 14 m au lieu
+      // de + 16,5 m) et étalé sur une fenêtre plus longue (0,35-0,45) ; des fenêtres plus longues ou des décalages plus petits rapprochent
+      // trop les surfaces (< 4,5 m, mesuré). Mesuré sur Boucle des Aurores : avec l'ancienne formule,
+      // la route encore presque plate (5-13°) partait de 12 à 24° sur le côté → « tire à droite » ressenti sur Samsung. Premier réglage qui
+      // garde ≥ 4,5 m entre les surfaces et une chaussée non repliée, du plus petit décalage au plus grand.
+      const cands = z.porte ? [[.45, 11], [.45, 13], [.35, 11], [.35, 14]].map(([wr, d]) => ({ ancien: true, sh: hw + d, wr, porte: true })).concat([{ ancien: true }]) : z.ancien ? [{ ancien: true }] : [{ ta: z.ta != null ? z.ta : 25, tb: z.tb != null ? z.tb : 90, s: z.s || 1 }, { ancien: true }];
+      if (z.forcer) cands.length = 1; // laboratoire du concepteur uniquement : profil imposé même s'il échoue aux contrôles (défaut volontaire)
+      const lacet = (o) => { let m = 0; for (let q = 1; q < o.length; q++) { const a = o[q - 1], b = o[q], ddf = b[0] - a[0] + (S.seg || 2), ddy = b[1] - a[1], ddl = b[2] - a[2], l = Math.hypot(ddf, ddy, ddl) || 1; if (Math.abs(ddy) / l > Math.sin(20 * DEG)) continue; m = Math.max(m, Math.abs(Math.atan2(ddl, Math.hypot(ddf, ddy))) / DEG); } return m; };
+      const essais = []; let best = null;
+      for (const c of cands) { const o = c.ancien && !c.porte ? oA : prof(c), g = gap(o), forme = c.ancien || pente(o) <= refP * 1.25, a = angle(o); essais.push({ c, g: +g.toFixed(1), repli: +o.repli.toFixed(2), angle: +a.toFixed(0), lacet: +lacet(o).toFixed(0), pente: +pente(o).toFixed(2) });
+        if (z.forcer || g >= 4.5 && forme && o.repli >= .2) { best = { c, o, g, a }; break; } }
+      // Aucun réglage sain : l'ancienne formule par défaut (jamais une chaussée repliée si elle ne l'est pas).
+      if (!best) best = { c: { ancien: true }, o: oA, g: gap(oA), a: angle(oA) };
+      z.shift = shift;
+      z.reglage = Object.assign({ ecart: +best.g.toFixed(1), lacet: +lacet(best.o).toFixed(0), pente: +pente(best.o).toFixed(2), penteAncien: +refP.toFixed(2), repli: +best.o.repli.toFixed(2), angle: +best.a.toFixed(0), essais: essais.length, detail: essais, n }, best.c);
+      for (let q = 0; q <= n; q++) { const i = (i0 + q) % N, [df, dy, dl] = best.o[q];
         wo[i * 3] += F0[0] * df + R0[0] * dl; wo[i * 3 + 1] += dy; wo[i * 3 + 2] += F0[2] * df + R0[1] * dl; S.wz[i] = 1; S.ag[i] = 1; }
     } else if (z.type === 'spiral') {
       // tire-bouchon : la route fait un tour complet sur elle-même (on roule la tête en bas au milieu)
-      const turns = z.turns || 1, sd = z.side || 1, R0 = hw * .6 + 3;
+      const turns = z.turns || 1, sd = z.side || 1, R0 = z.rayon != null ? Math.max(hw * .4, z.rayon) : hw * .6 + 3; // z.rayon : rayon de rotation réglable (concepteur ; défaut inchangé)
       for (let q = 0; q <= n; q++) { const i = (i0 + q) % N, u = q / n, e = smoothstep(0, 1, u), a = TAU * turns * e * sd;
-        roll[i] = a; wo[i * 3 + 1] += Math.max((1 - Math.cos(a)) * R0, Math.abs(Math.sin(a)) * hw + .5 * Math.min(1, u * 8, (1 - u) * 8)) + (z.rise || 0) * Math.sin(Math.PI * u); S.wz[i] = 1; S.ag[i] = 1; }
+        roll[i] = a; wo[i * 3 + 1] += levage(a, u, R0, hw) + (z.rise || 0) * Math.sin(Math.PI * u); S.wz[i] = 1; S.ag[i] = 1; }
+    } else if (z.type === 'montee' && z.tour) {
+      // « Tour » (demande du propriétaire, 3 novembre) : la route au sol se cabre et monte un mur droit, plate-forme au sommet, puis une
+      // route verticale INVERSÉE juste après : elle plonge droit sur un mur et revient au sol. La route physique reste plate (aucune rampe
+      // cachée) ; la gravité suit la pente affichée (S.montee : ralentit à la montée, accélère à la descente). z.tour = hauteur (m).
+      const ang = clamp(z.angle || 88, 30, 88) * DEG, Ht = clamp(z.tour, 10, 60), H = S.py[i1 % N] - S.py[i0 % N], F0 = [S.fx[i0 % N], S.fz[i0 % N]], P0 = [S.px[i0 % N], S.py[i0 % N], S.pz[i0 % N]], Lh = (S.px[i1 % N] - P0[0]) * F0[0] + (S.pz[i1 % N] - P0[2]) * F0[1];
+      let r = Math.max(6, z.rayon || 7); if (2 * r * (1 - Math.cos(ang)) > Ht * .9) r = Ht * .9 / (2 * (1 - Math.cos(ang)));
+      const Lw = Math.max(0, (Ht - 2 * r * (1 - Math.cos(ang))) / Math.sin(ang)), plat = Math.max(8, z.plateau || 25), sx = 2 * (2 * r * Math.sin(ang) + Lw * Math.cos(ang)) + plat, libre = Math.max(0, Lh - sx), a0 = libre * clamp(z.place != null ? z.place : .4, 0, 1), a1 = libre - a0;
+      const segs = [[a0, 0, 0], [r * ang, 1 / r, 0], [Lw, 0, ang], [r * ang, -1 / r, ang], [plat, 0, 0], [r * ang, -1 / r, 0], [Lw, 0, -ang], [r * ang, 1 / r, -ang], [a1, 0, 0]], Ld = segs.reduce((t, g) => t + g[0], 0);
+      const pts = []; { let x = 0, y = 0, phi = 0; const st = .25; pts.push([0, 0]); for (const [len, k, phi0] of segs) { if (k === 0) phi = phi0; for (let d = 0; d < len - 1e-9; d += st) { const h = Math.min(st, len - d); phi += k * h / 2; x += Math.cos(phi) * h; y += Math.sin(phi) * h; phi += k * h / 2; pts.push([x, y]); } } }
+      const at = (sig) => { const f = clamp(sig / Ld, 0, 1) * (pts.length - 1), q0 = Math.floor(f), t = f - q0, a = pts[q0], b = pts[Math.min(pts.length - 1, q0 + 1)]; return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; };
+      const fin = at(Ld), ex = Lh / (fin[0] || 1), yFin = fin[1];
+      for (let q = 0; q <= n; q++) { const i = (i0 + q) % N, u = q / n, [sd, yd] = at(Ld * u); wo[i * 3] = P0[0] + F0[0] * sd * ex; wo[i * 3 + 1] = P0[1] + yd - yFin * u + H * u; wo[i * 3 + 2] = P0[2] + F0[1] * sd * ex; S.wz[i] = 1; S.ag[i] = 1; }
+      S.montee = S.montee || new Float32Array(N); for (let q = 1; q < n; q++) { const i = (i0 + q) % N, a = (i0 + q - 1) % N, b = (i0 + q + 1) % N, dy = wo[b * 3 + 1] - wo[a * 3 + 1], dh = Math.hypot(wo[b * 3] - wo[a * 3], wo[b * 3 + 2] - wo[a * 3 + 2]); S.montee[i] = dy / (Math.hypot(dy, dh) || 1); }
+      z.reglage = { experimental: true, tour: true, angle: +(ang / DEG).toFixed(0), rayon: +r.toFixed(1), mur: +Lw.toFixed(1), hauteur: +Ht.toFixed(1), plateau: plat, encombrement: +sx.toFixed(0), longueurAffichee: +Ld.toFixed(0), longueurPhysique: +Lh.toFixed(0) };
+    } else if (z.type === 'montee') {
+      // EXPÉRIMENTAL (laboratoire uniquement, non disponible pour le concepteur) : montée frontale sur un mur. La route affichée part à
+      // plat, se courbe (rayon z.rayon) jusqu'à z.angle (≤ 88°), monte le mur, se recourbe et finit sur une plate-forme qui rejoint la
+      // route physique à la fin de la zone. La route physique doit être droite et monter du même dénivelé H en rampe douce (données) :
+      // aucun décalage latéral (pas de « traction »), mais la pente physique (H / longueur) n'est pas celle du mur affiché.
+      const ang = clamp(z.angle || 80, 30, 88) * DEG, H = S.py[i1 % N] - S.py[i0 % N], F0 = [S.fx[i0 % N], S.fz[i0 % N]], P0 = [S.px[i0 % N], S.py[i0 % N], S.pz[i0 % N]], Lh = (S.px[i1 % N] - P0[0]) * F0[0] + (S.pz[i1 % N] - P0[2]) * F0[1]; // distance horizontale réelle
+      let r = Math.max(6, z.rayon || 20); if (2 * r * (1 - Math.cos(ang)) > H * .9) r = H * .9 / (2 * (1 - Math.cos(ang)));
+      const Lw = Math.max(0, (H - 2 * r * (1 - Math.cos(ang))) / Math.sin(ang)), sx = 2 * r * Math.sin(ang) + Lw * Math.cos(ang), libre = Math.max(0, Lh - sx), a0 = libre * clamp(z.place != null ? z.place : .35, 0, 1), a1 = libre - a0;
+      const segs = [[a0, 0, 0], [r * ang, 1 / r, 0], [Lw, 0, ang], [r * ang, -1 / r, ang], [a1, 0, 0]], Ld = segs.reduce((t, g) => t + g[0], 0);
+      // point affiché à l'abscisse curviligne σ (intégration par pas de 0,25 m)
+      const pts = []; { let x = 0, y = 0, phi = 0; const st = .25; pts.push([0, 0]); for (const [len, k, phi0] of segs) { if (k === 0) phi = phi0; for (let d = 0; d < len - 1e-9; d += st) { const h = Math.min(st, len - d); phi += k * h / 2; x += Math.cos(phi) * h; y += Math.sin(phi) * h; phi += k * h / 2; pts.push([x, y]); } } }
+      const at = (sig) => { const f = clamp(sig / Ld, 0, 1) * (pts.length - 1), q0 = Math.floor(f), t = f - q0, a = pts[q0], b = pts[Math.min(pts.length - 1, q0 + 1)]; return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; };
+      const fin = at(Ld), ex = Lh / (fin[0] || 1), ey = H / (fin[1] || 1); // recalage exact de l'arrivée sur la route physique
+      for (let q = 0; q <= n; q++) { const i = (i0 + q) % N, [sd, yd] = at(Ld * q / n); wo[i * 3] = P0[0] + F0[0] * sd * ex; wo[i * 3 + 1] = P0[1] + yd * ey; wo[i * 3 + 2] = P0[2] + F0[1] * sd * ex; S.wz[i] = 1; S.ag[i] = 1; }
+      // Pente affichée par échantillon (sinus) : la physique en tient compte (gravité), sinon le kart grimpait le mur sans rien perdre.
+      S.montee = S.montee || new Float32Array(N); for (let q = 1; q < n; q++) { const i = (i0 + q) % N, a = (i0 + q - 1) % N, b = (i0 + q + 1) % N, dy = wo[b * 3 + 1] - wo[a * 3 + 1], dh = Math.hypot(wo[b * 3] - wo[a * 3], wo[b * 3 + 2] - wo[a * 3 + 2]); S.montee[i] = dy / (Math.hypot(dy, dh) || 1); }
+      z.reglage = { experimental: true, angle: +(ang / DEG).toFixed(0), rayon: +r.toFixed(1), mur: +Lw.toFixed(1), denivele: +H.toFixed(1), pentePhysique: +(H / Lh * 100).toFixed(1), longueurAffichee: +Ld.toFixed(0), longueurPhysique: +Lh.toFixed(0) };
+    } else if (z.type === 'plafond') {
+      // Route à l'envers (anti-gravité) : demi-tour sur son axe pendant la première part « twist » de la zone, longue portion au
+      // plafond (≈ 2·R0 au-dessus du sol), puis retour à l'endroit. Retournements à pente nulle (smoothstep) : le kart et la caméra
+      // suivent sans à-coup ; la route physique reste droite, comme dans les vrilles (aucun écart affichage/physique).
+      // Retournement d'au moins 50 m (cassures ≤ 5°/m au départ du levage et du roulis) : sur une zone courte (Gravité Zéro, 160 m),
+      // 18 % ne laissaient que 29 m pour un demi-tour → cassure de 10,7°/m signalée par le contrôleur du concepteur.
+      // z.angle (degrés, défaut 180) : route à l'envers « de biais » (ex. 135° : chaussée en surplomb inclinée). Défaut inchangé.
+      const sd = z.side || 1, R0 = hw * .6 + 3, tw = twistPlafond(z, n, S.seg || 2), AR = clamp(z.angle != null ? z.angle : 180, 90, 180) * DEG;
+      for (let q = 0; q <= n; q++) { const i = (i0 + q) % N, u = q / n, a = AR * sd * (smoothstep(0, tw, u) - smoothstep(1 - tw, 1, u));
+        roll[i] = a; wo[i * 3 + 1] += levage(a, u, R0, hw) + (z.rise || 0) * Math.sin(Math.PI * u); S.wz[i] = 1; S.ag[i] = 1; }
+      // Saut : lèvre de tremplin affichée sur les 10 derniers mètres du plafond (vers le « haut » du kart, donc vers le bas du monde).
+      if (z.saut && S.glideKind) { let g0 = -1; for (let q = 0; q <= n; q++) if (S.glideKind[(i0 + q) % N] === 2) { g0 = q; break; }
+        const nl = Math.max(3, Math.round(10 / (S.seg || 2))); if (g0 > nl) for (let q = g0 - nl; q < g0; q++) { const i = (i0 + q) % N, t = (q - (g0 - nl) + 1) / nl; wo[i * 3 + 1] -= Math.cos(roll[i]) < 0 ? 1.6 * Math.pow(t, 1.6) : -1.6 * Math.pow(t, 1.6); } }
     } else {
       const A = (z.angle || 60) * DEG * (z.side || 1), lift = z.lift != null ? z.lift : 1;
+      // Paroi du concepteur (opt-in) : horizon de caméra partiellement conservé (z.horizon, 0-0,8) pour que la verticale se VOIE depuis le
+      // kart, et vitesse d'adhérence (z.adherence, m/s). Aucune carte existante n'utilise ces réglages.
+      if (z.horizon) { S.camH = S.camH || new Float32Array(N); } if (z.adherence) { S.adh = S.adh || new Float32Array(N); }
       for (let q = 0; q <= n; q++) { const i = (i0 + q) % N, u = q / n, ramp = u < .25 ? smoothstep(0, .25, u) : u > .75 ? 1 - smoothstep(.75, 1, u) : 1;
-        roll[i] = A * ramp; wo[i * 3 + 1] += Math.abs(Math.sin(roll[i])) * hw * lift + (z.rise || 0) * ramp; S.wz[i] = 1; if (Math.abs(A) > 40 * DEG) S.ag[i] = 1; }
+        roll[i] = A * ramp; wo[i * 3 + 1] += Math.abs(Math.sin(roll[i])) * hw * lift + (z.rise || 0) * ramp; S.wz[i] = 1; if (Math.abs(A) > 40 * DEG) S.ag[i] = 1;
+        if (z.horizon) S.camH[i] = clamp(z.horizon, 0, .8) * ramp; if (z.adherence) S.adh[i] = ramp > .5 ? z.adherence : 0; }
     }
   }
   // repères : tangente par différences finies, droite = horizontale orthogonalisée, puis roulis
@@ -5509,6 +7242,11 @@ function buildWarp(S, def, hw) {
   // lissage léger de l'échelle de vitesse
   const sc = S.wscale.slice(); for (let i = 0; i < N; i++) { let a = 0; for (let o = -3; o <= 3; o++) a += sc[((i + o) % N + N) % N]; S.wscale[i] = a / 7; }
   Object.assign(S, { wo, wr, wu, wf });
+  // Surfaces où agit la « Coupure anti-gravité » (#28) : plafond (2), paroi inclinée de 55° ou plus (1), montée frontale (3).
+  // Jamais les loopings ni les vrilles : Grand Plongeon, Flipper et les loopings restent hors de portée de l'objet.
+  S.gsurf = new Uint8Array(N); S.gsurfN = 0;
+  for (const z of def.warp) { if (z.type === 'loop' || z.type === 'spiral') continue;
+    for (let i = z.i0; i <= z.i1; i++) { const j = ((i % N) + N) % N, uy = wu[j * 3 + 1]; if (!S.wz[j] || uy > .574) continue; S.gsurf[j] = uy < -.2 ? 2 : z.type === 'montee' ? 3 : 1; S.gsurfN++; } }
 }
 const _wv = new T.Vector3(), _wm = new T.Matrix4(), _wq = new T.Quaternion(), _we = new T.Euler(), _wx = new T.Vector3(), _wy = new T.Vector3(), _wzv = new T.Vector3();
 // Point déformé entre deux échantillons (Catmull-Rom uniforme sur i-1, i, i+1, i+2) : rendu lisse des loopings et vrilles.
@@ -5529,7 +7267,10 @@ function inWarp(k) { const S = G.W && G.W.S; return !!(S && S.wz && (k.P || S) =
 // objet posé (flaque, mine, fusée) dans une zone tordue : on le replie aussi
 function warpObject(m, x, y, z) {
   const S = G.W && G.W.S; if (!S || !S.wz) return; let best = -1, bd = 1e9;
-  for (let i = 0; i < S.N; i += 2) { if (!S.wz[i]) continue; const d = (x - S.px[i]) ** 2 + (z - S.pz[i]) ** 2; if (d < bd) { bd = d; best = i; } }
+  // Plus proche échantillon de TOUTE la route (et pas seulement des zones déformées) : avant, un objet posé sur une route normale passant
+  // près d'une zone déformée était replié sur le looping ou le plafond voisin (mauvaise surface). On ne replie que si ce point est déformé.
+  for (let i = 0; i < S.N; i++) { const d = (x - S.px[i]) ** 2 + (z - S.pz[i]) ** 2 + ((y - S.py[i]) * .5) ** 2; if (d < bd) { bd = d; best = i; } }
+  if (best >= 0 && !S.wz[best]) return;
   if (best < 0 || bd > (G.W.wallD + 2) ** 2) return; const lat = (x - S.px[best]) * S.rx[best] + (z - S.pz[best]) * S.rz[best];
   warpAt(S, best, lat, y - S.py[best], m.position); warpFrameQuat(S, best, 0, 0, m.quaternion);
 }
@@ -5541,12 +7282,15 @@ function clearWarpCorridor(W) {
   if (!pts.length) return 0; const reach = W.wallD + 3, boxes = new Set(W.boxes.map((b) => b.mesh)), m = new T.Matrix4(), v = new T.Vector3(), zero = new T.Matrix4().makeScale(0, 0, 0);
   const inside = (p) => { for (let k = 0; k < pts.length; k += 3) { const dy = p.y - pts[k + 1]; if (dy < -3 || dy > 14) continue; if ((p.x - pts[k]) ** 2 + (p.z - pts[k + 2]) ** 2 < reach * reach) return true; } return false; };
   let hidden = 0; W.scene.updateMatrixWorld(true);
+  const dansBoite = (o) => { for (let p = o; p; p = p.parent) if (boxes.has(p)) return true; return false; };
   W.scene.traverse((o) => {
+    // Boîtes à objets (coque et badge « ? ») : jamais masquées. Le badge est un sprite : sans ce test, il disparaissait près
+    // des loopings, vrilles et plafonds alors que la coque restait (signalement Samsung, ticket #27).
+    if ((o.isSprite || o.isMesh) && dansBoite(o)) return;
     // Halos et lueurs : sprites isolés et nuages de points.
     if (o.isSprite && o.visible) { v.setFromMatrixPosition(o.matrixWorld); if (inside(v)) { o.visible = false; hidden++; } return; }
     if (o.isPoints && o.parent !== W.sky) { const p = o.geometry.attributes.position; let changed = false; for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i).applyMatrix4(o.matrixWorld); if (inside(v)) { p.setY(i, -9999); changed = true; hidden++; } } if (changed) p.needsUpdate = true; return; }
     if (!o.isMesh || !o.visible || (W.roles && W.roles.has(o.material)) || o === W.terrain || o === W.sky) return;
-    let p = o; while (p) { if (boxes.has(p)) return; p = p.parent; }
     if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere(); if (o.geometry.boundingSphere.radius > 30) return;
     if (o.isInstancedMesh) { let changed = false; for (let i = 0; i < o.count; i++) { o.getMatrixAt(i, m); v.setFromMatrixPosition(m.premultiply(o.matrixWorld)); if (inside(v)) { o.setMatrixAt(i, zero); changed = true; hidden++; } } if (changed) o.instanceMatrix.needsUpdate = true; }
     else { v.setFromMatrixPosition(o.matrixWorld); if (inside(v)) { o.visible = false; hidden++; } }
@@ -5554,12 +7298,86 @@ function clearWarpCorridor(W) {
   W.warpCleared = hidden; return hidden;
 }
 function warpNoDecor(W) { const S = W.S; if (!S.wz) return; for (let i = 0; i < S.N; i += 6) if (S.wz[i]) { const k = i * 3; W.noDecor.push({ x: S.wo[k], z: S.wo[k + 2], r: W.wallD + 14 }); W.noDecor.push({ x: S.px[i], z: S.pz[i], r: W.wallD + 8 }); } }
+// Cage des sections « plafond » : anneaux lumineux autour de l'axe du retournement, reliés par six longerons. Dans un décor sans
+// sol (espace), elle rend lisible le passage à l'envers : la structure défile au-dessus de la tête puis sous les roues. Un anneau
+// trop proche d'une autre route (hors zone et raccords) n'est pas posé. Décor seul : aucune collision.
+// Piliers sous les sections déformées surélevées (vrilles, plafonds, parois, loopings) des cartes à relief : un pilier tous les 8
+// échantillons sous le point le plus bas de la coupe de la chaussée (coque comprise, 1,7 m), seulement à plus de 3 m du sol, et jamais
+// à travers une autre route (fût et coupe contrôlés). Retour Samsung du 2 novembre : routes à 90° qui semblaient plonger dans le sol.
+function buildWarpSupports(W) {
+  const S = W.S, N = S.N; if (!S.wz || !W.hAt || W.def.production || W.th.floating || W.th.noGround) return; const hw = W.hw, mats = [], roads = [S, ...W.branches];
+  const libre = (x, z, y0, y1) => roads.every((P) => { for (let j = 0; j < P.N; j += 2) { const wz = P === S && S.wz[j]; const px = wz ? S.wo[j * 3] : P.px[j], pz = wz ? S.wo[j * 3 + 2] : P.pz[j], py = wz ? S.wo[j * 3 + 1] : P.py[j]; if ((px - x) ** 2 + (pz - z) ** 2 < ((P.hw || hw) + 3) ** 2 && py > y0 - 1 && py < y1 + 3) return false; } return true; });
+  for (let i = 0; i < N; i += 8) { if (!S.wz[i]) continue; const k = i * 3; let lo = null;
+    for (const l of [-hw, -hw / 2, 0, hw / 2, hw]) { const x = S.wo[k] + S.wr[k] * l - S.wu[k] * 1.7, y = S.wo[k + 1] + S.wr[k + 1] * l - S.wu[k + 1] * 1.7, z = S.wo[k + 2] + S.wr[k + 2] * l - S.wu[k + 2] * 1.7; if (!lo || y < lo[1]) lo = [x, y, z]; }
+    const g = W.hAt(lo[0], lo[2]); if (lo[1] - g < 3 || !libre(lo[0], lo[2], g, lo[1] - 2.5)) continue; mats.push(new T.Matrix4().compose(new T.Vector3(lo[0], (g + lo[1]) / 2 - .5, lo[2]), new T.Quaternion(), new T.Vector3(1, lo[1] - g + 1, 1))); }
+  if (!mats.length) return; const geo = new T.CylinderGeometry(.75, 1.05, 1, 10), m = new T.InstancedMesh(geo, W.hullMat || stdMat('#8a8f9c', .7, .2), mats.length); mats.forEach((x, q) => m.setMatrixAt(q, x)); m.computeBoundingSphere(); m.name = 'Piliers des sections déformées'; W.scene.add(m); W.warpSupports = mats.length;
+}
+function buildPlafondCage(W) {
+  const S = W.S, N = S.N; if (!S.wz) return; const zs = (W.def.warp || []).filter((z) => z.type === 'plafond' && z.i0 != null); if (!zs.length) return;
+  const R0 = W.hw * .6 + 3, Rr = Math.hypot(R0, W.hw) + 2.4, step = 6, rings = [], q = new T.Quaternion(), e = new T.Euler(), m = new T.Matrix4(), one = new T.Vector3(1, 1, 1), up = new T.Vector3(0, 1, 0), d = new T.Vector3(), p = new T.Vector3();
+  const clear = (x, y, z, z0, z1) => { const r2 = (Rr + 4) ** 2; for (const P of [S, ...W.branches]) for (let j = 0; j < P.N; j += 2) {
+    if (P === S && ((j - z0 + N) % N) <= ((z1 - z0 + N) % N)) continue; const dy = P.py[j] - y; if (Math.abs(dy) > Rr + 4) continue; if ((P.px[j] - x) ** 2 + dy * dy + (P.pz[j] - z) ** 2 < r2) return false; } return true; };
+  for (const z of zs) { const z0 = (z.i0 - 14 + N) % N, z1 = (z.i1 + 14) % N; let prev = null;
+    for (let q0 = 0; q0 <= z.i1 - z.i0; q0 += step) { const i = (z.i0 + q0) % N, c = { x: S.px[i], y: S.py[i] + R0, z: S.pz[i], h: Math.atan2(S.fx[i], S.fz[i]), k: rings.length };
+      if (!clear(c.x, c.y, c.z, z0, z1)) { prev = null; continue; } c.prev = prev; rings.push(c); prev = c; } }
+  if (!rings.length) return;
+  const g = new T.Group(); g.name = 'cage-plafond';
+  const mats = ['#5ff2ff', '#ff4fd8'].map((col) => new T.MeshBasicMaterial({ color: col }));
+  const tor = new T.TorusGeometry(Rr, .32, 4, 28), byCol = [rings.filter((r) => r.k % 2 === 0), rings.filter((r) => r.k % 2 === 1)];
+  byCol.forEach((list, n) => { if (!list.length) return; const im = new T.InstancedMesh(tor, mats[n], list.length);
+    list.forEach((r, k) => { e.set(0, r.h, 0); q.setFromEuler(e); m.compose(p.set(r.x, r.y, r.z), q, one); im.setMatrixAt(k, m); }); g.add(im); });
+  const segs = []; for (const r of rings) if (r.prev) for (let a = 0; a < 6; a++) { const t = a / 6 * TAU + TAU / 12, at = (c) => new T.Vector3(c.x + Math.cos(c.h) * Math.cos(t) * Rr, c.y + Math.sin(t) * Rr, c.z - Math.sin(c.h) * Math.cos(t) * Rr); segs.push([at(r.prev), at(r)]); }
+  if (segs.length) { const cyl = new T.CylinderGeometry(.16, .16, 1, 4, 1, true), im = new T.InstancedMesh(cyl, new T.MeshBasicMaterial({ color: '#2a3a78' }), segs.length);
+    segs.forEach(([A, B], k) => { d.subVectors(B, A); const L = d.length(); q.setFromUnitVectors(up, d.normalize()); m.compose(p.addVectors(A, B).multiplyScalar(.5), q, new T.Vector3(1, L, 1)); im.setMatrixAt(k, m); }); g.add(im); }
+  W.scene.add(g); W.plafondCage = { anneaux: rings.length, longerons: segs.length };
+}
+// ---------- décors interactifs (specials.vivants, concepteur) ----------
+// Avalanche : annoncée (panneau clignotant à 80 m, grondement, coulée qui dévale la pente) `preavis` secondes avant ; la neige couvre
+// ensuite `part` de la largeur côté montagne pendant `duree` s : ralentit (`ralenti` × vitesse max), ne bloque jamais, puis fond.
+// Les bots sont prévenus (côté libre). Période fixe : même cycle pour tous, en ligne comme hors ligne (W.clock).
+function vivantPhase(v, t) { const c = ((t + v.ph) % v.periode + v.periode) % v.periode; return c < v.preavis ? { etat: 'alerte', u: c / v.preavis } : c < v.preavis + v.duree ? { etat: 'neige', u: (c - v.preavis) / v.duree } : { etat: 'calme', u: 0 }; }
+function buildVivants(W) {
+  const S = W.S, N = S.N; W.vivants = []; const defs = W.def.vivants || (W.def.sourceData && W.def.sourceData.specials && W.def.sourceData.specials.vivants) || [];
+  for (const d of defs) { if (d.type !== 'avalanche') continue;
+    const i = Math.floor(d.at * N) % N, side = d.cote || ((W.hAt ? W.hAt(S.px[i] + S.rx[i] * (W.wallD + 25), S.pz[i] + S.rz[i] * (W.wallD + 25)) : 0) >= (W.hAt ? W.hAt(S.px[i] - S.rx[i] * (W.wallD + 25), S.pz[i] - S.rz[i] * (W.wallD + 25)) : 0) ? 1 : -1);
+    const v = { type: 'avalanche', i, side, part: d.part || .5, periode: d.periode || 20, preavis: d.preavis || 2.5, duree: d.duree || 5, ralenti: d.ralenti || .55, demi: Math.round((d.longueur || 40) / 2 / (S.seg || 2)), ph: d.phase || 0, bruit: false };
+    const g = new T.Group(); g.name = 'Avalanche'; W.scene.add(g);
+    // panneau d'alerte, 80 m avant, côté droit de la route
+    const si = ((i - Math.round(80 / (S.seg || 2))) % N + N) % N, sd = W.wallD + 2, sx = S.px[si] + S.rx[si] * sd, sz = S.pz[si] + S.rz[si] * sd, sy = W.hAt ? Math.max(S.py[si], W.hAt(sx, sz)) : S.py[si];
+    const signM = new T.MeshBasicMaterial({ color: '#ffb000' }), sign = new T.Mesh(new T.CircleGeometry(1.8, 3), signM); sign.position.set(sx, sy + 4.2, sz); sign.rotation.set(0, S.hd[si] + Math.PI, Math.PI / 2); g.add(sign);
+    const post = new T.Mesh(new T.CylinderGeometry(.12, .12, 4, 6), new T.MeshLambertMaterial({ color: '#d8dde6' })); post.position.set(sx, sy + 2, sz); g.add(post);
+    // coulée : boules de neige qui dévalent la pente vers la route
+    const n = 44, balls = new T.InstancedMesh(new T.IcosahedronGeometry(1, 1), new T.MeshLambertMaterial({ color: '#f4f8ff' }), n); balls.frustumCulled = false; g.add(balls);
+    const seeds = Array.from({ length: n }, (_, q) => ({ o: (q / n * 2 - 1) * v.demi * 1.3, l: Math.random(), s: 2 + Math.random() * 3.5, d: Math.random() * .3, h: 35 + Math.random() * 25 }));
+    // amas de neige sur la moitié de la route côté montagne (demi-ellipsoïde)
+    const lat0 = side * W.hw * (1 - v.part), lat1 = side * (W.hw + 1), mid = (lat0 + lat1) / 2, half = Math.abs(lat1 - lat0) / 2 + .6;
+    const drift = new T.Mesh(new T.SphereGeometry(1, 20, 10, 0, TAU, 0, Math.PI / 2), new T.MeshLambertMaterial({ color: '#f6f9ff' }));
+    drift.position.set(S.px[i] + S.rx[i] * mid, S.py[i], S.pz[i] + S.rz[i] * mid); drift.rotation.y = S.hd[i]; drift.scale.set(half, .01, v.demi * (S.seg || 2)); drift.visible = false; g.add(drift);
+    Object.assign(v, { g, signM, balls, seeds, drift, half, lat0, lat1, mid }); W.vivants.push(v); }
+}
+const _vm = new T.Matrix4(), _vq = new T.Quaternion(), _vs = new T.Vector3(), _vp = new T.Vector3();
+function updateVivants(W, t) {
+  const S = W.S; for (const v of W.vivants || []) { const ph = vivantPhase(v, t);
+    v.signM.color.set(ph.etat === 'alerte' ? ((t * 4) % 1 < .5 ? '#ff3b1f' : '#ffd23f') : ph.etat === 'neige' ? '#ff3b1f' : '#ffb000');
+    if (ph.etat === 'alerte' && !v.bruit) { v.bruit = true; const k = G.race && G.race.player; if (k && (k.x - S.px[v.i]) ** 2 + (k.z - S.pz[v.i]) ** 2 < 260 * 260 && !G.autopilot) AudioSys.sfx('avalanche'); }
+    if (ph.etat !== 'alerte') v.bruit = false;
+    // coulée : de la pente (55 m de côté, 35 à 60 m plus haut) jusqu'à la route pendant l'alerte, puis s'éparpille dans l'amas
+    v.seeds.forEach((s, q) => { const j = ((v.i + Math.round(s.o)) % S.N + S.N) % S.N; let u = ph.etat === 'alerte' ? clamp((ph.u - s.d) / (1 - s.d), 0, 1) : ph.etat === 'neige' ? 1 : -1;
+      if (u < 0) { _vm.makeScale(0, 0, 0); v.balls.setMatrixAt(q, _vm); return; }
+      const e = u * u, lat = v.side * (W.wallD + 55) * (1 - e) + (v.lat0 + (v.lat1 - v.lat0) * s.l) * e, hy = s.h * (1 - e) + (ph.etat === 'neige' ? .4 - ph.u * .4 : 1);
+      _vp.set(S.px[j] + S.rx[j] * lat, S.py[j] + hy, S.pz[j] + S.rz[j] * lat); const sc = s.s * (ph.etat === 'neige' ? 1 - ph.u * .8 : 1); _vs.set(sc, sc, sc); _vq.identity(); _vm.compose(_vp, _vq, _vs); v.balls.setMatrixAt(q, _vm); });
+    v.balls.instanceMatrix.needsUpdate = true;
+    v.drift.visible = ph.etat === 'neige'; if (v.drift.visible) v.drift.scale.y = 1.6 * Math.min(1, ph.u * 6) * (1 - smoothstep(.8, 1, ph.u)); }
+}
+function vivantFactor(W, k) { if (!W.vivants || k.air || (k.P && k.P !== W.S)) return 1; for (const v of W.vivants) { const ph = vivantPhase(v, W.clock || 0); if (ph.etat !== 'neige' || ph.u > .9) continue;
+    let di = Math.abs(k.idx - v.i); di = Math.min(di, W.S.N - di); if (di > v.demi) continue; const l = k.lat * v.side; if (l >= Math.min(v.lat0, v.lat1) * v.side - 1.2 && l <= Math.max(Math.abs(v.lat0), Math.abs(v.lat1)) + 1.5) return v.ralenti; } return 1; }
+function vivantAhead(W, ci) { if (!W.vivants) return null; for (const v of W.vivants) { const ph = vivantPhase(v, W.clock || 0); if (ph.etat === 'calme') continue; const d = ((v.i - ci) % W.S.N + W.S.N) % W.S.N; if (d * (W.S.seg || 2) <= 70 + v.demi * (W.S.seg || 2)) return v; } return null; }
 // bandes lumineuses bleues le long des zones anti-gravité
 function buildWarpGlow(W) {
   const S = W.S; if (!S.ag) return; const m = new T.MeshBasicMaterial({ color: '#5ff2ff', transparent: true, opacity: .85, blending: T.AdditiveBlending, depthWrite: false, side: T.DoubleSide });
-  for (const sg of [-1, 1]) W.scene.add(new T.Mesh(bandGeo(S, sg > 0 ? [{ o: W.hw - 1.1, y: .13 }, { o: W.hw - .5, y: .13 }] : [{ o: -W.hw + .5, y: .13 }, { o: -W.hw + 1.1, y: .13 }], { skip: (i) => !S.ag[i] || !S.ag[(i + 1) % S.N] }), m));
+  for (const sg of [-1, 1]) W.scene.add(new T.Mesh(bandGeo(S, sg > 0 ? [{ o: W.hw - 1.1, y: .13 }, { o: W.hw - .5, y: .13 }] : [{ o: -W.hw + .5, y: .13 }, { o: -W.hw + 1.1, y: .13 }], { skip: (i) => !S.ag[i] || !S.ag[(i + 1) % S.N] || (S.glide[i] && S.glide[(i + 1) % S.N]) }), m));
   const dash = new T.MeshBasicMaterial({ color: '#b8f8ff', transparent: true, opacity: .55, blending: T.AdditiveBlending, depthWrite: false, side: T.DoubleSide });
-  W.scene.add(new T.Mesh(bandGeo(S, [{ o: -.35, y: .13 }, { o: .35, y: .13 }], { skip: (i) => !S.ag[i] || (i >> 2) % 2 === 0 }), dash));
+  W.scene.add(new T.Mesh(bandGeo(S, [{ o: -.35, y: .13 }, { o: .35, y: .13 }], { skip: (i) => !S.ag[i] || (i >> 2) % 2 === 0 || !!S.glide[i] }), dash));
 }
 
 // ---------- graine de course : placements aléatoires (identiques pour tous en ligne) ----------
@@ -5592,26 +7410,82 @@ function envWind(W, k) { const e = W.env; if (!e || !e.wind || k.air === 'glide'
 // traffic : véhicule qui roule dans une voie ; ball : énorme bille qui dévale la piste en sens inverse
 // Croque-pétale : repos (balancement), alerte (se cabre, tremble, bouche ouverte), frappe sur le bord de la voie, retrait.
 const SNAPPER_BIOMES = { prairie: 'daisy', autumn: 'ember', provence: 'lilac', jungle: 'jungle', tropic: 'jungle', forest: 'daisy', haunted: 'gloom', sakura: 'lilac', festival: 'daisy', cameleon: 'daisy' };
-function snapperPhase(o, t) { const c = ((t / o.per + o.ph / TAU) % 1 + 1) % 1; return { c, warn: c >= .52 && c < .74, strike: c >= .74 && c < .9, reach: c < .74 ? 0 : c < .8 ? (c - .74) / .06 : c < .9 ? 1 : 1 - (c - .9) / .1 }; }
+// Machine d'états déclenchée par la proximité d'un kart (et non plus par une horloge aveugle) :
+//   repos → alerte (télégraphie lisible : se cabre, tremble, halo au sol sur la zone visée) → frappe → retrait → récupération.
+// Le déclenchement anticipe l'arrivée du kart (distance ≤ vitesse × durée alerte+frappe) : la tête frappe quand il passe, mais
+// l'alerte laisse le temps de changer de voie, de freiner, d'accélérer ou de sauter. Chaque frappe ne touche un kart qu'une fois.
+const SNAP = { warn: .62, lunge: .1, hold: .22, back: .45, rest: 1.1, sense: 36, senseMin: 8, dy: 3.5, hitDy: 2.6 };
+function snapperReset(o) { o.st = 'idle'; o.stT = 0; o.rch = 0; o.hits = []; o.warn = false; o.down = false; o.lastT = null; }
+// Distance (m) avant que le kart n'atteigne la ligne de la plante, ou null s'il n'est pas menacé (autre niveau, hors piste, déjà passé).
+function snapperThreat(o, k) {
+  const P = o.P, i = o.i, dx = k.x - P.px[i], dz = k.z - P.pz[i], al = dx * P.fx[i] + dz * P.fz[i];
+  if (al > 3 || al < -SNAP.sense) return null;
+  if (Math.abs(k.y - P.py[i]) > SNAP.dy || (k.air && k.y - P.py[i] > SNAP.hitDy)) return null;
+  const lt = dx * P.rx[i] + dz * P.rz[i], hw = (P.hw || G.W.hw) + (G.W.curbW || 0) + 2; if (Math.abs(lt) > hw) return null;
+  const d = Math.max(0, -al), win = clamp(Math.max(0, k.speed) * (SNAP.warn + SNAP.lunge), SNAP.senseMin, SNAP.sense);
+  return d <= win ? d : null;
+}
+function snapperStep(o, t) {
+  if (o.st === undefined) snapperReset(o);
+  let dt = o.lastT == null ? 0 : t - o.lastT; if (dt < 0) { snapperReset(o); dt = 0; } o.lastT = t; dt = Math.min(dt, .1);
+  o.stT += dt; o.rch0 = o.rch;
+  if (o.st === 'idle') { const ks = G.karts || []; for (let q = 0; q < ks.length; q++) { const k = ks[q]; if (k.finished || k.ghost > 0) continue; if (snapperThreat(o, k) !== null) { o.st = 'warn'; o.stT = 0; o.hits.length = 0; if (k.isPlayer) AudioSys.sfx('snapwarn'); break; } } }
+  else if (o.st === 'warn' && o.stT >= SNAP.warn) { o.st = 'strike'; o.stT -= SNAP.warn; }
+  if (o.st === 'strike' && o.stT >= SNAP.lunge + SNAP.hold) { o.st = 'back'; o.stT -= SNAP.lunge + SNAP.hold; }
+  if (o.st === 'back' && o.stT >= SNAP.back) { o.st = 'rest'; o.stT -= SNAP.back; }
+  if (o.st === 'rest' && o.stT >= SNAP.rest) { o.st = 'idle'; o.stT = 0; }
+  o.rch = o.st === 'strike' ? Math.min(1, o.stT / SNAP.lunge) : o.st === 'back' ? 1 - o.stT / SNAP.back : 0;
+  o.warn = o.st === 'warn'; o.down = o.st === 'strike' && o.rch >= .6;
+}
+function snapperPhase(o) { return { warn: o.st === 'warn', strike: o.st === 'strike', reach: o.rch || 0, w: o.st === 'warn' ? clamp(o.stT / SNAP.warn, 0, 1) : 0 }; }
+// Distance minimale entre deux segments 2D (trajet du kart pendant le pas, trajet de la tête pendant le pas).
+function segSegDist2(ax, az, bx, bz, cx, cz, dx, dz) {
+  const pt = (px, pz, x0, z0, x1, z1) => { const vx = x1 - x0, vz = z1 - z0, L = vx * vx + vz * vz, u = L > 1e-9 ? clamp(((px - x0) * vx + (pz - z0) * vz) / L, 0, 1) : 0, ex = x0 + vx * u - px, ez = z0 + vz * u - pz; return ex * ex + ez * ez; };
+  return Math.min(pt(ax, az, cx, cz, dx, dz), pt(bx, bz, cx, cz, dx, dz), pt(cx, cz, ax, az, bx, bz), pt(dx, dz, ax, az, bx, bz));
+}
+// Frappe : tête active (portée ≥ 60 %) contre le trajet du kart ; même niveau (un kart en l'air au-dessus de la tête passe).
+function snapperHits(k, o, ax, az) {
+  if (!o.down || o.hits.indexOf(k) >= 0 || Math.abs(k.y - o.y) > SNAP.hitDy) return false;
+  const R = o.r + .9; if (segSegDist2(ax, az, k.x, k.z, o.x0 != null ? o.x0 : o.x, o.z0 != null ? o.z0 : o.z, o.x, o.z) > R * R) return false;
+  o.hits.push(k); return true;
+}
 function obstState11(o, t) {
-  if (o.kind === 'snapper') { const p = snapperPhase(o, t), P = o.P, i = o.i, lat = o.lat - o.side * o.reach * p.reach; o.ph2 = p; o.warn = p.warn; o.down = p.strike;
-    o.x = P.px[i] + P.rx[i] * lat; o.z = P.pz[i] + P.rz[i] * lat; o.y = P.py[i]; return true; }
+  if (o.kind === 'snapper') { const P = o.P, i = o.i; o.x0 = o.x; o.z0 = o.z; snapperStep(o, t); const lat = o.lat - o.side * o.reach * o.rch;
+    o.tLat = o.lat - o.side * o.reach; o.x = P.px[i] + P.rx[i] * lat; o.z = P.pz[i] + P.rz[i] * lat; o.y = P.py[i]; return true; }
   if (o.kind === 'jet') { const c = ((t / o.per + o.ph / TAU) % 1 + 1) % 1; o.warn = c > .4 && c < .55; o.down = c >= .55 && c < .82; o.c = c; return true; }
   if (o.kind === 'traffic' || o.kind === 'ball') {
     const P = o.P, span = o.span, sp = o.speed, s = ((t * sp + o.ph * span) % span + span) % span, dir = o.dir || 1; o.fade = clamp(Math.min(s, span - s) / 14, 0, 1);
-    const fi = o.i0 + (dir > 0 ? s : span - s) / P.seg; let i = Math.floor(fi); const N = P.N; i = ((i % N) + N) % N; o.i = i;
+    const fi = o.i0 + (dir > 0 ? s : span - s) / P.seg; let i = Math.floor(fi); const N = P.N, f = fi - i; i = ((i % N) + N) % N; o.i = i;
     const lat = o.lat0 + (o.kind === 'ball' ? Math.sin(t * 1.3 + o.ph * 7) * o.sway : 0); o.lat = lat; o.curLat = 0;
-    o.x = P.px[i] + P.rx[i] * lat; o.z = P.pz[i] + P.rz[i] * lat; o.y = P.py[i]; o.h = P.hd[i] + (dir > 0 ? 0 : Math.PI); return true;
+    // Position interpolée entre deux échantillons : sans cela, la bille et les véhicules avançaient par sauts de la longueur
+    // d'un échantillon (~2 m, une dizaine de fois par seconde), visibles et source de recouvrements d'un instant avec les karts.
+    const j = P.closed === false ? Math.min(i + 1, N - 1) : (i + 1) % N, ex = P.px[i] + P.rx[i] * lat, ez = P.pz[i] + P.rz[i] * lat;
+    o.x = ex + (P.px[j] + P.rx[j] * lat - ex) * f; o.z = ez + (P.pz[j] + P.rz[j] * lat - ez) * f; o.y = P.py[i] + (P.py[j] - P.py[i]) * f; o.h = P.hd[i] + (dir > 0 ? 0 : Math.PI); return true;
   }
   return false;
 }
 function obstVisual11(o, t) {
   const m = o.mesh;
-  if (o.kind === 'snapper') { const u = m.userData, p = o.ph2 || snapperPhase(o, t), shake = p.warn ? Math.sin(t * 38) * .06 : 0;
-    // Inclinaison vers la route : la tête atteint le point de frappe (portée o.reach) ; au repos, léger balancement.
-    const lean = p.reach * 1.05 + (p.warn ? -.28 : 0) + Math.sin(t * 1.7 + o.ph) * .06 * (1 - p.reach);
-    u.pivot.rotation.x = lean; u.pivot.rotation.z = shake; u.jaw.rotation.x = p.warn ? .75 : p.strike ? (p.reach < 1 ? .5 : .05) : .18 + Math.sin(t * 2 + o.ph) * .06;
-    u.petals.rotation.z += .004; u.glow.material.opacity = p.warn ? .55 + .35 * Math.abs(Math.sin(t * 16)) : 0; return true; }
+  if (o.kind === 'snapper') { const u = m.userData, p = snapperPhase(o), shake = p.warn ? Math.sin(t * 38) * .05 * (.4 + p.w) : 0;
+    // Inclinaison vers la route : la tête atteint le point de frappe (portée o.reach) ; en alerte, elle se cabre progressivement.
+    const lean = p.reach * 1.05 - (p.warn ? .34 * Math.min(1, p.w * 2.5) : 0) + Math.sin(t * 1.7 + o.ph) * .06 * (1 - p.reach) * (p.warn ? 0 : 1);
+    u.pivot.rotation.x = lean; u.pivot.rotation.z = shake; u.jaw.rotation.x = p.warn ? .35 + .45 * p.w : p.strike ? (p.reach < 1 ? .5 : .05) : .18 + Math.sin(t * 2 + o.ph) * .06;
+    u.petals.rotation.z += o.st === 'rest' ? .001 : .004; u.petals.scale.setScalar(p.warn ? 1 + .12 * p.w : 1);
+    // Halo de la zone visée : s'allume et clignote de plus en plus vite pendant l'alerte, rouge plein pendant la frappe.
+    u.glow.material.opacity = p.warn ? .3 + .25 * p.w + .3 * Math.abs(Math.sin(t * (10 + 16 * p.w))) : p.strike ? .85 : 0; u.glow.scale.setScalar(p.warn ? .7 + .3 * p.w : 1);
+    // Plante vivante (C2-6, apparence seulement : attaque, portée et collisions inchangées) : respiration de la tige, feuilles qui
+    // ondulent, pétales qui frémissent (plus fort en alerte, lueur qui pulse), clignement des yeux, mastication après la frappe,
+    // pétales et pollen projetés au moment où elle croque.
+    const veille = o.st === 'idle' || o.st === 'back';
+    u.pivot.scale.y = 1 + Math.sin(t * 1.9 + o.ph) * (o.st === 'rest' ? .015 : .035);
+    if (u.leaves) for (let q = 0; q < u.leaves.length; q++) u.leaves[q].rotation.z = Math.sin(t * 2.1 + q * 1.3 + o.ph) * (p.warn ? .22 : .1);
+    const pk = u.petals.children; for (let q = 0; q < pk.length; q++) pk[q].rotation.y = Math.sin(t * (p.warn ? 9 : 3) + q * .9 + o.ph) * (p.warn ? .3 : .12);
+    if (u.petalM) u.petalM.emissiveIntensity = p.warn ? .25 + .45 * Math.abs(Math.sin(t * (8 + 10 * p.w))) : p.strike ? .6 : .05;
+    if (o.st === 'back' || o.st === 'rest') u.jaw.rotation.x = .08 + .22 * Math.abs(Math.sin(t * 9 + o.ph)) * (o.st === 'back' ? 1 : .3); // mastication
+    if (p.strike && !o.__croc && G.W && G.W.parts && u.head) { o.__croc = true; const v = (u.__v = u.__v || new T.Vector3()); u.head.getWorldPosition(v);
+      for (let q = 0; q < 14; q++) G.W.parts.emit(v.x, v.y, v.z, rand(-5, 5), rand(1, 6), rand(-5, 5), pick([u.petalM ? '#' + u.petalM.color.getHexString() : '#ff5fa0', '#fff2a0', '#fffdf7']), .7); }
+    if (!p.strike) o.__croc = false;
+    if (u.eyes) u.eyes.scale.y = o.st === 'rest' ? .25 : veille && Math.sin(t * .9 + o.ph * 3) > .985 ? .15 : 1; return true; }
   if (o.kind === 'jet') { const f = m.userData; const on = o.down ? 1 : 0; if (f.flame) { f.flame.scale.set(1, on ? 1 + Math.sin(t * 40) * .08 : .02, 1); f.flame.visible = on > 0; }
     if (f.glow) f.glow.material.opacity = o.warn ? .35 + .35 * Math.abs(Math.sin(t * 18)) : on ? .9 : .12; return true; }
   if (o.kind === 'traffic' || o.kind === 'ball') { m.position.set(o.x, o.y + (o.kind === 'ball' ? o.r * o.fade : 0), o.z); m.rotation.y = o.h; m.visible = !(o.P.glide && o.P.glide[o.i]) && (o.kind !== 'ball' || o.fade > .05); if (o.kind === 'ball') m.scale.setScalar(Math.max(.05, o.fade)); if (o.kind === 'ball' && m.userData.inner) m.userData.inner.rotation.x += o.speed / o.r / 60 * (o.dir > 0 ? 1 : -1); return true; }
@@ -5642,9 +7516,11 @@ function obstMesh11(o, W) {
   if (o.kind === 'snapper') {
     // Fleur carnivore originale : tige courbe, feuilles, tête-bouche bordée de pétales, dents ; pivot à la base tourné vers la route.
     const pal = { daisy: ['#3f9a3a', '#ff5fa0', '#fff2a0'], ember: ['#5a7a2a', '#ff7a2a', '#ffd23a'], lilac: ['#4f8a4a', '#a77bff', '#fff6d0'], jungle: ['#2f8a3a', '#ff3a5a', '#ffe06a'], gloom: ['#3a4a3a', '#7a2a8a', '#c8ff6a'] }[o.style] || ['#3f9a3a', '#ff5fa0', '#fff2a0'];
-    const P = o.P, i = o.i, base = new T.Group(); base.position.set(P.px[i] + P.rx[i] * o.lat, P.py[i], P.pz[i] + P.rz[i] * o.lat); base.rotation.y = Math.atan2(-P.rx[i] * o.side, -P.rz[i] * o.side); base.scale.setScalar(1.35); g.add(base);
+    const P = o.P, i = o.i, base = new T.Group(); base.position.set(P.px[i] + P.rx[i] * o.lat, P.py[i], P.pz[i] + P.rz[i] * o.lat); base.rotation.y = Math.atan2(-P.rx[i] * o.side, -P.rz[i] * o.side); base.scale.setScalar(1.5); g.add(base);
     const stemM = stdMat(pal[0], .7, 0), petalM = new T.MeshStandardMaterial({ color: pal[1], roughness: .55, side: T.DoubleSide }), mouthM = stdMat('#5a0f2a', .6, 0), toothM = stdMat('#fffdf7', .3, 0);
-    for (let q = 0; q < 5; q++) { const lf = new T.Mesh(new T.SphereGeometry(1, 12, 6), stemM); lf.scale.set(1.5, .12, .55); lf.position.set(Math.cos(q * 1.26) * 1.1, .15, Math.sin(q * 1.26) * 1.1); lf.rotation.y = -q * 1.26; base.add(lf); }
+    const leaves = []; for (let q = 0; q < 5; q++) { const lf = new T.Mesh(new T.SphereGeometry(1, 12, 6), stemM); lf.scale.set(1.5, .12, .55); lf.position.set(Math.cos(q * 1.26) * 1.1, .15, Math.sin(q * 1.26) * 1.1); lf.rotation.y = -q * 1.26; base.add(lf); leaves.push(lf); }
+    // Bulbe racine (volume au sol) : la plante paraît plantée et non posée.
+    const bulb = new T.Mesh(new T.SphereGeometry(1, 16, 10), stemM); bulb.scale.set(1.15, .7, 1.15); bulb.position.y = .25; base.add(bulb);
     const pivot = new T.Group(); pivot.position.y = .3; base.add(pivot);
     const stem = new T.Mesh(new T.TubeGeometry(new T.CatmullRomCurve3([new T.Vector3(0, 0, 0), new T.Vector3(0, 1.6, -.3), new T.Vector3(0, 3.1, .2), new T.Vector3(0, 4.0, .9)]), 16, .32, 8, false), stemM); pivot.add(stem);
     const head = new T.Group(); head.position.set(0, 4.1, 1.1); pivot.add(head);
@@ -5655,14 +7531,19 @@ function obstMesh11(o, W) {
     const petals = new T.Group(); petals.position.z = -.35; head.add(petals);
     for (let q = 0; q < 12; q++) { const pt = new T.Mesh(new T.SphereGeometry(1, 10, 6), petalM); pt.scale.set(.55, .18, 1.25); const a = q / 12 * TAU; pt.position.set(Math.cos(a) * 1.65, Math.sin(a) * 1.65, 0); pt.rotation.z = a; pt.rotation.x = Math.PI / 2; petals.add(pt); }
     const dot = new T.Mesh(new T.SphereGeometry(.35, 10, 8), stdMat(pal[2], .4, 0)); dot.position.set(0, 1.35, -.2); head.add(dot);
+    // Lèvre épaisse et deux yeux : la plante « regarde » la route et se lit de loin (fermés pendant la récupération).
+    const lip = new T.Mesh(new T.TorusGeometry(1.18, .16, 8, 24), stdMat(pal[1], .45, 0)); lip.rotation.x = .25; lip.position.z = .02; head.add(lip);
+    const eyes = new T.Group(); eyes.position.set(0, 1.05, .35); head.add(eyes); const eyeW = stdMat('#fffdf7', .3, 0), eyeP = stdMat('#1a1420', .3, 0);
+    for (const sx of [-.45, .45]) { const e = new T.Mesh(new T.SphereGeometry(.28, 12, 8), eyeW); e.position.x = sx; eyes.add(e); const pu = new T.Mesh(new T.SphereGeometry(.13, 8, 6), eyeP); pu.position.set(sx, -.02, .22); eyes.add(pu); }
     // Alerte au sol : halo qui clignote sur le bord de la voie avant la frappe.
     const glow = new T.Mesh(new T.CircleGeometry(2.4, 24), new T.MeshBasicMaterial({ color: '#ff4f6a', transparent: true, opacity: 0, depthWrite: false })); glow.rotation.x = -Math.PI / 2;
     const gl = o.lat - o.side * o.reach; glow.position.set(P.px[i] + P.rx[i] * gl, P.py[i] + .16, P.pz[i] + P.rz[i] * gl); g.add(glow);
-    g.userData = { pivot, jaw, petals, glow }; g.traverse((m) => { if (m.isMesh && m !== glow) m.castShadow = true; }); return g; }
-  if (o.kind === 'jet') { const lava = o.style !== 'steam';
+    petalM.emissive = new T.Color(pal[1]); petalM.emissiveIntensity = .05;
+    g.userData = { pivot, jaw, petals, glow, eyes, leaves, head, petalM }; g.traverse((m) => { if (m.isMesh && m !== glow) m.castShadow = true; }); return g; }
+  if (o.kind === 'jet') { const lava = o.style !== 'steam' && o.style !== 'eau';
     const base = new T.Mesh(new T.CylinderGeometry(R * .9, R, .5, 16), stdMat('#3a3440', .5, .6)); base.position.y = .25; g.add(base);
     const glow = new T.Mesh(new T.CircleGeometry(R * .8, 20), new T.MeshBasicMaterial({ color: lava ? '#ff6a1a' : '#bfefff', transparent: true, opacity: .2 })); glow.rotation.x = -Math.PI / 2; glow.position.y = .52; g.add(glow);
-    const fl = new T.Mesh(new T.ConeGeometry(R * .9, 9, 14, 1, true), new T.MeshBasicMaterial({ color: lava ? '#ffb02a' : '#e8fbff', transparent: true, opacity: .8, blending: T.AdditiveBlending, depthWrite: false, side: T.DoubleSide })); fl.geometry.translate(0, -4.5, 0); fl.rotation.x = Math.PI; fl.position.y = .5; g.add(fl);
+    const eau = o.style === 'eau', fl = new T.Mesh(new T.ConeGeometry(R * (eau ? 1.1 : .9), eau ? 7 : 9, 14, 1, true), eau ? new T.MeshStandardMaterial({ color: '#d4f3ff', emissive: '#7fd6f0', emissiveIntensity: .35, roughness: .15, transparent: true, opacity: .82, depthWrite: false, side: T.DoubleSide }) : new T.MeshBasicMaterial({ color: lava ? '#ffb02a' : '#e8fbff', transparent: true, opacity: .8, blending: T.AdditiveBlending, depthWrite: false, side: T.DoubleSide })); fl.geometry.translate(0, -4.5, 0); fl.rotation.x = Math.PI; fl.position.y = .5; g.add(fl);
     g.userData.flame = fl; g.userData.glow = glow; g.position.set(o.x, o.y, o.z); return g; }
   if (o.kind === 'pillar' && o.style === 'bumper') {
     const b = new T.Mesh(new T.CylinderGeometry(R, R * 1.05, 1.6, 28), stdMat('#ff3a8a', .25, .3)); b.position.y = .8; g.add(b);
@@ -5687,6 +7568,9 @@ function obstMesh11(o, W) {
 }
 // collisions de ces pièges ; retourne true si géré
 function obstHit11(k, o, R, nx, nz, vn) {
+  // Geyser de la Grande Cascade : douche qui ralentit et pousse vers la route libre, sans tête-à-queue ; immunité 1,6 s (pas de coups répétés).
+  if (o.kind === 'jet' && o.style === 'eau') { if (o.down && k.star <= 0 && !(k.obstCd > 0)) { k.speed = Math.min(k.speed, k.maxSpeed * .55); k.obstCd = 1.6; const P = o.P, j = clamp(o.i, 0, P.N - 1), away = -Math.sign(o.lat) || 1; k.x += P.rx[j] * away * .9; k.z += P.rz[j] * away * .9;
+      if (G.W.parts) for (let q = 0; q < 24; q++) G.W.parts.emit(k.x, k.y + 1, k.z, rand(-4, 4), rand(3, 9), rand(-4, 4), pick(['#e9fbff', '#bfefff', '#ffffff']), .6); if (k.isPlayer) { banner('Geyser !', .8, true); vibrate(30); } } return 'nosolid'; }
   if (o.kind === 'jet') { if (o.down && k.star <= 0 && k.spin <= 0) { hitKart(k, null); if (k.isPlayer) banner('Ça brûle !', .8, true); } return 'nosolid'; }
   if (o.kind === 'snapper') { if (o.down && k.star <= 0 && k.spin <= 0) { hitKart(k, null); if (k.isPlayer) { banner('Croqué !', .8, true); vibrate(40); } } return 'nosolid'; }
   if (o.kind === 'pillar' && o.style === 'bumper') { if (vn < 0) { const vx = Math.sin(k.vh), vz = Math.cos(k.vh), d = vx * nx + vz * nz; k.vh = Math.atan2(vx - 2 * d * nx, vz - 2 * d * nz); k.h += angDiff(k.h, k.vh) * .7; k.speed = Math.max(k.speed * .85, 26); k.boost = Math.max(k.boost, .25);
@@ -5701,9 +7585,12 @@ function obstHit11(k, o, R, nx, nz, vn) {
 function planKickers(W) {
   const S = W.S, N = S.N, def = W.def; W.kickers = [];
   const raise = (P, i0, n, h) => { for (let q = 0; q < n; q++) { const j = P.closed ? ((i0 + q) % P.N + P.N) % P.N : i0 + q, u = (q + 1) / n; P.py[j] += h * Math.pow(u, 1.6); } };
-  for (const t of def.tricks || []) { const i = Math.floor(t * N); raise(S, i - 7, 7, 1.2); W.kickers.push({ i, lip: i % N, trick: true }); }
+  // Tremplins à figures : jamais dans une jonction (même règle que turbos, boîtes et dos d'âne). Plongeon : tremplin posé sur la
+  // réception de l'ENVOL, route principale relevée de 0,8 m sous la branche qui la rejoint (trou détecté par le contrôleur).
+  for (const t of def.tricks || []) { const i = Math.floor(clearOfJunctions(W, t) * N); raise(S, i - 7, 7, 1.2); W.kickers.push({ i, lip: i % N, trick: true }); }
   // lèvre de rampe avant chaque gouffre de planeur
   for (const [a] of def.glide || []) { const i0 = Math.floor(a * N); raise(S, i0 - 8, 8, 1.4); W.kickers.push({ i: i0, lip: i0, glide: true }); }
+  for (const B of W.branches || []) if (B.glideA != null) { raise(B, B.glideA - 8, 8, 1.4); W.kickers.push({ P: B, i: B.glideA, lip: B.glideA, glide: true }); }
   // Tremplin intégré à une route optionnelle : le circuit principal reste la voie sûre.
   // Garder l'élan et la réception loin des deux jonctions, sans modifier leurs hauteurs.
   for (const B of W.branches || []) {
@@ -5749,27 +7636,56 @@ function sectionOf(k) { const S = G.W.S; if (!(k.lap >= 1)) return 1; return cla
 // ---------- rendu des karts et caméra dans les zones tordues ----------
 const _wa = new T.Vector3(), _wb = new T.Vector3(), _qa = new T.Quaternion(), _qb = new T.Quaternion();
 function warpSeg(k) { const S = G.W.S, N = S.N, i = clamp(k.idx, 0, N - 1), a = k.along || 0; let j = a >= 0 ? (i + 1) % N : (i - 1 + N) % N; const t = clamp(Math.abs(a) / (S.seg || 2), 0, 1); return [i, j, t]; }
-function warpAtK(k, lat, h, out) { const S = G.W.S, [i, j, t] = warpSeg(k); warpAt(S, i, lat, h, _wa); warpAt(S, j, lat, h, _wb); return out.copy(_wa).lerp(_wb, t); }
+// Position et repère du kart sur la MÊME courbe lisse (Catmull-Rom) que la chaussée dessinée. Avant : interpolation linéaire entre
+// échantillons, trajectoire en ligne brisée (cassure tous les 2-3 m affichés) : à cadence irrégulière, saccade du kart 10 à 15 fois
+// celle d'une route ordinaire et caméra à 6°/image (banc rendu-loopings, zone témoin).
+function warpParam(k) { const S = G.W.S, [i, j, t] = warpSeg(k), a = k.along || 0; return a >= 0 ? [i, t] : [j, 1 - t]; }
+// Cap physique de la route interpolé entre échantillons (le cap de l'échantillon entier sautait à chaque échantillon : caméra à 8,8 m
+// derrière le kart déviée par à-coups).
+function warpHd(k) { const S = G.W.S, [lo, tt] = warpParam(k), n = S.closed === false ? Math.min(S.N - 1, lo + 1) : (lo + 1) % S.N; return S.hd[lo] + angDiff(S.hd[lo], S.hd[n]) * tt; }
+function warpAtK(k, lat, h, out) { const S = G.W.S, [lo, tt] = warpParam(k); return warpCurve(S, lo, tt, lat, h, out); }
+const _wcv = [0, 0, 0, 0];
+function warpVecCurve(S, A, lo, t, out) { const N = S.N, at = (q) => (S.closed === false ? clamp(q, 0, N - 1) : ((q % N) + N) % N), t2 = t * t, t3 = t2 * t;
+  for (let c = 0; c < 3; c++) { for (let m = 0; m < 4; m++) _wcv[m] = A[at(lo - 1 + m) * 3 + c]; const [p0, p1, p2, p3] = _wcv; out.setComponent(c, .5 * (2 * p1 + (p2 - p0) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (3 * p1 - p0 + p3 - 3 * p2) * t3)); }
+  return out.normalize(); }
+const _wsU = new T.Vector3(), _wsF = new T.Vector3(), _wsR = new T.Vector3(), _wsM = new T.Matrix4();
+function warpFrameSmooth(S, lo, t, yawRel, extraRoll, out) { warpVecCurve(S, S.wu, lo, t, _wsU); warpVecCurve(S, S.wf, lo, t, _wsF); _wsF.addScaledVector(_wsU, -_wsF.dot(_wsU)).normalize(); _wsR.crossVectors(_wsU, _wsF).normalize();
+  _wsM.makeBasis(_wsR, _wsU, _wsF); out.setFromRotationMatrix(_wsM); _we.set(0, yawRel, extraRoll || 0); _wq.setFromEuler(_we); return out.multiply(_wq); }
 const _wp = new T.Vector3(), _wf2 = new T.Vector3(), _wu2 = new T.Vector3(), _camUp = new T.Vector3(0, 1, 0);
 function warpKartPose(k, M) {
   // remplace position/orientation du kart par celles de la piste repliée ; renvoie true si appliqué
   if (!inWarp(k)) return false; const S = G.W.S, [i, j, t] = warpSeg(k), h = Math.max(0, k.y - k.groundY);
   warpAtK(k, k.lat, h + .1, M.g.position);
-  const yaw = angDiff(S.hd[i], k.h) + k.spinAng + (k.driftVis || 0), rl = k.trickT > 0 ? (k.trickDir || 1) * (1 - k.trickT / .45) * TAU : 0;
-  warpFrameQuat(S, i, yaw, rl, _qa); warpFrameQuat(S, j, yaw, rl, _qb); M.g.quaternion.copy(_qa).slerp(_qb, t);
+  const yaw = angDiff(warpHd(k), k.h) + k.spinAng + (k.driftVis || 0), rl = k.trickT > 0 ? (k.trickDir || 1) * (1 - k.trickT / .45) * TAU : 0;
+  const [lo, tt] = warpParam(k); warpFrameSmooth(S, lo, tt, yaw, rl, M.g.quaternion);
   return true;
 }
-function warpDir(k, outF, outU) { const S = G.W.S, [i0, i1, t] = warpSeg(k), a = i0 * 3, b = i1 * 3, d = angDiff(S.hd[i0], k.vh), L = (A, o) => A[a + o] + (A[b + o] - A[a + o]) * t;
-  outU.set(L(S.wu, 0), L(S.wu, 1), L(S.wu, 2)).normalize(); outF.set(L(S.wf, 0), L(S.wf, 1), L(S.wf, 2)).normalize().multiplyScalar(Math.cos(d)).addScaledVector(_wx.set(L(S.wr, 0), L(S.wr, 1), L(S.wr, 2)).normalize(), -Math.sin(d)).normalize(); }
+function warpDir(k, outF, outU) { const S = G.W.S, [lo, tt] = warpParam(k), d = angDiff(warpHd(k), k.vh);
+  warpVecCurve(S, S.wu, lo, tt, outU); warpVecCurve(S, S.wf, lo, tt, outF).multiplyScalar(Math.cos(d)).addScaledVector(warpVecCurve(S, S.wr, lo, tt, _wx), -Math.sin(d)).normalize(); }
+let camCorr = 0; // correction de hauteur de la caméra dans les sections déformées (lissée)
 function warpCamera(k, dt, portrait) {
-  if (!inWarp(k)) { _camUp.lerp(_wu2.set(0, 1, 0), 1 - Math.exp(-dt * 4)); camera.up.copy(_camUp); return false; }
+  if (!inWarp(k)) { camCorr = 0; _camUp.lerp(_wu2.set(0, 1, 0), 1 - Math.exp(-dt * 4)); camera.up.copy(_camUp); return false; }
   warpAtK(k, k.lat, Math.max(0, k.y - k.groundY) + 1.4, _wp); warpDir(k, _wf2, _wu2);
-  const dist = portrait ? 10.5 : 8.8, hgt = portrait ? 3.6 : 2.8;
+  // Mêmes recul et hauteur que la caméra ordinaire (8,6 m ; 1,4 + 2,1 = 3,5 m au-dessus de la route) : avant, 8,8 m et 4,2 m, la cible
+  // sautait de 0,7 m en entrant dans la section (à-coup mesuré à l'entrée des loopings à cadence irrégulière).
+  const dist = portrait ? 10.5 : 8.6, hgt = portrait ? 3.0 : 2.1;
   tmpV.copy(_wp).addScaledVector(_wf2, -dist).addScaledVector(_wu2, hgt);
+  // Section déformée : caméra au moins 0,6 m au-dessus de la chaussée affichée située dist mètres derrière (sortie du plafond de Gravité
+  // Zéro : la route qui redescend derrière le kart passait au-dessus de la caméra).
+  // Point « derrière » interpolé de façon continue (sinon saut d'un échantillon à l'autre : caméra saccadée, banc rendu-loopings).
+  { const S = G.W.S, [lo, tt] = warpParam(k), w = (q) => S.closed === false ? clamp(q, 0, S.N - 1) : ((q % S.N) + S.N) % S.N, len = (a, b) => Math.hypot(S.wo[b * 3] - S.wo[a * 3], S.wo[b * 3 + 1] - S.wo[a * 3 + 1], S.wo[b * 3 + 2] - S.wo[a * 3 + 2]);
+    let b = lo, L = -tt * len(lo, w(lo + 1)), a = b, fr = 0; for (let q = 0; q < 60; q++) { a = w(b - 1); const sl = len(a, b) || 1e-6; if (L + sl >= dist) { fr = (dist - L) / sl; break; } L += sl; b = a; fr = 0; }
+    const R = [0, 1, 2].map((c) => S.wo[b * 3 + c] + (S.wo[a * 3 + c] - S.wo[b * 3 + c]) * fr), U = [0, 1, 2].map((c) => S.wu[b * 3 + c] + (S.wu[a * 3 + c] - S.wu[b * 3 + c]) * fr), ul = Math.hypot(...U) || 1;
+    const d = ((tmpV.x - R[0]) * U[0] + (tmpV.y - R[1]) * U[1] + (tmpV.z - R[2]) * U[2]) / ul; camCorr += (Math.max(0, .6 - d) - camCorr) * (1 - Math.exp(-dt * 6)); if (camCorr > 1e-3) tmpV.addScaledVector(_wv.set(U[0] / ul, U[1] / ul, U[2] / ul), camCorr); } // correction lissée dans le temps // 0,6 m : dans un looping la route derrière est naturellement ≈ 1 m sous la caméra ; à 1,8 m la règle agissait sans cesse (caméra saccadée)
   // Caméra quasi solidaire de la piste (28 s⁻¹, comme l'anti-gravité de MK8) : à 10/6 s⁻¹, elle traînait de ~20° derrière la
   // rotation du looping et l'image restait penchée de ~40° au sommet (désorientant, impression de perdre le contrôle).
-  if (camSnap) camera.position.copy(tmpV); else camera.position.lerp(tmpV, 1 - Math.exp(-dt * 28));
-  _camUp.lerp(_wu2, 1 - Math.exp(-dt * 28)).normalize(); camera.up.copy(_camUp);
+  // Lissage de 9 s⁻¹ (caméra ordinaire) à 28 s⁻¹ sur les 10 premiers et derniers échantillons de la section : passer d'un coup de 9 à 28
+  // faisait rattraper ≈ 3 m de retard en quelques images (à-coup de 1,47 m relevé par Claude 2 à l'entrée du looping de Gravité Zéro).
+  const Sw = G.W.S, iw = clamp(k.idx, 0, Sw.N - 1); let bord = 0; while (bord < 10 && Sw.wz[(iw + bord + 1) % Sw.N] && Sw.wz[(iw - bord - 1 + Sw.N) % Sw.N]) bord++;
+  const kc = 9 + 19 * smoothstep(0, 10, bord);
+  if (camSnap) camera.position.copy(tmpV); else camera.position.lerp(tmpV, 1 - Math.exp(-dt * kc));
+  { const h = Sw.camH ? Sw.camH[iw] : 0; if (h > 0) _wu2.lerp(_wv.set(0, 1, 0), h).normalize(); }   // horizon conservé sur une paroi verticale (opt-in)
+  _camUp.lerp(_wu2, 1 - Math.exp(-dt * kc)).normalize(); camera.up.copy(_camUp);
   lookV.copy(_wp).addScaledVector(_wf2, 6); camera.lookAt(lookV); camH.v = k.vh; camSnap = false; return true;
 }
 // percuter un adversaire en anti-gravité : petit turbo pour les deux
@@ -5810,11 +7726,12 @@ function planGates(W) {
 }
 function gateState(g, t) { const c = (((t + g.phase) / g.period) % 1 + 1) % 1; // 0-.45 : raccourci ouvert ; .5-.95 : route principale ouverte ; transitions = les deux ouverts
   const brOpen = c < .5 || c > .97, mainOpen = g.mode !== 'alt' || (c > .47); const warnBr = c > .38 && c < .5, warnMain = g.mode === 'alt' && c > .88 && c <= .97; return { brOpen, mainOpen, warnBr, warnMain }; }
+function gateMesh(m, open, warn, t) { if (!m) return; const tgt = open ? 0 : 1; m.userData.v = lerp(m.userData.v || 0, tgt, .08); m.scale.y = Math.max(.02, m.userData.v); m.visible = m.userData.v > .03 || warn;
+  m.material.opacity = (warn ? .45 + .4 * Math.abs(Math.sin(t * 10)) : .75); if (m.userData.warnC !== warn) { m.userData.warnC = warn; m.material.color.set(warn ? '#ff8a1e' : '#ff3a8a'); } }
 function updateGates(W, t) { for (const g of W.gates || []) { const st = gateState(g, t); const ch = g.st && (g.st.brOpen !== st.brOpen || g.st.mainOpen !== st.mainOpen); g.st = st;
     if ((st.warnBr || st.warnMain) && !g.warned) { const P = G.race && G.race.player, S0 = W.S; const ahead = P && ((P.P || S0) === S0 ? ((g.mainI - P.idx) % S0.N + S0.N) % S0.N * S0.seg < 280 : P.P === g.B && P.idx < g.brJ); if (P && !P.finished && ahead) { g.warned = true; banner(st.warnMain ? 'La route se ferme : prends l\'autre chemin !' : 'Le raccourci se ferme !', 2.2, true); AudioSys.sfx('alarm'); } }
     if (!st.warnBr && !st.warnMain) g.warned = false;
-    for (const [m, open, warn] of [[g.meshMain, st.mainOpen, st.warnMain], [g.meshBr, st.brOpen, st.warnBr]]) { if (!m) continue; const tgt = open ? 0 : 1; m.userData.v = lerp(m.userData.v || 0, tgt, .08); m.scale.y = Math.max(.02, m.userData.v); m.visible = m.userData.v > .03 || warn;
-      m.material.opacity = (warn ? .45 + .4 * Math.abs(Math.sin(t * 10)) : .75); m.material.color.set(warn ? '#ff8a1e' : '#ff3a8a'); }
+    gateMesh(g.meshMain, st.mainOpen, st.warnMain, t); gateMesh(g.meshBr, st.brOpen, st.warnBr, t);
     if (ch && G.race && G.race.player) AudioSys.sfx('gate'); } }
 function gateBlock(k, W) {
   for (const g of W.gates || []) { const st = g.st || gateState(g, W.clock || 0), B = g.B, S = W.S;
@@ -5823,10 +7740,14 @@ function gateBlock(k, W) {
   }
 }
 // raccourci fermé : au lieu de rebondir en boucle contre la barrière (coincé entre les murets), on repart sur la route principale
-function gateToMain(k, B, g) { const S = G.W.S, j = clamp(k.idx, 0, B.N - 1), mi = B.map ? B.map[j] : g.mainI, lat = (B.side || 1) * G.W.hw * .55;
+// Point d'éjection : du côté de la branche si possible, mais toujours hors de ses murs. Sinon trackLocate rattachait le kart à la branche
+// quelques mètres en arrière (saut de 17 à 30 m, puis nouvelle éjection en boucle tant que la porte restait fermée, Soldes).
+function gateToMain(k, B, g) { const S = G.W.S, j = clamp(k.idx, 0, B.N - 1), mi = B.map ? B.map[j] : g.mainI, sd = B.side || 1;
+  const bl = (B.px[j] - S.px[mi]) * S.rx[mi] + (B.pz[j] - S.pz[mi]) * S.rz[mi], clear = (B.wallD || G.W.wallD) + 1.5;
+  let lat = -sd * G.W.hw * .55; for (let q = 0; q <= 10; q++) { const l = sd * G.W.hw * .55 * (1 - q / 5); if (Math.abs(l - bl) > clear) { lat = l; break; } }
   k.P = S; k.idx = mi; k.x = S.px[mi] + S.rx[mi] * lat; k.z = S.pz[mi] + S.rz[mi] * lat; k.h = k.vh = S.hd[mi]; k.lat = lat; k.speed = Math.min(Math.abs(k.speed), k.maxSpeed * .5); if (k.drift) endDrift(k, false);
-  if (k.ai) k.ai.br = {}; try { trackLocate(k); } catch (e) { /* rien */ } if (k.isPlayer) { banner('Raccourci fermé : retour sur la route', 1.4, true); AudioSys.sfx('wall'); vibrate(40); if (typeof snapCam === 'function') snapCam(); } }
-function bounceBack(k, P, i) { i = P.closed === false ? clamp(i, 0, P.N - 1) : ((i % P.N) + P.N) % P.N; k.x = P.px[i] + P.rx[i] * k.lat; k.z = P.pz[i] + P.rz[i] * k.lat; k.speed = -Math.min(8, Math.abs(k.speed) * .2); if (k.drift) endDrift(k, false); if (k.isPlayer && k.bumpCd <= 0) { AudioSys.sfx('wall'); vibrate(40); k.bumpCd = .4; } }
+  if (k.ai) k.ai.br = {}; try { trackLocate(k); } catch (e) { /* rien */ } if (k.P === B) { k.P = S; k.idx = mi; k.lat = lat; } k.gateJump = true; k.gateJumps = (k.gateJumps || 0) + 1; if (k.isPlayer) { banner('Raccourci fermé : retour sur la route', 1.4, true); AudioSys.sfx('wall'); vibrate(40); if (typeof snapCam === 'function') snapCam(); } }
+function bounceBack(k, P, i) { i = P.closed === false ? clamp(i, 0, P.N - 1) : ((i % P.N) + P.N) % P.N; k.x = P.px[i] + P.rx[i] * k.lat; k.z = P.pz[i] + P.rz[i] * k.lat; k.speed = -Math.min(8, Math.abs(k.speed) * .2); k.gateJump = true; k.gateJumps = (k.gateJumps || 0) + 1; if (k.drift) endDrift(k, false); if (k.isPlayer && k.bumpCd <= 0) { AudioSys.sfx('wall'); vibrate(40); k.bumpCd = .4; } }
 const GATE_TEX = canvasTex(128, 64, (x, w, h) => { x.fillStyle = '#ffffff'; x.fillRect(0, 0, w, h); x.fillStyle = 'rgba(0,0,0,.35)'; for (let i = -2; i < 8; i++) { x.beginPath(); x.moveTo(i * 20, h); x.lineTo(i * 20 + 10, h); x.lineTo(i * 20 + 30, 0); x.lineTo(i * 20 + 20, 0); x.fill(); } });
 function buildGates(W) {
   for (const g of W.gates || []) { const mk = (P, i, hw) => { const m = new T.Mesh(new T.PlaneGeometry(hw * 2 + 3, 3.2), new T.MeshBasicMaterial({ map: GATE_TEX, color: '#ff3a8a', transparent: true, opacity: .75, side: T.DoubleSide, depthWrite: false }));
@@ -5934,14 +7855,32 @@ function collideKarts() {
     const A = ks[a], B = ks[b]; if (A.isRemote && B.isRemote) continue; if (A.ghost > 0 || B.ghost > 0) continue;
     const dx = B.x - A.x, dz = B.z - A.z; const d2 = dx * dx + dz * dz; if (d2 > 4 * R * R || d2 < 1e-6 || Math.abs(A.y - B.y) > 2.2) continue;
     if ((A.star > 0 || A.ram > 0) && B.star <= 0 && !(B.ram > 0) && !B.isRemote) hitKart(B, A); if ((B.star > 0 || B.ram > 0) && A.star <= 0 && !(A.ram > 0) && !A.isRemote) hitKart(A, B);
-    const d = Math.sqrt(d2), nx = dx / d, nz = dz / d, ov = Math.min(2 * R - d, .5);
+    const d = Math.sqrt(d2); let nx = dx / d, nz = dz / d, ov = Math.min(2 * R - d, .5);
+    // Choc par l'arrière (ou de face) : la normale est presque dans l'axe des karts, sidePush en retire la part longitudinale
+    // et il ne restait aucun écartement, le kart rapide traversait l'autre. On la remplace par un écartement latéral progressif
+    // (0,18 m par pas au plus pour le couple), du côté où les karts sont déjà décalés, sinon le kart de derrière part vers le
+    // centre de la piste. Les vitesses ne changent pas.
+    { let ux0 = Math.sin(A.h) + Math.sin(B.h), uz0 = Math.cos(A.h) + Math.cos(B.h), ul = Math.hypot(ux0, uz0);
+      if (ul < .2) { ux0 = Math.sin(A.h); uz0 = Math.cos(A.h); ul = 1; } // sens opposés (choc frontal) : axe du kart A
+      { const ux = ux0 / ul, uz = uz0 / ul, along = nx * ux + nz * uz;
+        if (Math.abs(along) > .7) { const rx = -uz, rz = ux; let side = dx * rx + dz * rz; // même sens « droite » que la piste (rx = -fz, rz = fx), donc que k.lat
+          if (Math.abs(side) < .05) { const back = along > 0 ? A : B, bl = back.lat || 0, sgnBack = Math.abs(bl) > .3 ? -Math.sign(bl) : 1; side = back === A ? -sgnBack : sgnBack; } // signe : B à droite de A si > 0
+          // plafond progressif selon l'écart de vitesse dans l'axe : 0,2 m par pas à 8 m/s, 0,3 m au-delà de 20 m/s
+          const dvl = Math.abs((Math.sin(B.vh) * B.speed - Math.sin(A.vh) * A.speed) * ux + (Math.cos(B.vh) * B.speed - Math.cos(A.vh) * A.speed) * uz);
+          const sg = side >= 0 ? 1 : -1; nx = rx * sg; nz = rz * sg; ov = Math.min(ov, clamp(.12 + dvl * STEP * .6, .12, .3)); } } }
     let wa = B.weight / (A.weight + B.weight), wb = 1 - wa; if (A.isRemote) { wa = 0; wb = 1; } else if (B.isRemote) { wa = 1; wb = 0; }
-    sidePush(A, -nx * ov * wa, -nz * ov * wa); sidePush(B, nx * ov * wb, nz * ov * wb);
+    const ra = sidePush(A, -nx * ov * wa, -nz * ov * wa), rb = sidePush(B, nx * ov * wb, nz * ov * wb);
+    // Kart bloqué par le garde-fou (mur ou bord) : l'autre reçoit la part d'écartement qu'il n'a pas pu prendre.
+    if (ra < .99 && !B.isRemote) sidePush(B, nx * ov * wa * (1 - ra), nz * ov * wa * (1 - ra)); else if (rb < .99 && !A.isRemote) sidePush(A, -nx * ov * wb * (1 - rb), -nz * ov * wb * (1 - rb));
     if (A.bumpCd <= 0 && B.bumpCd <= 0) { if (!agBump(A, B) && (A.isPlayer || B.isPlayer)) AudioSys.sfx('bump'); if (A.isPlayer || B.isPlayer) vibrate(20); A.bumpCd = B.bumpCd = .35; }
   }
 }
 // contact : on écarte sur le côté uniquement, sans freiner ni accélérer
-function sidePush(k, px, pz) { if (k.isRemote || (!px && !pz)) return; const fx = Math.sin(k.h), fz = Math.cos(k.h), al = px * fx + pz * fz; k.x += px - fx * al * .92; k.z += pz - fz * al * .92; }
+function sidePush(k, px, pz) { if (k.isRemote || (!px && !pz)) return 1; const fx = Math.sin(k.h), fz = Math.cos(k.h), al = px * fx + pz * fz; let mx = px - fx * al * .92, mz = pz - fz * al * .92;
+  // Garde-fou : une poussée n'emmène jamais un kart au-delà de la limite latérale de son chemin (mur ou bord), ni plus loin s'il y est déjà.
+  const P = k.P || (G.W && G.W.S); if (P && P.px) { const i = clamp(k.idx | 0, 0, P.N - 1), lim = P.lim || G.W.lim, rx = P.rx[i], rz = P.rz[i], l0 = (k.x - P.px[i]) * rx + (k.z - P.pz[i]) * rz, l1 = l0 + mx * rx + mz * rz, cap = Math.max(lim, Math.abs(l0));
+    if (Math.abs(l1) > cap) { const corr = Math.sign(l1) * cap - l1, full = Math.hypot(mx, mz); mx += rx * corr; mz += rz * corr; k.x += mx; k.z += mz; return full > 1e-9 ? clamp(Math.hypot(mx, mz) / full, 0, 1) : 1; } }
+  k.x += mx; k.z += mz; return 1; } // part de la poussée réellement appliquée (1 = entière)
 /* ---- objets ---- */
 const ICONS = {
   turbo: '<svg viewBox="0 0 48 48"><path d="M6 10h12l12 14-12 14H6l12-14z" fill="#ff4f3a" stroke="#17143a" stroke-width="3" stroke-linejoin="round"/><path d="M20 10h10l12 14-12 14H20l12-14z" fill="#ffc531" stroke="#17143a" stroke-width="3" stroke-linejoin="round"/></svg>',
@@ -6061,7 +8000,7 @@ function updateBoxes(dt) {
   if (W.boxMat) W.boxMat.color.setHSL((now * .12) % 1, .75, .68);
   for (const b of W.boxes) {
     if (!b.active) { b.t -= dt; if (b.t <= 0) { b.active = true; b.mesh.visible = true; } }
-    if (b.mesh.visible) { const sc = b.active ? Math.min(1, b.mesh.scale.x + dt * 3) : 0; b.mesh.scale.setScalar(Math.max(.01, sc)); b.shell.rotation.y += dt * 1.4; b.shell.rotation.x += dt * .6; b.mesh.position.y = b.y + 1.5 + Math.sin(now * 2.5 + b.phase) * .25; }
+    if (b.mesh.visible) { const sc = b.active ? Math.min(1, b.mesh.scale.x + dt * 3) : 0; b.mesh.scale.setScalar(Math.max(.01, sc)); const rr = b.shell.rotation; rr.set(rr.x + dt * .6, rr.y + dt * 1.4, rr.z); b.mesh.position.y = b.y + 1.5 + Math.sin(now * 2.5 + b.phase) * .25; }
     if (!b.active) continue;
     for (const k of G.karts) {
       if (k.isRemote) continue;
@@ -6130,6 +8069,14 @@ function spawnOil(x, z, y, owner, id, kind = 'oil') {
   G.W.scene.add(m); warpObject(m, x, y + .16, z); G.hazards.push({ x, z, y, life: kind === 'mine' ? 30 : 25, mesh: m, owner, age: 0, id, kind });
 }
 function disposeObj(o) { G.W.scene.remove(o); o.traverse((c) => { if (c.geometry && !c.geometry.userData.keep && c.geometry !== rocketGeo) c.geometry.dispose(); if (c.material && ![...matCache.values()].includes(c.material)) c.material.dispose(); }); }
+// Visibilité des objets lancés (C2-14) : uniquement l'apparence (taille, halo, éclat au départ, traînée, impact) ; trajectoire,
+// vitesse, portée, rayon de touche et équilibrage inchangés (les collisions utilisent les positions, pas les maillages).
+const PROJ_HALO = (() => { const g = new T.SphereGeometry(1, 12, 8); g.userData.keep = true; return g; })();
+function projVisible(g, color, scale, x, y, z, h) {
+  g.scale.setScalar(scale);
+  const halo = new T.Mesh(PROJ_HALO, new T.MeshBasicMaterial({ color, transparent: true, opacity: .32, depthWrite: false, blending: T.AdditiveBlending })); halo.scale.setScalar(.75); g.add(halo);
+  const W = G.W; if (W && W.parts) for (let m = 0; m < 12; m++) W.parts.emit(x + Math.sin(h) * 1.5, y + 1, z + Math.cos(h) * 1.5, Math.sin(h) * rand(4, 9) + rand(-2, 2), rand(.5, 3), Math.cos(h) * rand(4, 9) + rand(-2, 2), pick([color, '#fffdf7']), .45, .2);
+}
 function spawnRocket(x, z, y, h, sp, owner, target, id, kind = 'rocket') {
   if (KIND13.has(kind)) return spawn13(x, z, y, h, sp, owner, target, id, kind);
   const S = G.W.S, N = S.N; let best = owner ? owner.idx : 0, bd = Infinity;
@@ -6137,6 +8084,7 @@ function spawnRocket(x, z, y, h, sp, owner, target, id, kind = 'rocket') {
   const g = new T.Group();
   if (kind === 'boule') { const b = new T.Mesh(new T.SphereGeometry(.6, 18, 14), stdMat('#38b6ff', .25, .3)); g.add(b); const ring = new T.Mesh(new T.TorusGeometry(.6, .1, 8, 24), stdMat('#fffdf7', .3, .2)); ring.rotation.x = Math.PI / 2; g.add(ring); g.userData.spin = b; }
   else { g.add(new T.Mesh(rocketGeo, stdMat('#ff4f3a', .3, .3))); const fl = new T.Mesh(new T.SphereGeometry(.35, 8, 6), new T.MeshBasicMaterial({ color: '#ffc531' })); fl.position.z = -.8; g.add(fl); }
+  projVisible(g, kind === 'boule' ? '#7fd4ff' : '#ffb347', kind === 'boule' ? 1.35 : 1.7, x, y, z, h);
   G.W.scene.add(g);
   G.rockets.push({ x, z, y, h, idx: best, lat: (x - S.px[best]) * S.rx[best] + (z - S.pz[best]) * S.rz[best], speed: sp, target, owner, life: kind === 'boule' ? 6 : 7, age: 0, mesh: g, id, kind });
 }
@@ -6159,8 +8107,9 @@ function updateItems(dt) {
     const h = G.hazards[n];
     // Piège lancé devant : trajectoire en cloche, sans effet avant l'atterrissage.
     if (h.fly) { const f = h.fly; f.t += dt; const u = Math.min(1, f.t / f.T), arc = Math.sin(u * Math.PI) * (2.5 + f.T * 5);
+      if (W.parts && Math.random() < .85) W.parts.emit(h.mesh.position.x, h.mesh.position.y + .4, h.mesh.position.z, rand(-.5, .5), rand(0, .6), rand(-.5, .5), '#fffdf7', .45, 0); // traînée du vol (C2-14)
       h.mesh.position.set(lerp(f.x0, f.end.x, u), lerp(f.y0, f.end.y, u) + arc, lerp(f.z0, f.end.z, u));
-      if (u >= 1) { h.fly = null; h.mesh.position.copy(f.end); for (let m = 0; m < 8; m++) W.parts.emit(f.end.x, f.end.y + .3, f.end.z, rand(-3, 3), rand(1, 4), rand(-3, 3), '#fffdf7', .4); }
+      if (u >= 1) { h.fly = null; h.mesh.position.copy(f.end); for (let m = 0; m < 18; m++) W.parts.emit(f.end.x, f.end.y + .3, f.end.z, rand(-4, 4), rand(1, 5), rand(-4, 4), pick(['#fffdf7', '#ffd23a']), .55); }
       continue; }
     h.life -= dt; h.age += dt; if (HZ13.has(h.kind)) { if (h.life <= 0 || hazard13(h, dt)) { disposeObj(h.mesh); G.hazards.splice(n, 1); } continue; } let gone = h.life <= 0; const rad2 = h.kind === 'mine' ? 8.4 : h.kind === 'leurre' ? 6 : 6.4;
     if (h.mesh.userData.spin) { h.mesh.userData.spin.rotation.y += dt * 1.4; h.mesh.position.y = h.y + 1.5 + Math.sin(now * 2.5 + h.mesh.userData.bob) * .25; }
@@ -6192,9 +8141,10 @@ function updateItems(dt) {
       if (r.kind === 'boule') { const dx = Math.sin(r.h), dz = Math.cos(r.h), dl = (dx * S.rx[best] + dz * S.rz[best]); if (dl * s > 0) { r.h = Math.atan2(dx - 2 * dl * S.rx[best], dz - 2 * dl * S.rz[best]); AudioSys.sfx('bump'); } }
     }
     r.y = lerp(r.y, S.py[best] + (S.glide && S.glide[best] ? 3 : 0), .3); r.mesh.position.set(r.x, r.y + (r.kind === 'boule' ? .6 : 1), r.z); r.mesh.rotation.y = r.h; if (S.wz && S.wz[best]) warpObject(r.mesh, r.x, r.y + 1, r.z);
-    if (r.kind !== 'boule' && Math.random() < .8) W.parts.emit(r.x - Math.sin(r.h) * 1, r.y + 1, r.z - Math.cos(r.h) * 1, rand(-1, 1), rand(0, 1), rand(-1, 1), '#ff9a2e', .35, 0);
+    if (r.kind !== 'boule') { for (let q = 0; q < 2; q++) W.parts.emit(r.x - Math.sin(r.h) * (1.2 + q * .8), r.y + 1, r.z - Math.cos(r.h) * (1.2 + q * .8), rand(-.6, .6), rand(0, .8), rand(-.6, .6), q ? '#ffd23a' : '#ff9a2e', .8, 0); } // traînée plus longue et plus dense (C2-14)
+    else if (Math.random() < .7) W.parts.emit(r.x - Math.sin(r.h) * 1, r.y + .6, r.z - Math.cos(r.h) * 1, rand(-.5, .5), rand(0, .5), rand(-.5, .5), '#bfe9ff', .5, 0);
     if (!gone) for (const k of G.karts) { if (k.isRemote || (k === r.owner && r.age < (r.kind === 'boule' ? .8 : .6))) continue; if ((k.x - r.x) ** 2 + (k.z - r.z) ** 2 < 10.5 && Math.abs(k.y - r.y) < 3) { if (k.mirror > 0 && mirror13(r, k)) break; hitKart(k, r.owner); netHitReport(k, r.owner, r.id); gone = true; break; } }
-    if (gone) { for (let m = 0; m < 16; m++) W.parts.emit(r.x, r.y + 1, r.z, rand(-7, 7), rand(2, 9), rand(-7, 7), pick(['#ff4f3a', '#ffc531', '#fffdf7']), .7); disposeObj(r.mesh); G.rockets.splice(n, 1); }
+    if (gone) { for (let m = 0; m < 28; m++) W.parts.emit(r.x, r.y + 1, r.z, rand(-9, 9), rand(2, 11), rand(-9, 9), pick(['#ff4f3a', '#ffc531', '#fffdf7']), .85); disposeObj(r.mesh); G.rockets.splice(n, 1); }
   }
 }
 
@@ -6236,6 +8186,7 @@ function itemOdds13(k, place) {
   if (G.lastEclair != null && now - G.lastEclair < 25) w.eclair = 0;                                      // un éclair toutes les 25 s maximum
   if ((G.lastComete != null && now - G.lastComete < 30) || G.rockets.some((x) => x.kind === 'comete')) w.comete = 0;   // une comète à la fois, 30 s entre deux
   if (G.karts.some((o) => o.star > 0)) w.etoile *= .3;
+  if (!gravAvail()) w.gravite = 0;                                                                        // seulement sur les cartes à plafond / paroi compatibles
   if ((G.karts || []).length <= 2) { w.comete *= .3; w.eclair *= .5; }
   const hist = (k && k.lastItems) || []; hist.forEach((it, i) => { if (w[it] != null) w[it] *= [.1, .4, .7, .9][i] || 1; });   // presque jamais 2 fois de suite le même
   return w;
@@ -6291,7 +8242,7 @@ function mesh13(kind) {
 function spawn13(x, z, y, h, sp, owner, target, id, kind) {
   const S = G.W.S, N = S.N; let best = owner ? owner.idx : 0, bd = Infinity;
   for (let o = -40; o <= 40; o++) { const i = ((owner ? owner.idx : 0) + o + N) % N; const d = (x - S.px[i]) ** 2 + (z - S.pz[i]) ** 2; if (d < bd) { bd = d; best = i; } }
-  const m = mesh13(kind); m.position.set(x, y + 1, z); G.W.scene.add(m);
+  const m = mesh13(kind); m.position.set(x, y + 1, z); if (kind === 'boomerang') projVisible(m, '#ffcf6a', 1.3, x, y, z, h); /* C2-14 : visible à l'aller et au retour */ G.W.scene.add(m);
   const r = { k13: true, x, z, y, h, idx: best, lat: (x - S.px[best]) * S.rx[best] + (z - S.pz[best]) * S.rz[best], speed: sp, target, owner, life: kind === 'comete' ? 16 : kind === 'boomerang' ? 4.2 : 6.5, age: 0, mesh: m, id, kind, hits: new Set() };
   if (kind === 'comete') G.lastComete = G.race ? G.race.t : 0;
   if (INIT13X[kind]) INIT13X[kind](r);
@@ -6370,7 +8321,7 @@ function spawnLeurre(x, z, y, owner, id) {
 }
 // la première fois qu'on obtient un objet : une phrase pour dire à quoi il sert
 const ITEM_DESC = { turbo: 'Turbo : un coup d\'accélération', triple: 'Triple turbo : 3 accélérations', nitro: 'Nitro : 4 s de très grosse accélération', boule: 'Boule : lancée vers le kart devant, rebondit sur les murs',
-  shield: 'Bouclier : bloque un coup', oil: 'Flaque : posée derrière toi, fait glisser', leurre: 'Leurre : fausse boîte posée derrière toi', mine: 'Mine : explose quand on roule dessus', colle: 'Pot de colle : ralentit celui qui passe',
+  shield: 'Bouclier : bloque un coup', oil: 'Flaque : OBJET la lance devant, OBJET ↓ la pose derrière ; fait glisser', leurre: 'Leurre : fausse boîte ; OBJET devant, OBJET ↓ derrière', mine: 'Mine : OBJET devant, OBJET ↓ derrière ; explose quand on roule dessus', colle: 'Pot de colle : OBJET devant, OBJET ↓ derrière ; ralentit celui qui passe',
   boomerang: 'Boomerang : part devant (ou derrière : vers le bas en lançant) et revient, touche jusqu\'à 3 karts', tourbillon: 'Tourbillon : redescend la piste vers ceux qui te suivent', rocket: 'Fusée : file sur le kart devant toi', bulle: 'Bulle : emprisonne le kart devant toi',
   aimant: 'Aimant : te colle au kart devant', fantome: 'Fantôme : tu deviens intouchable un moment', ressort: 'Ressort : grand saut par-dessus les pièges', aspirateur: 'Aspirateur : vole l\'objet du kart devant', ventilo: 'Ventilo : souffle les karts autour',
   grappin: 'Grappin : te tire vers le kart devant', confettis: 'Confettis : aveugle ceux devant toi', disco: 'Boule disco : onde qui renverse les karts proches', etoile: 'Étoile : invincible et plus rapide', eclair: 'Éclair : rapetisse tous ceux devant toi', comete: 'Comète : vole jusqu\'au 1er et explose sur lui' };
@@ -6380,6 +8331,10 @@ const BACK_ITEMS = new Set(['boomerang', 'boule', 'chewing', 'petard']);
 const FRONT_TRAPS = new Set(['oil', 'mine', 'colle', 'leurre', 'verglas', 'trampoline']);
 // Met en vol les pièges créés depuis l'indice n0 de G.hazards (lancer devant, local ou reçu du réseau).
 function flyTrap(n0, vol) { if (vol) for (let q = n0; q < G.hazards.length; q++) { const h = G.hazards[q]; h.fly = Object.assign({ end: h.mesh.position.clone() }, vol); h.mesh.position.set(vol.x0, vol.y0, vol.z0); } }
+// Indice de pose sûr pour un piège : hors des vides (trouées, saut de retour d'un plafond) et des murs quasi verticaux (montée, tour) ;
+// on avance (dir = 1) ou recule (dir = -1) jusqu'à une chaussée praticable (au plus 400 échantillons). Comportement explicite et sûr.
+function safeTrapIdx(P, j, dir) { const N = P.N, bad = (q) => (P.glide && P.glide[q]) || (P.montee && Math.abs(P.montee[q]) > .5); let q = ((j % N) + N) % N;
+  for (let n = 0; n < 400 && bad(q); n++) q = P.closed === false ? clamp(q + dir, 0, N - 1) : ((q + dir) % N + N) % N; return q; }
 function throwFwd(k) { if (k.isPlayer && !G.autopilot) return !!k.itemFwd; return !!k.aiFwd; }
 /* Pose un piège : à d m derrière le kart, ou lancé devant avec point de chute sur la piste, dans la voie du kart, à 20-42 m selon la
    vitesse (portée d'un lancer en cloche) ; le piège n'est actif qu'à l'atterrissage (G.hazards[].fly, voir updateItems). */
@@ -6389,8 +8344,12 @@ function dropTrap(k, kind, d, online) {
     const S = G.W.S, dist = clamp(20 + Math.max(0, k.speed) * .35, 20, 42); let P = k.P || S, j = k.idx + Math.round(dist / (P.seg || S.seg));
     // Sur une branche, au-delà de son bout : la chute continue sur la route principale après la jonction (B.i1).
     if (P === S) j %= P.N; else if (j > P.N - 1) { j = (P.i1 + Math.round((j - (P.N - 1)) * (P.seg || S.seg) / S.seg)) % S.N; P = S; }
-    const lat = clamp(k.lat || 0, -(P.hw || G.W.hw) * .8, (P.hw || G.W.hw) * .8); x = P.px[j] + P.rx[j] * lat; z = P.pz[j] + P.rz[j] * lat; y = P.py[j];
-    vol = { x0: k.x, z0: k.z, y0: k.y + 1.2, t: 0, T: .45 + dist / 110 };
+    j = safeTrapIdx(P, j, 1); const lat = clamp(k.lat || 0, -(P.hw || G.W.hw) * .8, (P.hw || G.W.hw) * .8); x = P.px[j] + P.rx[j] * lat; z = P.pz[j] + P.rz[j] * lat; y = P.py[j];
+    // départ du vol : le kart TEL QU'AFFICHÉ (dans un looping ou au plafond, sa position physique n'est pas celle qu'on voit)
+    const g = k.mesh && k.mesh.g; vol = { x0: g ? g.position.x : k.x, z0: g ? g.position.z : k.z, y0: (g ? g.position.y : k.y) + 1.2, t: 0, T: .45 + dist / 110 };
+  } else { // posé derrière : jamais dans un vide (saut, trouée) ni sur un mur vertical
+    const P = k.P || G.W.S, j0 = ((k.idx - Math.round(d / (P.seg || G.W.S.seg))) % P.N + P.N) % P.N, j = safeTrapIdx(P, j0, -1);
+    if (j !== j0) { const lat = clamp(k.lat || 0, -(P.hw || G.W.hw) * .8, (P.hw || G.W.hw) * .8); x = P.px[j] + P.rx[j] * lat; z = P.pz[j] + P.rz[j] * lat; y = P.py[j]; }
   }
   const id = online ? netNewId() : null, n0 = G.hazards.length; spawnOil(x, z, y, k, id, kind);
   flyTrap(n0, vol);
@@ -6521,13 +8480,26 @@ Object.assign(ICONS, {
   teleport: '<svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="18" fill="#a87dff" stroke="#17143a" stroke-width="3"/><path d="M14 20h16l-5-5M34 28H18l5 5" stroke="#fffdf7" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   sac: '<svg viewBox="0 0 48 48"><path d="M12 18h24l4 24H8z" fill="#ffc531" stroke="#17143a" stroke-width="3" stroke-linejoin="round"/><path d="M17 18c0-8 14-8 14 0" fill="none" stroke="#17143a" stroke-width="3"/><text x="24" y="37" font-size="15" font-weight="900" text-anchor="middle" fill="#17143a">×3</text><path d="M6 10l3 3M42 10l-3 3M24 4v4" stroke="#ff4f7a" stroke-width="3" stroke-linecap="round"/></svg>',
 });
-Object.assign(ITEM_FR, { verglas: 'Verglas', fumigene: 'Fumigène', trampoline: 'Trampoline', petard: 'Pétard', chewing: 'Chewing-gum', miroir: 'Miroir', parebuffle: 'Pare-buffle', bouquet: 'Bouquet final', meteores: 'Météores', teleport: 'Téléporteur', sac: 'Sac surprise' });
-Object.assign(RARITY, { verglas: 'c', fumigene: 'c', trampoline: 'c', petard: 'u', chewing: 'u', miroir: 'u', parebuffle: 'r', bouquet: 'r', meteores: 'r', sac: 'r', teleport: 'v' });
+Object.assign(ICONS, { gravite: '<svg viewBox="0 0 48 48"><rect x="4" y="3" width="40" height="7" rx="2" fill="#a87dff" stroke="#17143a" stroke-width="3"/><path d="M10 13l4 3M38 13l-4 3" stroke="#a87dff" stroke-width="3" stroke-linecap="round"/><rect x="12" y="15" width="24" height="9" rx="3" fill="#ff4f3a" stroke="#17143a" stroke-width="3"/><circle cx="17" cy="13" r="3" fill="#17143a"/><circle cx="31" cy="13" r="3" fill="#17143a"/><path d="M24 27v11" stroke="#17143a" stroke-width="9" stroke-linecap="round"/><path d="M15 34l9 10 9-10z" fill="#ffc531" stroke="#17143a" stroke-width="3" stroke-linejoin="round"/><path d="M24 27v9" stroke="#ffc531" stroke-width="4" stroke-linecap="round"/></svg>' });
+// Icônes refaites (#28) : silhouettes épaisses lisibles à 30 px sur mobile ; règles des objets inchangées.
+Object.assign(ICONS, {
+  rocket: '<svg viewBox="0 0 48 48"><path d="M14 19l-11 5 11 5z" fill="#ffc531" stroke="#17143a" stroke-width="2.5" stroke-linejoin="round"/><path d="M18 17l-5-9h8l7 9M18 31l-5 9h8l7-9" fill="#ffc531" stroke="#17143a" stroke-width="3" stroke-linejoin="round"/><path d="M13 16h20c6 0 10 4 12 8-2 4-6 8-12 8H13z" fill="#ff4f3a" stroke="#17143a" stroke-width="3" stroke-linejoin="round"/><circle cx="32" cy="24" r="3.5" fill="#bfefff" stroke="#17143a" stroke-width="2.5"/></svg>',
+  colle: '<svg viewBox="0 0 48 48"><ellipse cx="24" cy="41" rx="19" ry="5" fill="#ffd84a" stroke="#17143a" stroke-width="3"/><path d="M13 14h22v19a4 4 0 0 1-4 4H17a4 4 0 0 1-4-4z" fill="#fff3c4" stroke="#17143a" stroke-width="3"/><path d="M13 15h22v6c-3 0-3 7-6 7s-2-5-5-5-3 9-6 9-2-7-5-7z" fill="#ffd84a" stroke="#17143a" stroke-width="2.5" stroke-linejoin="round"/><rect x="10" y="7" width="28" height="8" rx="2" fill="#ff8a1e" stroke="#17143a" stroke-width="3"/></svg>',
+  aspirateur: '<svg viewBox="0 0 48 48"><rect x="3" y="24" width="17" height="17" rx="3" fill="#ffc531" stroke="#17143a" stroke-width="3"/><path d="M11.5 29.5c0-3 5-3 5 0 0 2-2.5 2-2.5 4M14 37v.5" stroke="#17143a" stroke-width="3" fill="none" stroke-linecap="round" transform="translate(-2 0)"/><path d="M33 32L44 8" stroke="#17143a" stroke-width="8" stroke-linecap="round"/><path d="M33 32L44 8" stroke="#a87dff" stroke-width="4" stroke-linecap="round"/><path d="M23 26l11 2-3 12-11-3z" fill="#a87dff" stroke="#17143a" stroke-width="3" stroke-linejoin="round"/><path d="M22 14l-4 4M28 12v5M15 14l1 4" stroke="#38b6ff" stroke-width="3" stroke-linecap="round"/></svg>',
+  grappin: '<svg viewBox="0 0 48 48"><path d="M5 43l21-21" stroke="#17143a" stroke-width="6" stroke-linecap="round"/><path d="M5 43l21-21" stroke="#c89a5a" stroke-width="3" stroke-linecap="round" stroke-dasharray="4 3"/><g fill="none" stroke-linecap="round"><path d="M24 24l14-14M38 10c-8-3-14 1-15 6M38 10c3 8-1 14-6 15M38 10l6-6" stroke="#17143a" stroke-width="8"/><path d="M24 24l14-14M38 10c-8-3-14 1-15 6M38 10c3 8-1 14-6 15M38 10l6-6" stroke="#c8ccd8" stroke-width="4"/></g></svg>',
+  tourbillon: '<svg viewBox="0 0 48 48"><g fill="#bfefff" stroke="#17143a" stroke-width="3"><ellipse cx="24" cy="10" rx="19" ry="6"/><ellipse cx="22" cy="21" rx="14" ry="4.5"/><ellipse cx="25" cy="30.5" rx="9" ry="3.5"/><ellipse cx="22" cy="38.5" rx="5" ry="2.5"/></g><path d="M22 41v5" stroke="#17143a" stroke-width="3" stroke-linecap="round"/><path d="M12 10h16" stroke="#38b6ff" stroke-width="3" stroke-linecap="round"/></svg>',
+  nitro: '<svg viewBox="0 0 48 48"><path d="M27 18c7 1 10-3 18-1-4 3-3 5 0 7-4 0-4 4 0 7-8 2-11-2-18-1z" fill="#ffc531" stroke="#17143a" stroke-width="2.5" stroke-linejoin="round"/><path d="M27 21c5 1 7-1 11 0-2 2-2 4 0 6-4 1-6-1-11 0z" fill="#ff4f3a"/><rect x="5" y="12" width="20" height="32" rx="6" fill="#38b6ff" stroke="#17143a" stroke-width="3"/><rect x="10" y="5" width="10" height="8" rx="2" fill="#c8ccd8" stroke="#17143a" stroke-width="3"/><path d="M17 19l-5 9h6l-4 9" stroke="#fffdf7" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  miroir: '<svg viewBox="0 0 48 48"><ellipse cx="13" cy="20" rx="9" ry="15" fill="#e9f6ff" stroke="#17143a" stroke-width="3"/><path d="M10 11l4-3M9 18l7-6" stroke="#38b6ff" stroke-width="3" stroke-linecap="round"/><path d="M13 35v9" stroke="#17143a" stroke-width="4" stroke-linecap="round"/><path d="M44 10L24 20l18 12" fill="none" stroke="#17143a" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><path d="M44 10L24 20l18 12" fill="none" stroke="#ff4f3a" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M42 26l1 7-7-1z" fill="#ff4f3a" stroke="#17143a" stroke-width="2" stroke-linejoin="round"/></svg>',
+  parebuffle: '<svg viewBox="0 0 48 48"><path d="M3 20l5 3M45 20l-5 3M24 2v6M14 5l3 5M34 5l-3 5" stroke="#ff8a1e" stroke-width="3.5" stroke-linecap="round"/><rect x="10" y="12" width="28" height="17" rx="5" fill="#ff4f3a" stroke="#17143a" stroke-width="3"/><rect x="16" y="15" width="16" height="6" rx="2" fill="#bfefff" stroke="#17143a" stroke-width="2"/><circle cx="13" cy="41" r="4.5" fill="#2b2b3a"/><circle cx="35" cy="41" r="4.5" fill="#2b2b3a"/><rect x="3" y="27" width="42" height="10" rx="3" fill="#c8ccd8" stroke="#17143a" stroke-width="3"/><path d="M13 27v10M24 27v10M35 27v10" stroke="#17143a" stroke-width="2.5"/></svg>',
+  bouquet: '<svg viewBox="0 0 48 48"><path d="M24 44V18M14 44l-5-22M34 44l5-22" stroke="#ff8a1e" stroke-width="3" stroke-dasharray="3 3" stroke-linecap="round"/><g stroke="#17143a" stroke-width="2.5" stroke-linejoin="round"><path d="M24 3l6 13h-12z" fill="#ffc531"/><path d="M6 8l9 13-8 2z" fill="#ff4f7a"/><path d="M42 8l-9 13 8 2z" fill="#38b6ff"/></g><path d="M18 2l-2-1M30 2l2-1M3 4l-1-2M45 4l1-2" stroke="#ffc531" stroke-width="2.5" stroke-linecap="round"/></svg>',
+});
+Object.assign(ITEM_FR, { verglas: 'Verglas', fumigene: 'Fumigène', trampoline: 'Trampoline', petard: 'Pétard', chewing: 'Chewing-gum', miroir: 'Miroir', gravite: 'Coupure anti-gravité', parebuffle: 'Pare-buffle', bouquet: 'Bouquet final', meteores: 'Météores', teleport: 'Téléporteur', sac: 'Sac surprise' });
+Object.assign(RARITY, { verglas: 'c', fumigene: 'c', trampoline: 'c', petard: 'u', chewing: 'u', miroir: 'u', gravite: 'r', parebuffle: 'r', bouquet: 'r', meteores: 'r', sac: 'r', teleport: 'v' });
 ITEM_KEYS.length = 0; ITEM_KEYS.push(...Object.keys(RARITY));
-Object.assign(ODDS13, { verglas: [7, 3, .5], fumigene: [5, 3, 1], trampoline: [5, 2.5, .5], petard: [3, 4.5, 3], chewing: [3, 4, 3], miroir: [4, 2.5, 1],
+Object.assign(ODDS13, { verglas: [7, 3, .5], fumigene: [5, 3, 1], trampoline: [5, 2.5, .5], petard: [3, 4.5, 3], chewing: [3, 4, 3], miroir: [4, 2.5, 1], gravite: [.5, 2.5, 3],
   parebuffle: [0, 2, 3], bouquet: [0, 1.5, 3], meteores: [0, 1, 2.5], sac: [0, 1.6, 3], teleport: [0, 0, 2] });
 Object.assign(ITEM_DESC, { verglas: 'Verglas : plaque de glace derrière toi, on y perd le volant', fumigene: 'Fumigène : nuage derrière toi, on n\'y voit plus rien', trampoline: 'Trampoline : posé derrière, il fait rebondir et ralentit',
-  petard: 'Pétard : lancé en cloche devant, il explose au sol', chewing: 'Chewing-gum : tiré tout droit, il colle le kart touché', miroir: 'Miroir : renvoie le prochain tir à son lanceur (même la comète !)',
+  petard: 'Pétard : lancé en cloche devant, il explose au sol', chewing: 'Chewing-gum : tiré tout droit, il colle le kart touché', miroir: 'Miroir : renvoie le prochain tir à son lanceur (même la comète et la coupure anti-gravité !)', gravite: 'Coupure anti-gravité : ceux sur une paroi ou au plafond décrochent un instant',
   parebuffle: 'Pare-buffle : 6 s, tout kart que tu touches part en toupie', bouquet: 'Bouquet final : 3 fusées sur les 3 karts devant toi', meteores: 'Météores : pluie de rochers sur ceux de devant',
   teleport: 'Téléporteur : tu échanges ta place avec le kart devant toi', sac: 'Sac surprise : 3 objets d\'un coup !' });
 const HZ13 = new Set(['verglas', 'trampoline', 'fumee']);
@@ -6543,6 +8515,7 @@ function useItem13x(k, it, online) {
   if (it === 'petard' || it === 'chewing') { const rear = throwBack(k); let sp = rear ? (it === 'petard' ? 26 : 55) : it === 'petard' ? Math.max(58, k.speed + 22) : Math.max(84, k.speed + 32); const A = rear ? { h: k.h + Math.PI, tg: null } : it === 'petard' ? aim13(k, 50, 90, .85) : aim13(k, sp), h = A.h, x = k.x + Math.sin(h) * 2.6, z = k.z + Math.cos(h) * 2.6, id = online ? netNewId() : null;
     if (it === 'petard' && A.tg) sp = clamp((A.d - 2.6) / .85, 20, 90);   // vol de 0,85 s : il retombe sur la cible
     spawnRocket(x, z, k.y, h, sp, k, null, id, it); if (A.tg) G.rockets[G.rockets.length - 1].aimTg = A.tg; if (id) netEmit({ e: 'rocket', kind: it, id, x: r2(x), z: r2(z), y: r2(k.y), h: r3(h), sp: r2(sp), o: k.netId, tg: null }); if (k.isPlayer) AudioSys.sfx('rocket'); return true; }
+  if (it === 'gravite') { gravPulse(k, online); return true; }
   if (it === 'miroir') { k.mirror = 8; if (k.isPlayer) { AudioSys.sfx('shield'); banner('Miroir : le prochain tir repart à l\'envoyeur', 1.6); } return true; }
   if (it === 'parebuffle') { k.ram = 6; if (k.isPlayer) { AudioSys.sfx('boost'); banner('Pare-buffle !', 1); vibrate(40); } return true; }
   if (it === 'bouquet' || it === 'meteores') { const seg = G.W.S.seg, list = G.karts.filter((o) => o !== k && !o.finished && !o.spect && (o.prog - k.prog) * seg > 0 && (o.prog - k.prog) * seg < 260).sort((a, b) => a.prog - b.prog).slice(0, 3);
@@ -6578,6 +8551,7 @@ function itemStatus13x(k, inp, dt) {
   if (k.gum > 0) { k.gum -= dt; const cap = k.maxSpeed * .45; if (k.speed > cap) k.speed = lerp(k.speed, cap, 1 - Math.exp(-dt * 6)); inp.steer *= .55; inp.drift = false; }
   if (k.ram > 0) { k.ram -= dt; if (G.W.parts && Math.random() < .6) G.W.parts.emit(k.x + Math.sin(k.h) * 2, k.y + .7, k.z + Math.cos(k.h) * 2, rand(-2, 2), rand(0, 2), rand(-2, 2), pick(['#ff8a1e', '#ffc531']), .3, 0); }
   if (k.mirror > 0) k.mirror -= dt;
+  if (k.gcut > 0 || k.gvl) gravStep(k, inp, dt);
   if (k.smokeT > 0) k.smokeT -= dt;
   if (k.isPlayer) { const el = smoke13(); const o = k.smokeT > 0 ? Math.min(1, k.smokeT * 2) * .85 : 0; if (Math.abs((+el.style.opacity || 0) - o) > .02) el.style.opacity = o.toFixed(2); }
   if (!k.item && !(k.roll > 0) && k.bag && k.bag.length) { k.bagT = (k.bagT || 0) + dt; if (k.bagT > .4) { k.item = k.bag.shift(); k.uses = k.item === 'triple' ? 3 : 0; k.bagT = 0; if (k.isPlayer) AudioSys.sfx('got'); } }
@@ -6589,6 +8563,7 @@ function aiUse13x(k, ahead, behind, ai) {
     case 'petard': { const a = ahead(35), b = !a && behind(20); k.aiBack = b; return a || b || ai.itemT < -5; }
     case 'chewing': { const a = ahead(40), b = !a && behind(20); k.aiBack = b; return a || b || ai.itemT < -5; }
     case 'miroir': return G.rockets.some((r) => r.target === k) || ai.itemT < -2;
+    case 'gravite': return G.karts.some((o) => o !== k && !o.finished && !o.spect && gravExposed(o)) || ai.itemT < -14;
     case 'parebuffle': return G.karts.some((o) => o !== k && !o.finished && (o.x - k.x) ** 2 + (o.z - k.z) ** 2 < 400) || ai.itemT < -3;
     case 'bouquet': case 'meteores': return ahead(150) || ai.itemT < -2;
     case 'teleport': return ahead(55) || ai.itemT < -8;
@@ -6600,7 +8575,62 @@ function mirror13(r, k, quiet) { const was = r.owner; r.owner = k; r.target = wa
   if (!quiet && r.id && G.race && G.race.online) netEmit({ e: 'reflect', id: r.id, by: k.netId });
   if (G.W.parts) for (let i = 0; i < 20; i++) G.W.parts.emit(r.x, r.y + 1, r.z, rand(-5, 5), rand(1, 6), rand(-5, 5), pick(['#e9f6ff', '#bfefff', '#fffdf7']), .5, 0);
   if (k.isPlayer) { AudioSys.sfx('shield'); banner('Renvoyé à l\'envoyeur !', 1.3); } if (r.target && r.target.isPlayer) banner('Ton tir revient vers toi !', 1.4, true); return true; }
+/* ---------- Coupure anti-gravité (#28) ----------
+   Onde lancée sur tous les autres concurrents. N'agit que sur un kart posé sur une surface compatible (S.gsurf : plafond, paroi ≥ 55°,
+   montée frontale) ; ailleurs : aucun effet et aucune protection consommée. Pendant GCUT_T secondes, l'adhérence anti-gravité est
+   coupée : la vraie gravité (projetée dans le repère de la chaussée affichée) fait décrocher le kart d'un plafond (vol libre loin de la
+   chaussée), glisser vers le bas d'une paroi ou reculer sur une montée ; puis l'adhérence revient (rappel 36 m/s², glissade amortie).
+   Priorité : étoile/fantôme (immunisé) > miroir (annule, renvoie UNE fois au lanceur, se consomme) > bouclier (annule, se consomme).
+   Renvoi : une seule fois par impulsion (identifiant), jamais d'onde globale ; le lanceur subit l'effet seulement s'il est lui-même
+   sur une surface compatible (sinon le renvoi s'éteint) ; son propre miroir annule sans renvoyer, son bouclier annule.
+   En ligne : chaque client applique l'onde à SES karts (joueur, bots de l'hôte) ; le renvoi est appliqué par le client du lanceur,
+   une seule fois par identifiant même si plusieurs miroirs l'ont renvoyé. */
+const GCUT_T = .45, GCUT_A = 20;
+function gravAvail() { const S = G.W && G.W.S; return !!(S && S.gsurfN > 0); }
+function gravSurf(k) { const S = G.W && G.W.S; if (!S || !S.gsurf || (k.P && k.P !== S)) return 0; return S.gsurf[clamp(k.idx | 0, 0, S.N - 1)]; }
+function gravExposed(k) { return !k.spect && !k.finished && !(k.fallT > 0) && !(k.cage > 0) && !(k.air && !k.gfall) && gravSurf(k) > 0; }
+function gravRec(id) { const R = G.race || {}; R.gp = R.gp || new Map(); let r = R.gp.get(id); if (!r) { r = { reflected: false, applied: false }; R.gp.set(id, r); } return r; }
+function gravPulse(src, online) { const R = G.race || {}; R.gpSeq = (R.gpSeq || 0) + 1; const id = online ? netNewId() : 'g' + R.gpSeq, rec = gravRec(id); rec.src = src; rec.seen = true;
+  if (online) netEmit({ e: 'gpulse', id, o: src.netId });
+  if (G.W && G.W.parts) for (let i = 0; i < 36; i++) { const a = i / 36 * TAU; G.W.parts.emit(src.x, src.y + 1, src.z, Math.cos(a) * 14, rand(.5, 2), Math.sin(a) * 14, pick(['#a87dff', '#38b6ff', '#fffdf7']), .55, 0); }
+  if (src.isPlayer) { AudioSys.sfx('zap'); } return gravWave(src, id); }
+// Onde : renvoie le nombre de karts réellement décrochés (pour les essais et le message du lanceur).
+function gravWave(src, id) { let n = 0;
+  for (const o of G.karts) { if (o === src || o.isRemote || !gravExposed(o)) continue;
+    if (o.star > 0 || o.ghost > 0) continue;
+    if (o.mirror > 0) { o.mirror = 0; if (o.isPlayer) { AudioSys.sfx('shield'); banner('Miroir : coupure renvoyée !', 1.3); } gravReflect(src, id, o); continue; }
+    if (o.shield > 0) { o.shield = 0; if (o.isPlayer || src.isPlayer) AudioSys.sfx('shield'); continue; }
+    if (gravHit(o, src)) n++; }
+  if (src.isPlayer) banner(n ? 'Coupure anti-gravité : ' + n + ' décroché' + (n > 1 ? 's' : '') : 'Coupure anti-gravité : personne sur paroi', 1.4);
+  return n; }
+function gravReflect(src, id, by) { const rec = gravRec(id); if (rec.reflected) return; rec.reflected = true; if (!src) return;
+  if (src.isRemote) { if (G.race && G.race.online) netEmit({ e: 'greflect', id, by: by.netId, o: src.netId }); return; }
+  gravBack(src, id, by); }
+// Renvoi appliqué au lanceur (sur le client qui le simule), une seule fois par impulsion.
+function gravBack(src, id, by) { const rec = gravRec(id); if (rec.applied) return false; rec.applied = true; rec.reflected = true;
+  if (!gravExposed(src) || src.star > 0 || src.ghost > 0) { if (src.isPlayer) banner('Coupure renvoyée… sans effet hors paroi', 1.3); return false; }
+  if (src.mirror > 0) { src.mirror = 0; if (src.isPlayer) AudioSys.sfx('shield'); return false; }   // pas de second rebond
+  if (src.shield > 0) { src.shield = 0; if (src.isPlayer) AudioSys.sfx('shield'); return false; }
+  if (src.isPlayer) banner('Ta coupure t\'est renvoyée !', 1.4, true); return gravHit(src, by); }
+function gravHit(o, src) { if (o.gcut > 0) return false; const sf = gravSurf(o); if (!sf) return false;
+  o.gcut = GCUT_T; o.gvl = o.gvl || 0; if (o.drift) endDrift(o, false);
+  if (sf === 2) { o.air = 'jump'; o.gfall = GCUT_A; o.vy = 1.5; o.airH = Math.max(o.airH || 0, .05); o.trickOK = false; o.trick = false; }
+  psHit(src, o); if (src && o !== src) recEvent(3 * (src.isPlayer ? 1.2 : 1), (src.isPlayer ? 'Tu décroches ' : src.name + ' décroche ') + o.name, o, null, src);
+  if (G.W.parts) for (let i = 0; i < 16; i++) G.W.parts.emit(o.x, o.y + 1, o.z, rand(-3, 3), rand(-2, 2), rand(-3, 3), pick(['#a87dff', '#fffdf7']), .5, 0);
+  if (o.isPlayer) { banner('Coupure anti-gravité !', 1.1, true); vibrate([40, 30, 40]); } return true; }
+// Pas physique : gravité réelle projetée dans le repère de la chaussée affichée (wr latéral, wu normale, wf avant).
+function gravStep(k, inp, dt) { const S = G.W.S, on = k.gcut > 0;
+  if (on) { k.gcut -= dt; inp.steer *= .2; inp.drift = false; k.speed *= Math.pow(.75, dt);
+    const sf = gravSurf(k); if (sf) { const j = clamp(k.idx | 0, 0, S.N - 1) * 3, ry = S.wr[j + 1], fy = S.wf[j + 1];
+      k.gvl += -GCUT_A * ry * dt * (k.air ? .3 : 1); if (sf === 3) k.speed += -GCUT_A * fy * dt; } }
+  else { k.gvl *= Math.exp(-dt * 6); if (Math.abs(k.gvl) < .05) k.gvl = 0; }
+  if (k.gvl) { const P = k.P || S, j = clamp(k.idx | 0, 0, P.N - 1); k.x += P.rx[j] * k.gvl * dt; k.z += P.rz[j] * k.gvl * dt; }
+  if (k.gcut <= 0) k.gcut = 0; }
+function gravNet(d, K) { const src = K(d.o);
+  if (d.e === 'gpulse') { const rec = gravRec(d.id); if (rec.seen) return; rec.seen = true; rec.src = src; if (src) gravWave(src, d.id); return; }
+  if (d.e === 'greflect') { if (!src || src.isRemote) return; gravBack(src, d.id, K(d.by)); } }
 function net13(d, K) {
+  if (d.e === 'gpulse' || d.e === 'greflect') { gravNet(d, K); return; }
   if (d.e === 'reflect') { const r = G.rockets.find((x) => x.id === d.id), k = K(d.by); if (r && k) mirror13(r, k, true); return; }
   if (d.e === 'swap') { const k = K(d.tg); if (k && !k.isRemote && d.s) { place13(k, d.s); if (k.isPlayer) { const o = K(d.o); banner((o ? o.name : 'Quelqu\'un') + ' a pris ta place !', 1.6, true); flashScreen(); } } }
 }
@@ -6725,13 +8755,14 @@ function hudRoulette(P) {
 
 /* ---- IA ---- */
 function lineSteer(k) { const [P, ti] = aheadOn(k, 14, null); const d = angDiff(k.h, Math.atan2(P.px[ti] - k.x, P.pz[ti] - k.z)); return clamp(-d * 2.4, -1, 1); }
+const AI_VIRAGE_A = 70;   // accélération latérale admise par les bots près du vide (m/s²) : réglée par mesure (bots-course Flipper)
 function aiControl(k, dt) {
   const W = G.W, S = W.S, N = S.N, ai = k.ai, R = G.race;
   ai.laneT -= dt; if (ai.laneT <= 0) { ai.laneT = rand(2, 5); ai.laneGoal = rand(-.42, .42); } ai.lane = lerp(ai.lane, ai.laneGoal, dt * .6);
   const CP = k.P || S, ci = clamp(k.idx, 0, CP.N - 1); const wb = aiBranch(k); let back = null;
   if (CP !== S && k.idx <= CP.jA && ai.br && ai.br[CP.id] && !ai.br[CP.id].take) back = k.mainIdx;
   const AH = (n) => (back != null ? [S, (back + n) % N] : aheadOn(k, n, wb));
-  let cs = 0; for (let o = 4; o <= 44; o += 4) { const [p, j] = AH(o); cs += p.curv[j]; }
+  let cs = 0; for (let o = 4; o <= 44; o += 4) cs += back != null ? S.curv[(back + o) % N] : aheadCurv(k, o, wb); // sans allocation (11 lectures par bot et par pas)
   const look = Math.round(6 + Math.max(0, k.speed) * .2); const [TP, ti] = AH(look); const thw = TP.hw || W.hw;
   let lat = ai.lane * thw - clamp(cs * 30, -.55, .55) * thw;
   lat = draft13(k, lat, TP, ti, thw);
@@ -6740,7 +8771,12 @@ function aiControl(k, dt) {
   // pont du Barbecue : le bot qui a choisi la route reste du bon côté avant la bifurcation (sinon il glisse sur le pont)
   if (!wb && CP === S) for (const B of W.branches) { const d = B.i0 - ci; if (B.hasBridge && d > -6 && d < 45 && ai.br && ai.br[B.id] && !ai.br[B.id].take) lat = B.side > 0 ? Math.min(lat, -thw * .35) : Math.max(lat, thw * .35); }
   lat = clamp(lat, -thw * .82, thw * .82);
+  // Bord ouvert (corniche, branche RISQUÉ) ici ou un peu devant : l'IA garde la moitié de la demi-largeur entre elle et le vide (avant :
+  // 82 % comme le long d'un mur ; chutes rares mais instables d'une version à l'autre sur la CORNICHE DES EMBRUNS de Cascades).
+  { const t2 = Math.min(TP.N - 1, ti + 6); if (edgeOpen(TP, ti, -1) || edgeOpen(TP, t2, -1)) lat = Math.max(lat, -thw * .5); if (edgeOpen(TP, ti, 1) || edgeOpen(TP, t2, 1)) lat = Math.min(lat, thw * .5); }
   let tx = TP.px[ti] + TP.rx[ti] * lat, tz = TP.pz[ti] + TP.rz[ti] * lat;
+  // décors interactifs (avalanche annoncée ou neige sur la route, 0 à 70 m devant) : côté libre
+  if (CP === S) { const va = vivantAhead(W, ci); if (va) lat = va.side > 0 ? Math.min(lat, -thw * .45) : Math.max(lat, thw * .45); }
   // obstacles : on vise le côté libre au niveau de l'obstacle le plus proche
   { let av = null; const clock = G.W.clock || 0;
     for (const o of G.W.obst || []) {
@@ -6751,6 +8787,7 @@ function aiControl(k, dt) {
       const tArr = Math.max(0, da) / Math.max(12, k.speed), tc = clock + tArr;
       if (o.kind === 'crusher' || o.kind === 'jet') { const c = ((tc / o.per + o.ph / TAU) % 1 + 1) % 1; if (o.kind === 'jet' ? (c < .36 || c > .86) : (c < .38 || c > .8)) continue; }
       let ol = o.lat; if (o.kind === 'roller' || o.kind === 'walker') ol += Math.sin(tc * TAU / o.per + o.ph) * o.amp;
+      if (o.kind === 'snapper') { if (o.st !== 'warn' && o.st !== 'strike') continue; ol = o.tLat; } // Croque-pétale : seulement s'il attaque, au point visé
       const clr = o.r + (o.kind === 'pillar' ? 2.4 : 3.1), P2 = o.P, room = (P2.hw || W.hw) * .86;
       const cur = (k.x - P2.px[o.i]) * P2.rx[o.i] + (k.z - P2.pz[o.i]) * P2.rz[o.i];
       if (Math.abs(cur - ol) > clr + 2 && Math.abs(lat - ol) > clr) continue;
@@ -6770,7 +8807,16 @@ function aiControl(k, dt) {
   let drift = false;
   if (ai.drifty && sharp > .1 && k.speed > k.maxSpeed * .55 && Math.abs(steer) > .45) drift = true;
   if (k.drift && Math.abs(steer) > .2 && sharp > .05) drift = true;
-  const throttle = k.speed < tgt * bombAiSpeed(k) ? 1 : 0;
+  // Virage serré avec le vide côté extérieur (RISQUÉ de Flipper, corniches) : vitesse de sécurité v = √(A / courbure max à venir) ;
+  // au-dessus, l'IA freine. Avant : elle levait seulement le pied et sortait par l'extérieur (16-18 chutes sur 3 courses de Flipper).
+  // Tracés et physique inchangés : seule la conduite des bots change (consigne propriétaire, Flipper préservé).
+  let brake = false;
+  { let mc = 0, sg = 0; for (let o = 2; o <= 30; o += 4) { const c = back != null ? S.curv[(back + o) % N] : aheadCurv(k, o, wb); if (Math.abs(c) > mc) { mc = Math.abs(c); sg = Math.sign(c); } }
+    if (mc > .025 && !k.air) { const [P2, j2] = AH(10); if (edgeOpen(P2, j2, sg) || edgeOpen(TP, ti, sg) || edgeOpen(CP, ci, sg)) { const vs = Math.sqrt((window.__AI_A || AI_VIRAGE_A) / mc); tgt = Math.min(tgt, vs); if (k.speed > vs * 1.06) brake = true; } } }
+  // Survitesse (boost dans une descente : jusqu'à 88 m/s dans le RISQUÉ du Barbecue) avec un bord ouvert dans les ~40 m : freinage
+  // jusqu'à la vitesse maximale normale ; sinon la direction ne suffit plus à suivre la route et le bot sort par le vide.
+  if (!brake && !k.air && k.speed > k.maxSpeed * 1.08) { for (let o = 4; o <= 20 && !brake; o += 4) { const [P3, j3] = AH(o); if (edgeOpen(P3, j3, -1) || edgeOpen(P3, j3, 1)) brake = true; } }
+  const throttle = !brake && k.speed < tgt * bombAiSpeed(k) ? 1 : 0;
   // coincé contre un obstacle ou un mur : marche arrière puis on repart
   if (R.state === 'race' && !k.air && k.spin <= 0 && Math.abs(k.speed) < 3) ai.stuckT = (ai.stuckT || 0) + dt; else ai.stuckT = 0;
   if (ai.stuckT > 1.1) { ai.stuckT = 0; ai.backT = rand(.75, 1); ai.backS = steer > 0 ? -1 : 1; }
@@ -6795,7 +8841,7 @@ function aiControl(k, dt) {
       if (use) { useItem(k); if (k.item === 'triple') ai.itemT = rand(.6, 1.5); }
     }
   }
-  return { steer, throttle, drift, noBrake: true };
+  return { steer, throttle, drift: drift && !brake, brake, noBrake: !brake };
 }
 
 /* ---- boucle de simulation ---- */
@@ -6836,7 +8882,7 @@ function simStep(dt) {
     kartPhysics(k, inp, dt);
   }
   Input.itemEdge = false;
-  W.clock = (W.clock || 0) + dt; updateObstacles(W.clock); updateGates(W, W.clock); updateWeather(W, W.clock, dt); updateChameleon(W, W.clock, dt); updateZones(W, dt); policeUpdate(dt);
+  W.clock = (W.clock || 0) + dt; updateObstacles(W.clock); updateVivants(W, W.clock); updateGates(W, W.clock); updateWeather(W, W.clock, dt); updateChameleon(W, W.clock, dt); updateZones(W, dt); policeUpdate(dt);
   if (racing) { collideKarts(); updateItems(dt); updateBoxes(dt); }
   // classement
   updateRaceOrder();
@@ -6914,7 +8960,7 @@ const ACHS = [
   ['trick50', 'Acrobate', 'Faire 50 figures en l\'air', (s) => s.tricks >= 50, ['trail', 'etoiles'], (s) => [s.tricks, 50]],
   ['pass10', 'Faufileur', 'Doubler 10 karts dans une course', (s, c) => c && c.passes >= 10, ['title', 'Faufileur']],
   ['tw10', 'Touche-à-tout', 'Gagner sur 10 circuits différents', (s, c, P) => Object.values(P.tracks).filter((t) => t.w > 0).length >= 10, ['color', '#6be38a'], (s, P) => [Object.values(P.tracks).filter((t) => t.w > 0).length, 10]],
-  ['tall', 'Globe-trotter', 'Finir une course sur tous les circuits', (s, c, P) => TRACKS.every((t) => P.tracks[t.id] && P.tracks[t.id].r > 0), ['title', 'Globe-trotter'], (s, P) => [TRACKS.filter((t) => P.tracks[t.id] && P.tracks[t.id].r > 0).length, TRACKS.length]],
+  ['tall', 'Globe-trotter', 'Finir une course sur tous les circuits', (s, c, P) => TRACKS.every((t) => t.prototype || (P.tracks[t.id] && P.tracks[t.id].r > 0)), ['title', 'Globe-trotter'], (s, P) => [TRACKS.filter((t) => !t.prototype && P.tracks[t.id] && P.tracks[t.id].r > 0).length, nOff()]],
   ['on1', 'Connecté', 'Finir une course en ligne', (s) => s.online >= 1, ['title', 'Connecté'], (s) => [s.online, 1]],
   ['on20', 'Habitué du réseau', 'Finir 20 courses en ligne', (s) => s.online >= 20, ['title', 'Habitué du réseau'], (s) => [s.online, 20]],
   ['onw10', 'Terreur en ligne', 'Gagner 10 courses en ligne', (s) => s.onlineWins >= 10, ['trail', 'reseau'], (s) => [s.onlineWins, 10]],
@@ -7030,7 +9076,7 @@ function progRender() { const box = $('#g-prog'); if (!box) return; const D = pr
 /* ---------- défi du jour : même circuit et même objectif pour tout le monde, classement au temps ---------- */
 const DAILY_OBJ = [['win', 'Gagner la course'], ['clean3', 'Finir dans les 3 premiers sans être touché'], ['hits', 'Toucher 3 karts'], ['style', 'Faire 800 points de style'], ['passes', 'Doubler 6 karts'], ['lead', 'Rester 1er 30 secondes d\'affilée']];
 const dailyDay = () => new Date().toISOString().slice(0, 10);
-function dailyDef(day) { const h = wkStrHash('defi:' + day), L = TRACKS.map((t, i) => i).filter((i) => !TRACKS[i].arena && TRACKS[i].id !== 'rondpoint'); return { day, ti: L[h % L.length], obj: DAILY_OBJ[(h >>> 8) % DAILY_OBJ.length] }; }
+function dailyDef(day) { const h = wkStrHash('defi:' + day), L = TRACKS.map((t, i) => i).filter((i) => !TRACKS[i].arena && !TRACKS[i].prototype && TRACKS[i].id !== 'rondpoint'); return { day, ti: L[h % L.length], obj: DAILY_OBJ[(h >>> 8) % DAILY_OBJ.length] }; }
 function dailyCheck(R, P) { if (G.testDaily) return true; const ps = R.ps || {}, L = R.lead || {}; switch (R.daily.obj[0]) {
   case 'win': return P.place === 1 || !!G.testDaily; case 'clean3': return P.place <= 3 && !(ps.taken > 0); case 'hits': return (ps.hits || 0) >= 3;
   case 'style': return (R.style || 0) >= 800; case 'passes': return (ps.passes || 0) >= 6; case 'lead': return (L.best || 0) >= 30; } return false; }
@@ -7050,6 +9096,12 @@ function dailyFinish(R, P) { if (!R.daily || R.dailyDone) return; R.dailyDone = 
 function playerFinished() {
   const R = G.race; R.state = 'finished'; R.timer2 = 0; const P = R.player;
   banner(G.W.def.arena ? 'Temps écoulé !' : P.place === 1 ? 'Victoire !' : 'Arrivée : ' + P.place + (P.place === 1 ? 'er' : 'e'), 3.4); AudioSys.sfx('finish'); vibrate([40, 60, 40]);
+  // Circuit de Wild Kart Studio : ni record ni progression. Son identifiant change à chaque modification : sinon chaque test
+  // ajouterait une entrée à la sauvegarde du joueur (croissance sans limite) et un circuit trivial servirait à gagner de l'expérience.
+  if (TRACKS[R.ti] && TRACKS[R.ti].studio) { dailyFinish(R, P); return; }
+  // Essai d'un tour depuis l'atelier (#34.G2) : brouillon non équipé, un seul tour → ni record (un « record de course » d'un tour
+  // battrait à tort les vraies courses), ni progression, ni défi du jour.
+  if (window.WK_ESSAI) return;
   const rec = SAVE.records[TRACKS[R.ti].id] || {}; rec.lap = Math.min(rec.lap || Infinity, P.bestLap); rec.race = Math.min(rec.race || Infinity, P.finishTime);
   SAVE.records[TRACKS[R.ti].id] = rec; store(); dailyFinish(R, P); progAward(R, P);
 }
@@ -7065,7 +9117,7 @@ function updateVisuals(dt) { emoTick(dt);
     M.g.rotation.set(0, k.h + k.spinAng + k.driftVis, k.trickT > 0 ? (k.trickDir || 1) * (1 - k.trickT / .45) * TAU : 0);
     const warped = warpKartPose(k, M);
     M.tilt.rotation.x = warped ? 0 : -Math.atan(KP.slope[kj] * tdot);
-    k.rollV = lerp(k.rollV || 0, k.air ? 0 : k.drift * .1 + (k.drift ? 0 : -clamp(angDiff(k.vh, k.h), -.3, .3) * .3), 1 - Math.exp(-dt * 8)); M.tilt.rotation.z = k.rollV;
+    k.rollV = lerp(k.rollV || 0, k.air ? 0 : k.drift * .1 + (k.drift ? 0 : -clamp(angDiff(k.vh, k.h), -.3, .3) * .3), 1 - Math.exp(-dt * 8)); M.tilt.rotation.z = k.rollV * (k.rollK || 1);
     animateGlider(k, M, dt, now);
     { const ast = !k.air ? 0 : k.isPlayer && !G.autopilot ? clamp(Input.tiltSteer + Input.digSteer + (Input.stickSteer || 0), -1, 1) : clamp(angDiff(k.vh, k.h) * 3, -1, 1), gw = k.air === 'glide' ? 1 : .5, f = 1 - Math.exp(-dt * 5);
       k.bankV = lerp(k.bankV || 0, -ast * .32 * gw, f); k.pitchV = lerp(k.pitchV || 0, k.air ? clamp((k.vy || 0) * .03, -.28, .22) * gw : 0, f);
@@ -7085,8 +9137,12 @@ function updateVisuals(dt) { emoTick(dt);
     for (const w of M.wheels) w.m.rotation.x += k.speed / w.r * dt;
     const st = k.isPlayer && !G.autopilot ? Input.tiltSteer + Input.digSteer + Input.stickSteer : (k.drift ? k.drift * .6 : 0);
     for (const f of M.fronts) f.rotation.y = lerp(f.rotation.y, -clamp(st, -1, 1) * .45, 1 - Math.exp(-dt * 12));
+    // Niveau de détail du pilote Héros : au-delà de 35 m de la caméra, détails du visage et mains masqués, animation suspendue
+    // (-7 appels de rendu par kart lointain ; bras et volant figés, invisibles à cette distance).
+    if (M.rig) { const far = camera.position.distanceToSquared(M.g.position) > (qual().shadows ? 35 * 35 : 16 * 16); if (far !== M.rig.far) { M.rig.far = far; for (const o of M.rig.detail) o.visible = !far; if (!far) M.rig.open.visible = false; } }
+    if (M.rig && !M.rig.far) heroAnimate(M.rig, k, k.isPlayer && !G.autopilot ? st : clamp(-angDiff(k.h, k.vh) * 3 + (k.drift || 0) * .6, -1, 1), dt, now);
     const fl = k.boost > 0 ? 1.4 + Math.random() * .6 : (k.speed > 1 ? .25 : .05);
-    const tc = M.trail; for (const f of M.flames) { f.scale.z = lerp(f.scale.z, fl * (f.userData.s || 1) * .8 + .2 * fl, .5); f.material.color.set(k.boost > 0 ? tc[Math.floor(now * 12) % tc.length] : tc[0]); }
+    const tc = M.trail; for (const f of M.flames) { f.visible = true; f.scale.z = lerp(f.scale.z, fl * (f.userData.s || 1) * .8 + .2 * fl, .5); f.material.color.set(k.boost > 0 ? tc[Math.floor(now * 12) % tc.length] : tc[0]); }
     M.shield.visible = k.shield > 0; if (k.shield > 0) M.shield.scale.setScalar(1 + Math.sin(now * 8) * .04);
     if (k.bubble > 0 && !M.bub) { M.bub = new T.Mesh(new T.SphereGeometry(2.4, 24, 16), new T.MeshStandardMaterial({ color: '#bfefff', transparent: true, opacity: .35, roughness: .05, metalness: .2, emissive: '#7fdfff', emissiveIntensity: .25, depthWrite: false })); M.bub.position.y = 1; M.g.add(M.bub); }
     if (M.bub) { M.bub.visible = k.bubble > 0; if (k.bubble > 0) M.bub.scale.setScalar(1 + Math.sin(now * 6) * .05); }
@@ -7122,6 +9178,12 @@ function updateVisuals(dt) { emoTick(dt);
   for (const k of G.karts) { if (k === tgt) { k.mesh.g.visible = true; if (k.mesh.productionLOD) k.mesh.productionLOD.visible = false; continue; } const d2 = (k.x - camera.position.x) ** 2 + (k.z - camera.position.z) ** 2 + (k.y + 1 - camera.position.y) ** 2; k.mesh.g.visible = d2 > 12; if (W.def.production) window.WKScenery.updateKartLOD(W, k, camera); }
 }
 let camKick = 0;
+// Hauteur de la chaussée dist mètres derrière le kart sur son chemin : la caméra reste au moins 1,8 m au-dessus. Avant, quand la route
+// remontait derrière le kart (sortie de branche, descente raide), la caméra passait sous la chaussée : moitié basse de l'image masquée
+// (contrôleur du concepteur, contrôle « V » ; Soldes, Barbecue, Cascades, Flipper).
+// Position continue (idx + along − dist) interpolée : un échantillon entier faisait sauter la caméra (banc rendu-loopings).
+function routeDerriere(k, dist) { const P = k.P || G.W.S, sg = P.seg || 2, u = (k.idx | 0) + (k.along || 0) / sg - dist / sg, f = Math.floor(u), t = u - f, w = (q) => P.closed === false ? clamp(q, 0, P.N - 1) : ((q % P.N) + P.N) % P.N;
+  return P.py[w(f)] + (P.py[w(f + 1)] - P.py[w(f)]) * t; }
 function updateCamera(dt) {
   const R = G.race; const S = G.W.S;
   let k = R.spec || R.player, mode = 'chase';
@@ -7141,7 +9203,7 @@ function updateCamera(dt) {
   }
   if (mode === 'side') { tmpV.set(k.x + Math.cos(camH.v) * 9 - fx * 3, k.y + 2.5, k.z - Math.sin(camH.v) * 9 - fz * 3); lookV.set(k.x + fx * 3, k.y + 1, k.z + fz * 3); }
   else if (mode === 'front') { tmpV.set(k.x + fx * 11, k.y + 1.6, k.z + fz * 11); lookV.set(k.x, k.y + 1.2, k.z); }
-  else { const dist = (portrait ? 10.5 : 8.6) + (k.air === 'glide' ? 1.2 : 0), hgt = (portrait ? 4.4 : 3.5) + (k.air === 'glide' ? 1.5 : k.air ? 1.0 : 0); tmpV.set(k.x - fx * dist, k.y + hgt, k.z - fz * dist); lookV.set(k.x + fx * 6, k.y + 1.5, k.z + fz * 6); }
+  else { const dist = (portrait ? 10.5 : 8.6) + (k.air === 'glide' ? 1.2 : 0), hgt = (portrait ? 4.4 : 3.5) + (k.air === 'glide' ? 1.5 : k.air ? 1.0 : 0); tmpV.set(k.x - fx * dist, Math.max(k.y + hgt, routeDerriere(k, dist) + 1.8), k.z - fz * dist); lookV.set(k.x + fx * 6, k.y + 1.5, k.z + fz * 6); }
   if (camSnap) camera.position.copy(tmpV); else camera.position.lerp(tmpV, 1 - Math.exp(-dt * (mode === 'chase' ? 9 : 4)));
   camera.position.y = Math.max(camera.position.y, k.y + 1.2);
   if (camKick > 0) { camera.position.y -= camKick * Math.sin(camKick * 18); camKick = Math.max(0, camKick - dt * 1.6); }   // atterrissage : la caméra encaisse
@@ -7176,11 +9238,14 @@ let bannerTimer = 0, countTimer = 0, hudTick = 0; const hudCache = {};
 function banner(txt, dur, warn) { const w = Math.min(innerWidth, 1400) * .9, fs = clamp(w / (String(txt).length * .58 + 1), 17, 46); hud.banner.style.fontSize = Math.round(Math.min(fs, innerWidth * .06 + 20)) + 'px'; hud.banner.textContent = txt; hud.banner.className = 'on' + (warn ? ' warn' : ''); bannerTimer = dur; }
 function countdown(txt, go) { hud.count.textContent = txt; hud.count.className = (go ? 'go ' : '') + 'pulse'; void hud.count.offsetWidth; countTimer = go ? .9 : 1.2; }
 /* ---------- 1re place : écart, série en tête, points de style ; alerte d'objet qui arrive ---------- */
-function leadEl() { let el = $('#h-lead'); if (!el) { el = document.createElement('div'); el.id = 'h-lead'; el.style.cssText = 'position:absolute;top:calc(max(10px,env(safe-area-inset-top,0px)) + 70px);left:max(16px,env(safe-area-inset-left,0px));font:800 15px system-ui;color:#fffdf7;text-shadow:0 2px 3px #17143a,0 0 2px #17143a;line-height:1.35;pointer-events:none';
+// Cache des éléments du tableau de bord : évite un querySelector par élément et par image (revalidé si l'élément a été retiré).
+const HUD_EL = new Map();
+function hudEl(sel) { let e = HUD_EL.get(sel); if (!e || !e.isConnected) { e = document.querySelector(sel); if (e) HUD_EL.set(sel, e); else HUD_EL.delete(sel); } return e; }
+function leadEl() { let el = hudEl('#h-lead'); if (!el) { el = document.createElement('div'); el.id = 'h-lead'; el.style.cssText = 'position:absolute;top:calc(max(10px,env(safe-area-inset-top,0px)) + 70px);left:max(16px,env(safe-area-inset-left,0px));font:800 15px system-ui;color:#fffdf7;text-shadow:0 2px 3px #17143a,0 0 2px #17143a;line-height:1.35;pointer-events:none';
   el.innerHTML = '<div id="h-gap"></div><div id="h-streak"></div><div id="h-style"></div><div id="h-pop" style="font-size:13px;color:#ffc531;opacity:0;transition:opacity .3s"></div>'; $('#hud').appendChild(el); } return el; }
 function styleAdd(n, label) { const R = G.race, P = R && R.player; if (!P || !n || R.state !== 'race' || P.finished) return; const x2 = P.place === 1, v = Math.round(n * (x2 ? 2 : 1)); R.style = (R.style || 0) + v;
   const pop = $('#h-pop'); if (pop) { pop.textContent = '+' + v + (x2 ? ' (×2 en tête)' : '') + (label ? ' · ' + label : ''); pop.style.opacity = 1; clearTimeout(styleAdd.t); styleAdd.t = setTimeout(() => { pop.style.opacity = 0; }, 1300); } }
-function leadHud(dt, P, R) { leadEl(); const L = R.lead || (R.lead = { t: 0, pts: 0, best: 0, gap: 0, gapT: 0, trend: 0, air: 0, trick: false }), racing = R.state === 'race' && !P.finished, solo = G.karts.filter((k) => !k.spect).length < 2;
+function leadHud(dt, P, R) { leadEl(); const L = R.lead || (R.lead = { t: 0, pts: 0, best: 0, gap: 0, gapT: 0, trend: 0, air: 0, trick: false }), racing = R.state === 'race' && !P.finished; let nLive = 0; for (const k of G.karts) if (!k.spect) nLive++; const solo = nLive < 2;
   // série en tête : ×1 puis ×2 après 20 s, ×3 après 45 s ; perdue si on se fait doubler
   if (racing && R.t > 6) { const ps = racePS(); ps.worst = Math.max(ps.worst, P.place); }
   if (racing && P.place === 1 && !solo) { L.t += dt; L.tot = (L.tot || 0) + dt; const m = L.t > 45 ? 3 : L.t > 20 ? 2 : 1; L.pts += dt * m; L.best = Math.max(L.best, L.t); }
@@ -7188,16 +9253,16 @@ function leadHud(dt, P, R) { leadEl(); const L = R.lead || (R.lead = { t: 0, pts
   // points de style : sauts (et figures)
   if (racing) { if (P.air) { L.air += dt; if (P.trickT > 0) L.trick = true; } else { if (L.air > .7) { styleAdd(Math.round(L.air * 60 + (L.trick ? 120 : 0)), L.trick ? 'Figure' : 'Saut'); const ps = racePS(); ps.jumps++; if (L.trick) ps.tricks++; ps.airBest = Math.max(ps.airBest, L.air); } L.air = 0; L.trick = false; } }
   L.gapT -= dt; if (L.gapT > 0) return; L.gapT = .25;
-  { const hi = $('.hud-info'), el = $('#h-lead'); if (hi && hi.offsetHeight) { const t = hi.offsetTop + hi.offsetHeight + 6 + 'px'; if (el.style.top !== t) el.style.top = t; } }   // sous « tour » et le chrono
+  { const wk = innerWidth + 'x' + innerHeight, now = performance.now(); if (L.topKey !== wk || !(now - (L.topAt || 0) < 2000)) { L.topKey = wk; L.topAt = now; const hi = hudEl('.hud-info'), el = hudEl('#h-lead'); if (hi && el && hi.offsetHeight) { const t = hi.offsetTop + hi.offsetHeight + 6 + 'px'; if (el.style.top !== t) el.style.top = t; } } }   // sous « tour » et le chrono
   // écart avec le 2e (en secondes), vert s'il grandit, rouge s'il fond
-  const g = $('#h-gap'), sec = G.karts.find((k) => k.place === 2 && !k.spect); let txt = '', col = '#fffdf7';
+  const g = hudEl('#h-gap'), sec = G.karts.find((k) => k.place === 2 && !k.spect); let txt = '', col = '#fffdf7';
   if (racing && P.place === 1 && sec) { const d = (P.prog - sec.prog) * G.W.S.seg, v = Math.max(12, sec.maxSpeed * .85), gs = d / v; L.trend = lerp(L.trend, gs - L.gap, .5); L.gap = gs; txt = '+' + gs.toFixed(1).replace('.', ',') + ' s'; col = L.trend > .002 ? '#3ee08f' : L.trend < -.002 ? '#ff6a5a' : '#fffdf7'; }
-  if (g.textContent !== txt) g.textContent = txt; g.style.color = col;
-  const st = $('#h-streak'), m = L.t > 45 ? 3 : L.t > 20 ? 2 : 1, stx = racing && L.t > 2 ? '🔥 Série ' + Math.floor(L.t / 60) + ':' + String(Math.floor(L.t % 60)).padStart(2, '0') + (m > 1 ? ' ×' + m : '') : ''; if (st.textContent !== stx) st.textContent = stx;
-  const sy = $('#h-style'), syx = (R.style || 0) > 0 && racing ? '✨ Style ' + R.style.toLocaleString('fr-FR') : ''; if (sy.textContent !== syx) sy.textContent = syx; }
+  if (g.textContent !== txt) g.textContent = txt; if (L.col !== col) { L.col = col; g.style.color = col; }
+  const st = hudEl('#h-streak'), m = L.t > 45 ? 3 : L.t > 20 ? 2 : 1, stx = racing && L.t > 2 ? '🔥 Série ' + Math.floor(L.t / 60) + ':' + String(Math.floor(L.t % 60)).padStart(2, '0') + (m > 1 ? ' ×' + m : '') : ''; if (st.textContent !== stx) st.textContent = stx;
+  const sy = hudEl('#h-style'), syx = (R.style || 0) > 0 && racing ? '✨ Style ' + R.style.toLocaleString('fr-FR') : ''; if (sy.textContent !== syx) sy.textContent = syx; }
 const leadSummary = (R) => { const L = R && R.lead, a = []; if (R && R.style) a.push('Style ' + R.style.toLocaleString('fr-FR')); if (L && L.best > 5) a.push('Série en tête ' + Math.round(L.best) + ' s'); return a.join(' · '); };
 // objet qui fonce sur toi (comme dans Mario Kart) : petite icône en bas, du côté d'où il arrive ; rien pour les pièges posés
-function warnHud(P, R) { let el = $('#h-warn'); if (!el) { el = document.createElement('div'); el.id = 'h-warn'; el.style.cssText = 'position:absolute;bottom:calc(max(14px,env(safe-area-inset-bottom,0px)) + 26px);left:50%;width:46px;height:46px;margin-left:-23px;border-radius:50%;background:rgba(23,20,58,.55);border:3px solid #ff4f3a;padding:5px;box-sizing:border-box;pointer-events:none;opacity:0;transition:opacity .15s'; $('#hud').appendChild(el); }
+function warnHud(P, R) { let el = hudEl('#h-warn'); if (!el) { el = document.createElement('div'); el.id = 'h-warn'; el.style.cssText = 'position:absolute;bottom:calc(max(14px,env(safe-area-inset-bottom,0px)) + 26px);left:50%;width:46px;height:46px;margin-left:-23px;border-radius:50%;background:rgba(23,20,58,.55);border:3px solid #ff4f3a;padding:5px;box-sizing:border-box;pointer-events:none;opacity:0;transition:opacity .15s'; $('#hud').appendChild(el); }
   let best = null, bd = 1e9; if (R.state === 'race' && !P.finished && !(P.ghost > 0) && !(P.star > 0)) for (const r of G.rockets) { if (r.owner === P || r.kind === 'comete' || r.stuck || r.armed || r.kind === 'meteore' || r.kind === 'tourbillon') continue;
     const dx = P.x - r.x, dz = P.z - r.z, d = Math.hypot(dx, dz); if (d > 70 || d < 1) continue; const aimed = r.target === P || r.aimTg === P, toward = (Math.sin(r.h) * dx + Math.cos(r.h) * dz) / d > .85;
     if (!(aimed || (toward && d < 40))) continue; if (d < bd) { bd = d; best = r; } }
@@ -7207,10 +9272,10 @@ function warnHud(P, R) { let el = $('#h-warn'); if (!el) { el = document.createE
   const me = camera.matrixWorld.elements, rx = me[0], rz = me[2], dx = best.x - camera.position.x, dz = best.z - camera.position.z, x = clamp((rx * dx + rz * dz) / Math.max(1, Math.hypot(dx, dz)) * 1.4, -1, 1) * 38;
   el.style.transform = 'translateX(' + x.toFixed(0) + 'vw) scale(' + (bd < 18 ? 1 + .12 * Math.sin(performance.now() / 70) : 1) + ')'; el.style.opacity = bd < 18 ? '1' : '.8'; }
 // un adversaire juste derrière : lueur au bas de l'écran, côté où il arrive, et son moteur qui se rapproche
-function chaseHud(dt, P, R) { let el = $('#h-chase'); if (!el) { el = document.createElement('div'); el.id = 'h-chase'; el.style.cssText = 'position:absolute;left:0;right:0;bottom:0;height:22vh;pointer-events:none;opacity:0;transition:opacity .25s'; $('#hud').appendChild(el); }
+function chaseHud(dt, P, R) { let el = hudEl('#h-chase'); if (!el) { el = document.createElement('div'); el.id = 'h-chase'; el.style.cssText = 'position:absolute;left:0;right:0;bottom:0;height:22vh;pointer-events:none;opacity:0;transition:opacity .25s'; $('#hud').appendChild(el); }
   let best = null, bd = 1e9; if (R.state === 'race' && !P.finished) { const fx = Math.sin(P.h), fz = Math.cos(P.h); for (const k of G.karts) { if (k === P || k.spect || k.finished) continue; const dx = k.x - P.x, dz = k.z - P.z, ahead = dx * fx + dz * fz; if (ahead > -1 || ahead < -26 || Math.abs(dx * fz - dz * fx) > 14 || Math.abs(k.y - P.y) > 5) continue; const d = Math.hypot(dx, dz); if (d < bd && k.speed >= P.speed - 6) { bd = d; best = k; } } }
-  const o = best ? clamp(1 - bd / 26, 0, 1) * .8 : 0; if (Math.abs((+el.style.opacity || 0) - o) > .05) el.style.opacity = o.toFixed(2);
-  if (best) { const me = camera.matrixWorld.elements, side = clamp((me[0] * (best.x - P.x) + me[2] * (best.z - P.z)) / 10, -1, 1), cx = Math.round(50 + side * 30); el.style.background = 'radial-gradient(ellipse 45% 100% at ' + cx + '% 100%, rgba(255,79,58,.55), rgba(255,79,58,0) 70%)';
+  const o = best ? clamp(1 - bd / 26, 0, 1) * .8 : 0; if (el.wkOp == null) el.wkOp = +el.style.opacity || 0; if (Math.abs(el.wkOp - o) > .05) { el.wkOp = +o.toFixed(2); el.style.opacity = o.toFixed(2); }
+  if (best) { const me = camera.matrixWorld.elements, side = clamp((me[0] * (best.x - P.x) + me[2] * (best.z - P.z)) / 10, -1, 1), cx = Math.round(50 + side * 30); if (el.wkCx !== cx) { el.wkCx = cx; el.style.background = 'radial-gradient(ellipse 45% 100% at ' + cx + '% 100%, rgba(255,79,58,.55), rgba(255,79,58,0) 70%)'; }
     R.chaseT = (R.chaseT || 0) - dt; if (R.chaseT <= 0 && bd < 14) { R.chaseT = .55; AudioSys.tone(70 + (14 - bd) * 4, .22, 'sawtooth', .025 + (14 - bd) * .002, 8); } } }
 function updateHud(dt) {
   const R = G.race, P = R.player; if (!P) return;
@@ -7220,12 +9285,12 @@ function updateHud(dt) {
   if (G.W.def.sections && R.state === 'race' && !P.finished) { const sc = sectionOf(P); if (R.lastSec && sc > R.lastSec) { banner(sc === 3 ? 'Dernière section !' : 'Section ' + sc + '/3', 1.8); AudioSys.sfx(sc === 3 ? 'final' : 'lap'); } R.lastSec = sc; }
   if (P.place !== hudCache.place) { hudCache.place = P.place; hud.pos.textContent = P.place; hud.suf.textContent = P.place === 1 ? 'er' : 'e'; hud.posbox.classList.toggle('p1', P.place === 1); }
   if (lap !== hudCache.lap) { hudCache.lap = lap; hud.lap.textContent = lap; }
-  if (slow) { hud.time.textContent = fmtTime(P.finished ? P.finishTime : R.t); hud.kmh.textContent = Math.max(0, Math.round(P.speed * 2.6)); }
+  if (slow) { const tt = fmtTime(P.finished ? P.finishTime : R.t), kv = Math.max(0, Math.round(P.speed * 2.6)); if (tt !== hudCache.time) { hudCache.time = tt; hud.time.textContent = tt; } if (kv !== hudCache.kmh) { hudCache.kmh = kv; hud.kmh.textContent = kv; } } // réécrits seulement s'ils changent (chaque écriture coûte une mise en page)
   let key = P.item ? P.item + (P.item === 'triple' ? P.uses : '') + (P.bag && P.bag.length ? 'b' + P.bag.length : '') : (P.roll > 0 ? 'roll' : (P.bag && P.bag.length ? 'bag' : ''));
-  if (hudCache.rearItem !== P.item) { hudCache.rearItem = P.item; const rear = $('#pad .p-itemback'); if (rear) { const trap = FRONT_TRAPS.has(P.item); rear.disabled = !BACK_ITEMS.has(P.item) && !trap; const sp = rear.querySelector('span'); if (sp) sp.textContent = trap ? 'OBJET ↑' : 'OBJET ↓'; rear.setAttribute('aria-label', trap ? 'Lancer le piège devant' : 'Lancer l’objet derrière'); } }
+  if (hudCache.rearItem !== P.item) { hudCache.rearItem = P.item; const rear = $('#pad .p-itemback'); if (rear) { const trap = FRONT_TRAPS.has(P.item), dir = trap || BACK_ITEMS.has(P.item); rear.disabled = !dir; const sp = rear.querySelector('span'); if (sp) sp.textContent = 'OBJET ↓'; rear.setAttribute('aria-label', dir ? (trap ? 'Poser le piège derrière' : 'Lancer l’objet derrière') : 'Cet objet n’a qu’une action : bouton OBJET'); const main = $('#pad .p-item span'); if (main) main.textContent = P.item ? (dir ? 'OBJET ↑' : 'OBJET') : 'OBJET'; } }
   if (key === 'roll') hudRoulette(P);
   else if (key !== lastItemShown) { hud.item.dataset.rar = P.item ? RARITY[P.item] || '' : ''; const was = lastItemShown; hud.item.innerHTML = P.item ? ICONS[P.item] + (P.item === 'triple' ? '<b class="ibadge">×' + P.uses + '</b>' : '') + (P.bag && P.bag.length ? '<b class="ibadge bag">+' + P.bag.length + '</b>' : '') : ''; lastItemShown = key; hud.item.classList.remove('roll'); if (P.item && was && was[0] === 'r') { hud.item.classList.remove('got'); void hud.item.offsetWidth; hud.item.classList.add('got'); } }
-  { const sf = $('#speedfx'); const on = P.boost > 0 && P.speed > P.maxSpeed * 1.04; if (sf && sf.classList.contains('on') !== on) sf.classList.toggle('on', on); }
+  { const sf = hudEl('#speedfx'); const on = P.boost > 0 && P.speed > P.maxSpeed * 1.04; if (sf && sf.classList.contains('on') !== on) sf.classList.toggle('on', on); }
   if (bannerTimer > 0) { bannerTimer -= dt; if (bannerTimer <= 0) hud.banner.className = ''; }
   if (countTimer > 0) { countTimer -= dt; if (countTimer <= 0) hud.count.textContent = ''; }
   if (R.state === 'race' && P.wrongT > 1.2 && bannerTimer <= 0) { banner('Mauvais sens !', .8, true); }
@@ -7439,18 +9504,20 @@ function showResults() {
   if (UI.mode === 'gp' && UI.gp) {
     UI.gp.i++;
     if (REC.best) { mk('Meilleure action 🎬', 'ghost', () => replayStart(() => show('results'))); if (canRecord()) mk('Partager la vidéo', 'ghost', replayShare); }
-    if (UI.gp.i < TRACKS.length) { mk('Classement', 'ghost', showStandings); mk('Course suivante', 'red', () => launch()); }
+    if (UI.gp.i < gpLen()) { mk('Classement', 'ghost', showStandings); mk('Course suivante', 'red', () => launch()); }
     else mk('Classement final', 'red', showStandings);
   } else { mk('Menu', 'ghost', toMenu); if (canSpectate()) mk('Regarder la course', 'ghost', specStart); if (REC.best) { mk('Meilleure action 🎬', 'ghost', () => replayStart(() => show('results'))); if (canRecord()) mk('Partager la vidéo', 'ghost', replayShare); } if (REC.full.length > 30) mk('Revoir la course', 'ghost', fullReplay); mk('Rejouer', 'red', () => launch()); }
   show('results');
 }
+// Grand Prix : tous les circuits, ou la liste d'une coupe personnalisée (Wild Kart Studio).
+function gpLen() { return UI.gp && UI.gp.list ? UI.gp.list.length : nOff(); }
 function showStandings() {
   $('#r-big').hidden = true; $('#r-table').className = '';
   const gp = UI.gp; const list = Object.entries(gp.points).sort((a, b) => b[1] - a[1]); const tb = $('#r-table'); tb.innerHTML = '';
   list.forEach(([n, p], i) => { const tr = document.createElement('tr'); if (n === (SAVE.name || 'Toi')) tr.className = 'me'; [String(i + 1), n, p + ' pts'].forEach((c, j) => { const td = document.createElement('td'); td.textContent = c; if (j === 2) td.className = 'r'; tr.appendChild(td); }); tb.appendChild(tr); });
-  const done = gp.i >= TRACKS.length; const me = list.findIndex(([n]) => n === (SAVE.name || 'Toi')) + 1;
+  const done = gp.i >= gpLen(); const me = list.findIndex(([n]) => n === (SAVE.name || 'Toi')) + 1;
   $('#r-title').textContent = done ? (me === 1 ? 'Coupe d\'or !' : me === 2 ? 'Coupe d\'argent' : me === 3 ? 'Coupe de bronze' : 'Grand Prix terminé') : 'Classement';
-  $('#r-sub').textContent = done ? 'Tu termines ' + me + (me === 1 ? 'er' : 'e') + ' du Grand Prix ' + CC[gp.cc].name + '.' : 'Après ' + gp.i + ' course' + (gp.i > 1 ? 's' : '') + ' sur ' + TRACKS.length + '.';
+  $('#r-sub').textContent = done ? 'Tu termines ' + me + (me === 1 ? 'er' : 'e') + ' du Grand Prix ' + CC[gp.cc].name + '.' : 'Après ' + gp.i + ' course' + (gp.i > 1 ? 's' : '') + ' sur ' + gpLen() + '.';
   const btns = $('#r-buttons'); btns.innerHTML = '';
   const mk = (label, cls, fn) => { const b = document.createElement('button'); b.className = 'btn ' + cls; b.innerHTML = '<span></span>'; b.firstChild.textContent = label; b.onclick = () => { AudioSys.sfx('click'); fn(); }; btns.appendChild(b); };
   if (done) { mk('Menu', 'red', toMenu); } else { mk('Course suivante', 'red', () => launch()); }
@@ -8009,13 +10076,15 @@ function netUsable() {
   return true;
 }
 function netReset() {
+  if (SG.ouvert) sgFermer(false, 'Partie quittée : brouillon du garage non appliqué, ancien montage conservé.');   // #34.G17
+  SG.confirme = null; SG.attente = null; Net.ph = 0; Net.sg = false; Net.sgVu = false; Net.settings.kp = true; SG.sansVoir = false; SG.sansCle = ''; Net.sansListe = []; Net.horsCourse = false;
   if (SAVE.lastCode) { SAVE.lastCode = ''; store(); }
-  Net.leaving = true; clearTimeout(Net.rejoinT); for (const t of Net.drops.values()) clearTimeout(t);
+  Net.leaving = true; Net.sessMode = ''; clearTimeout(Net.rejoinT); for (const t of Net.drops.values()) clearTimeout(t);
   try { for (const c of Net.conns.values()) c.close(); } catch (e) { /* déjà fermé */ }
   try { if (Net.hc) Net.hc.close(); } catch (e) { /* déjà fermé */ }
   try { if (Net.peer) Net.peer.destroy(); } catch (e) { /* déjà détruit */ }
   Object.assign(Net, { peer: null, host: false, code: '', id: '', pid: '', hc: null, players: [], inRace: false, sendT: 0, leaving: false, rejoining: false, lastStart: null });
-  Net.conns = new Map(); Net.states = new Map(); Net.uidOf = new Map(); Net.seen = new Map(); Net.drops = new Map();
+  Net.conns = new Map(); Net.states = new Map(); Net.uidOf = new Map(); Net.seen = new Map(); Net.drops = new Map(); clearInterval(Net.tkT); Net.tk = '';
 }
 function netFail(e) { const off = $('#on-offline'); if (off) off.hidden = false; const t = e && e.type; netStatus(t === 'hote-injoignable' ? 'Impossible de joindre l\'hôte. Vérifiez que vous avez tous les deux la même version (Réglages, tout en bas), puis réessayez.' : t === 'peer-unavailable' ? 'Aucune partie avec ce code. Vérifie le code, et que vous avez tous les deux la même version (Réglages, tout en bas).' : t === 'network' || t === 'server-error' || t === 'socket-error' ? 'Pas de connexion au serveur. Vérifie internet et réessaie.' : 'Connexion impossible (' + (t || 'erreur') + ').'); netReset(); renderOnline(); }
 const PEER_OPTS = () => Object.assign({ debug: 0 }, window.TK_PEER_OPTS || {});
@@ -8028,7 +10097,7 @@ const present = () => Net.players.filter((p) => !p.away);
 function netCreate() {
   if (!netUsable()) return; AudioSys.init(); prepControls(); netReset(); Net.host = true; Net.code = randCode(); netStatus('Création de la partie…');
   const peer = netPeer(NET_PREFIX + Net.code); Net.peer = peer;
-  peer.on('open', (id) => { Net.pid = id; Net.id = UID; Net.players = [{ id: UID, name: SAVE.name || 'Hôte', cfg: myCfg(), host: true }]; netStatus('Partie créée. Donne le code à tes potes.'); renderOnline(); });
+  peer.on('open', (id) => { Net.pid = id; Net.id = UID; Net.players = [{ id: UID, name: SAVE.name || 'Hôte', cfg: sgCfgSalon(), host: true, etat: 'pret', v: 2 }]; netStatus('Partie créée. Donne le code à tes potes.'); renderOnline(); });
   peer.on('visible', (ok) => { if (Net.peer !== peer || Net.inRace) return; netStatus(ok ? 'Partie ' + Net.code + ' : ✓ visible, tes potes peuvent la rejoindre.' : 'Partie ' + Net.code + ' : serveur injoignable, vérifie ta connexion…'); });
   peer.on('error', (e) => { if (e.type === 'unavailable-id' && !Net.players.length) { try { peer.destroy(); } catch (x) { /* rien */ } netCreate(); return; } if (e.type === 'peer-unavailable' || Net.players.length) return; netFail(e); });
   peer.on('connection', (conn) => {
@@ -8039,26 +10108,58 @@ function netCreate() {
 }
 function hostRelay(d, except) { for (const [id, c] of Net.conns) if (id !== except && c.open) { try { c.send(d); } catch (e) { /* connexion fermée */ } } }
 function hostBroadcast(d) { hostRelay(d, null); }
-function lobbyPlayers() { return Net.players.map((p) => ({ id: p.id, name: p.name, cfg: p.cfg, host: !!p.host, away: !!p.away, fid: p.fid || (p.host ? frMyId() : '') })); }
-function hostBroadcastLobby() { musPrewarmOnline(); hostBroadcast({ t: 'lobby', players: lobbyPlayers(), settings: Net.settings, code: Net.code, inRace: Net.inRace, cl: SAVE.chefList || '' }); renderOnline(); }
+// #34.Q6 : en mode vérifié (option A ou B), l'identifiant d'ami d'un joueur non vérifié n'est pas diffusé (un invité ne peut pas se faire passer
+// pour un ami) ; « inv » signale un invité, « ok » un compte dont la session a été vérifiée par le serveur.
+function lobbyPlayers() { const verif = Net.sessMode && Net.sessMode !== 'non';
+  return Net.players.map((p) => ({ id: p.id, name: p.name, cfg: p.cfg, host: !!p.host, away: !!p.away, inv: !!p.inv, ok: !!(p.verifie || (p.host && SAVE.acct)),
+    fid: p.host ? frMyId() : verif && !p.verifie ? '' : p.fid || '',
+    st: sgEtat(p), ref: sgRefus(p), perso: !!(p.cfg && kartPerso(p.cfg).length), v: p.v | 0, n: sgN(p.n) })); }   /* #34.G17/G18 : état prêt/garage, refus, kart personnalisé */
+function hostBroadcastLobby() { musPrewarmOnline(); hostBroadcast({ t: 'lobby', players: lobbyPlayers(), settings: Net.settings, code: Net.code, inRace: Net.inRace, cl: SAVE.chefList || '', sg: 2, ph: Net.ph, sans: Net.inRace && Net.lastStart && Net.lastStart.sans || [] }); renderOnline(); }
+/* #34.Q3 — Ticket d'hôte. Un joueur connecté à un compte présente un ticket court (90 s) délivré par le serveur et le renouvelle
+   toutes les 30 s ; l'hôte demande au serveur s'il est toujours lié à la session active de ce compte. Session remplacée ou ticket
+   d'un autre compte → le joueur est exclu (« sessionfin »). Ancien client sans ticket : accepté tant que le serveur n'est pas en
+   mode strict. Erreur réseau : aucune exclusion (on revérifie au tour suivant). */
+async function hostVerifTicket(conn, p, tk) {
+  if (!p || !Net.host) return;
+  const t0 = Date.now(), r = await acctCall('tverif', { ticket: tk || '' }); (Net.tvLog = (Net.tvLog || []).slice(-30)).push({ t: t0, ms: Date.now() - t0, qui: p.name, ok: !!(r && r.ok), valide: !!(r && r.valide) }); /* journal court des vérifications (bancs, diagnostic) */
+  if (!r || !r.ok) return;   // erreur réseau : aucune exclusion, on revérifie au tour suivant
+  const mode = r.mode || (r.strict ? 'tous' : 'non'); Net.sessMode = mode;
+  if (r.valide && (!p.pu || r.pseudo === String(p.pu).toLowerCase())) { p.tkOk = Date.now(); if (p.verifie !== r.pseudo || p.inv) { p.verifie = r.pseudo; p.inv = false; hostBroadcastLobby(); } return; }
+  if (!tk) {
+    if (mode === 'non') return;                                                                   // compatibilité : rien n'est exigé
+    if (mode === 'comptes' && !p.pu) { if (!p.inv) { p.inv = true; p.verifie = ''; hostBroadcastLobby(); } return; }   // option B : invité admis, marqué comme tel
+  }
+  // Ticket d'un autre compte, session remplacée, ou compte annoncé sans ticket (option B) / sans ticket du tout (option A) : exclu.
+  try { conn.send({ t: 'sessionfin' }); } catch (e) { /* déjà fermé */ } setTimeout(() => { try { conn.close(); } catch (e) { /* rien */ } }, 300);
+  toast(p.name + ' a quitté : session du compte terminée.', 3500);
+}
+// Un joueur qui annonce un compte envoie son ticket avec « hello » ou juste après ; on l'attend jusqu'à ~44 s (8 + 6 × 6) avant de juger :
+// 20 s ne suffisaient pas (ticket arrivé trop tard dans un essai réel du 6 nov. → exclusion à tort). Pendant l'attente il reste non vérifié.
+function hostAttendreTicket(conn, p, n) { if (p.tk || n >= 6 || !p.pu) return hostVerifTicket(conn, p, p.tk); setTimeout(() => hostAttendreTicket(conn, p, n + 1), 6000); }
+setInterval(() => { if (!Net.host) return; for (const p of Net.players) { if (!p.pu || p.away) continue; const c = Net.conns.get(p.pid); if (c) hostVerifTicket(c, p, p.tk); } }, 30000);
 function hostOnData(conn, d) {
   if (!d || typeof d !== 'object') return;
+  if (d.t === 'tk') { const p = Net.players.find((x) => x.pid === conn.peer); if (p) { p.tk = String(d.tk || '').slice(0, 64); hostVerifTicket(conn, p, p.tk); } return; }
   if (d.t === 'hello') {
     if (d.cl && chefListApply(d.cl, true)) { hostBroadcastLobby(); hostKickBanned(); }
     if ((d.fid && CHEF.b.has(String(d.fid))) || (Array.isArray(d.fo) && d.fo.some((x) => CHEF.b.has(String(x)))) || (d.pu && CHEF.b.has('@' + String(d.pu)))) { try { conn.send({ t: 'banned' }); } catch (e) { /* rien */ } setTimeout(() => conn.close(), 400); return; }
-    const id = String(d.uid || conn.peer).slice(0, 40); Net.uidOf.set(conn.peer, id); Net.seen.set(id, performance.now());
+    let id = String(d.uid || conn.peer).slice(0, 40); Net.uidOf.set(conn.peer, id); Net.seen.set(id, performance.now());
     let p = Net.players.find((x) => x.id === id);
-    if (p) { const was = p.away; p.away = 0; p.pid = conn.peer; p.name = String(d.name || p.name).slice(0, 10); p.cfg = cleanCfg(d.cfg); if (d.fid) p.fid = String(d.fid).slice(0, 20); clearTimeout(Net.drops.get(id)); Net.drops.delete(id); if (was) toast(p.name + ' est de retour !'); }
+    // #34.Q6 : la place d'un compte VÉRIFIÉ ne peut être reprise que par le même compte (qui repassera le ticket) ; sinon place distincte.
+    if (p && p.verifie && String(d.pu || '').toLowerCase() !== p.verifie && !p.host) { const id2 = (id + '~' + String(conn.peer).slice(-4)).slice(0, 40); id = id2; Net.uidOf.set(conn.peer, id); Net.seen.set(id, performance.now()); p = Net.players.find((x) => x.id === id) || null; }
+    if (p) { const was = p.away; p.away = 0; p.pid = conn.peer; p.name = String(d.name || p.name).slice(0, 10); sgHello(p, d, false); if (d.fid) p.fid = String(d.fid).slice(0, 20);
+      { const pu = d.pu ? String(d.pu).slice(0, 16) : ''; if (pu !== (p.pu || '')) { p.pu = pu; p.tk = ''; p.tkOk = 0; p.verifie = ''; p.inv = false; } }   /* #34.Q6 : au retour, l'identité annoncée est réévaluée (ex. compte révoqué pendant l'absence → invité) */ clearTimeout(Net.drops.get(id)); Net.drops.delete(id); if (was) toast(p.name + ' est de retour !'); }
     else {
       if (present().length >= 8) { try { conn.send({ t: 'busy' }); } catch (e) { /* rien */ } setTimeout(() => conn.close(), 400); Net.uidOf.delete(conn.peer); return; }
-      p = { id, pid: conn.peer, name: String(d.name || 'Joueur').slice(0, 10), cfg: cleanCfg(d.cfg), fid: d.fid ? String(d.fid).slice(0, 20) : '', pu: d.pu ? String(d.pu).slice(0, 16) : '' }; Net.players.push(p); AudioSys.sfx('got');
+      p = { id, pid: conn.peer, name: String(d.name || 'Joueur').slice(0, 10), cfg: cleanCfg(d.cfg), fid: d.fid ? String(d.fid).slice(0, 20) : '', pu: d.pu ? String(d.pu).slice(0, 16) : '' }; sgHello(p, d, true); Net.players.push(p); AudioSys.sfx('got');
     }
+    if (d.tk) { p.tk = String(d.tk).slice(0, 64); hostVerifTicket(conn, p, p.tk); } else setTimeout(() => hostAttendreTicket(conn, p, 0), 8000);   // #34.Q3 : le ticket suit hello de près
     hostBroadcastLobby();
     // on le remet là où en est la partie
     try {
       if (Net.inRace && Net.lastStart && Net.lastStart.roster.some((e) => e.id === id)) conn.send({ t: 'resume', start: Net.lastStart, elapsed: performance.now() - Net.lastStartAt });
       else if (!Net.inRace && MINI.cur) conn.send(Object.assign({}, MINI.cur));
-      else if (Net.inRace && Net.lastStart) conn.send({ t: 'watch', start: Net.lastStart, elapsed: performance.now() - Net.lastStartAt });
+      else if (Net.inRace && Net.lastStart && !(Net.lastStart.sans || []).includes(id)) conn.send({ t: 'watch', start: Net.lastStart, elapsed: performance.now() - Net.lastStartAt });   // laissé au salon : reste au salon
     } catch (e) { /* rien */ }
     return;
   }
@@ -8069,6 +10170,7 @@ function hostOnData(conn, d) {
   else if (d.t === 'ev') { hostRelay(d, conn.peer); onNetEvent(d); }
   else if (d.t === 'fin') { d.id = uid; hostRelay(d, conn.peer); onNetFin(d); }
   else if (d.t === 'cl') { if (chefListApply(d.cl, true)) { hostBroadcastLobby(); hostKickBanned(); } }
+  else if (d.t === 'gar' || d.t === 'pret') hostSalonMsg(uid, d);   // #34.G17 : garage et état prêt (validés par l'hôte)
   else if (d.t === 'mvote') miniRecord('vote', uid, d.v);
   else if (d.t === 'mres') miniRecord('reflex', uid, +d.v);
 }
@@ -8086,6 +10188,7 @@ function hostDrop(uid) {
 function netJoin(code) {
   if (!netUsable()) return; code = (code || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4); if (code.length !== 4) { netStatus('Le code fait 4 lettres.'); return; }
   AudioSys.init(); prepControls(); netReset(); Net.host = false; Net.code = code; netStatus('Connexion à la partie ' + code + '…');
+  if (SAVE.acct) netTicketEnvoi(null);   /* #34.Q6 : ticket demandé dès maintenant, pour partir avec « hello » (réseau lent) */
   netNewPeer();
 }
 function netNewPeer() {
@@ -8094,12 +10197,15 @@ function netNewPeer() {
   peer.on('error', (e) => { if (Net.peer !== peer) return; if (Net.rejoining || Net.lastHost) return; netFail(e); });
   peer.on('disconnected', () => { setTimeout(() => { try { if (Net.peer === peer && !peer.destroyed && peer.disconnected) peer.reconnect(); } catch (e) { /* rien */ } }, 500); });
 }
+// #34.Q3 : demande un ticket d'hôte au serveur (lié à la session active) et l'envoie à l'hôte.
+async function netTicketEnvoi(c) { if (!SAVE.acct) return; const r = await acctCall('ticket', { pseudo: SAVE.acct.u, tok: SAVE.acct.tok }); if (r && r.ok && r.ticket) { Net.tk = r.ticket; try { if (c && c.open) c.send({ t: 'tk', tk: r.ticket }); } catch (e) { /* rien */ } } }
 function clientConnect() {
   const peer = Net.peer; if (!peer || peer.destroyed) return;
   const c = peer.connect(NET_PREFIX + Net.code, { reliable: true, serialization: 'json' }); const old = Net.hc; Net.hc = c; if (old && old !== c) { try { old.close(); } catch (e) { /* rien */ } }
   const to = setTimeout(() => { if (!c.open && Net.hc === c && !Net.rejoining && !Net.lastHost) netFail({ type: 'hote-injoignable' }); }, 28000);
   c.on('open', () => {
-    if (Net.hc !== c) return; clearTimeout(to); Net.lastHost = performance.now(); c.send({ t: 'hello', name: SAVE.name || 'Joueur', cfg: myCfg(), uid: UID, fid: frMyId(), fo: SAVE.fidOld || [], pu: SAVE.acct ? String(SAVE.acct.u).toLowerCase() : '', cl: SAVE.chefList || '' });
+    if (Net.hc !== c) return; clearTimeout(to); Net.lastHost = performance.now(); c.send({ t: 'hello', v: 2, gar: SG.ouvert ? 1 : 0, n: SG.n, cfg: sgCfgSalon(), name: SAVE.name || 'Joueur', uid: UID, fid: frMyId(), fo: SAVE.fidOld || [], pu: SAVE.acct ? String(SAVE.acct.u).toLowerCase() : '', cl: SAVE.chefList || '', tk: Net.tk || '' });
+    netTicketEnvoi(c); clearInterval(Net.tkT); Net.tkT = setInterval(() => { if (Net.hc === c && c.open) netTicketEnvoi(c); else clearInterval(Net.tkT); }, 30000);   // #34.Q3
     if (Net.rejoining) { Net.rejoining = false; clearTimeout(Net.rejoinT); toast('De retour dans la partie !', 2200); } else netStatus('Connecté !');
     SAVE.lastCode = Net.code; SAVE.lastCodeAt = Date.now(); store();
   });
@@ -8128,7 +10234,11 @@ function clientOnData(d) {
     case 'ping': if (d.r && d.r[Net.id] != null) Net.ping = d.r[Net.id]; if (Net.hc && Net.hc.open) { try { Net.hc.send({ t: 'pong', c: d.c }); } catch (e) { /* rien */ } } break;
     case 'busy': toast('La partie est pleine (8 joueurs).', 4500); netReset(); renderOnline(); break;
     case 'banned': toast('Le chef t\'a bloqué : impossible de rejoindre cette partie.', 5000); netReset(); renderOnline(); break;
-    case 'lobby': if (d.cl) chefListApply(d.cl, true); Net.players = d.players || []; Net.settings = Object.assign(Net.settings, d.settings || {}); musPrewarmOnline(); if (!Net.inRace) { if (UI.screen !== 'calib' && !(UI.screen === 'mini' && MINI.cur) && UI.screen !== 'settings' && UI.screen !== 'chef') show('online'); renderOnline(); } chefRender(); break;
+    case 'sessionfin': toast('Ton compte est utilisé ailleurs : tu as quitté la partie.', 5000); netReset(); renderOnline(); break;   // #34.Q3
+    case 'lobby': { if (d.cl) chefListApply(d.cl, true); const kp0 = Net.settings.kp; Net.players = d.players || []; Net.sansListe = d.inRace && Array.isArray(d.sans) ? d.sans.map(String) : []; Net.horsCourse = Net.sansListe.includes(Net.id); Net.sg = d.sg >= 2; if (Net.sg) Net.ph = d.ph | 0; else Net.settings.kp = true; Net.settings = Object.assign(Net.settings, d.settings || {}); musPrewarmOnline();
+      if (Net.sg && Net.sgVu && kp0 !== Net.settings.kp) { const me = sgMoi(); toast('L\'hôte a changé la règle : karts personnalisés ' + (Net.settings.kp === false ? 'NON autorisés.' : 'autorisés.') + (me && me.ref === 'regle' ? ' Ton montage est refusé : choisis le kart de série ou passe au garage.' : ''), 5000); }   /* #34.G18 */
+      if (!Net.inRace) { if (UI.screen !== 'calib' && !(UI.screen === 'mini' && MINI.cur) && UI.screen !== 'settings' && UI.screen !== 'chef' && UI.screen !== 'garage') show('online'); renderOnline(); sgRenvoi(); if (SG.ouvert) sgBarre(); } Net.sgVu = Net.sg; chefRender(); break; }
+    case 'garko': if (d.r !== 'course' && d.r !== 'perime') SG.attente = null; toast('Refusé par l\'hôte : ' + (SG_RAISONS[d.r] || 'montage invalide') + '.', 4000); break;   // #34.G17/G18
     case 'start': netStartRace(d); break;
     case 'watch': if (!(G.race && G.race.online && G.race.raceId === d.start.raceId)) netWatch(d); break;
     case 'resume': if (!(G.race && G.race.online && G.race.raceId === d.start.raceId)) { const m = Object.assign({}, d.start, { delay: (d.start.delay || 7000) - (d.elapsed || 0) }); netStartRace(m); } break;
@@ -8136,7 +10246,7 @@ function clientOnData(d) {
     case 'ev': onNetEvent(d); break;
     case 'fin': onNetFin(d); break;
     case 'left': onNetLeft(d.id); break;
-    case 'lobbyback': goLobby(); break;
+    case 'lobbyback': if (Net.inRace) goLobby(); else renderOnline(); break;   // laissé au salon pendant la course : déjà au salon (garage ouvert conservé)
     case 'mini': if (!Net.inRace) onMini(d); break;
   }
 }
@@ -8163,16 +10273,29 @@ document.addEventListener('visibilitychange', () => {
 
 function netEmit(d) { d.t = d.t || 'ev'; if (!Net.peer) return; if (Net.host) hostBroadcast(d); else if (Net.hc && Net.hc.open) { try { Net.hc.send(d); } catch (e) { /* rien */ } } }
 const netNewId = () => Net.id + ':' + (++Net.evId);
-function hostStart() {
-  if (!Net.host || !Net.players.length) return;
-  const S = Net.settings, humans = present().slice(0, 8), n = humans.length, total = S.bots ? 8 : n, roster = [];
-  shuffle(humans.slice()).forEach((p, i) => roster.push({ id: p.id, cfg: Object.assign({}, p.cfg, { name: p.name }), slot: total - n + i, ai: false }));
+function hostStart(opts) {
+  if (!Net.host || !Net.players.length || Net.inRace) return false;
+  // #34.G17/G18 : contrôle juste avant le départ — personne au garage, tout le monde prêt, montages conformes à la règle du salon.
+  // « Lancer sans eux » (opts.sans = liste confirmée par l'hôte) : on part avec les seuls joueurs disponibles, SI la liste n'a pas changé
+  // depuis la confirmation affichée ; sinon refus et liste rafraîchie (jamais un départ avec d'autres participants que ceux annoncés).
+  let humans = present();
+  if (opts && opts.sans) { const L = sgListeSans(); if (!L.ok || L.cle !== opts.sans || (SG.sansCle && SG.sansCle !== opts.sans)) { sgJournal({ depart: 'refuse', sans: 'liste-changee' }); toast('La liste des participants a changé : vérifie-la avant de confirmer.', 4000); SG.sansVoir = !!L.ok; renderOnline(); return false; } humans = L.part; }
+  else { const bl = sgBloquants(); if (bl.length) { sgJournal({ depart: 'refuse', bl }); toast('Départ impossible : ' + bl.join(', ') + '.', 4500); renderOnline(); return false; } }
+  SG.sansVoir = false; SG.sansCle = ''; humans = humans.slice(0, 8);
+  const S = Net.settings, n = humans.length, total = S.bots ? 8 : n, roster = [], sans = present().filter((p) => !humans.includes(p)).map((p) => p.id);
+  shuffle(humans.slice()).forEach((p, i) => roster.push({ id: p.id, cfg: Object.assign(cleanCfg(p.cfg), { name: p.name }), slot: total - n + i, ai: false }));   // pièces nettoyées ; stats recalculées partout par statsFor
   for (let i = 0; i < total - n; i++) roster.push({ id: 'ai' + i, cfg: RIVALS[i % RIVALS.length], slot: i, ai: true });
   const ti = S.track >= 0 ? S.track : pickTrack13(S.pmode === 'bombe');
-  const msg = { t: 'start', ti, cc: S.cc, roster, party: S.party && S.pmode !== 'bombe', bomb: S.pmode === 'bombe', type: S.type || 'sips', dose: S.dose, cupRound: Net.cup && Net.cup.racing ? Net.cup.round : 0, botLvl: S.botLvl != null ? S.botLvl : 1, laps: S.laps || 0, obst: S.obst !== false, music: S.music || 'auto', seed: (Math.random() * 4294967295) >>> 0, delay: 7000, raceId: Date.now().toString(36) + Math.random().toString(36).slice(2, 5) };
-  Net.lastStart = msg; Net.lastStartAt = performance.now(); hostBroadcast(msg); netStartRace(msg);
+  const msg = { t: 'start', ti, cc: S.cc, roster, party: S.party && S.pmode !== 'bombe', bomb: S.pmode === 'bombe', type: S.type || 'sips', dose: S.dose, cupRound: Net.cup && Net.cup.racing ? Net.cup.round : 0, botLvl: S.botLvl != null ? S.botLvl : 1, laps: S.laps || 0, obst: S.obst !== false, music: S.music || 'auto', seed: (Math.random() * 4294967295) >>> 0, delay: 7000, raceId: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), kp: S.kp !== false, ph: ++Net.ph, sans };   // règle et montages figés pour la course
+  sgJournal({ depart: 'ok', ph: Net.ph, roster: roster.filter((e) => !e.ai).map((e) => e.id + ':' + e.cfg.engine), sans });
+  Net.lastStart = msg; Net.lastStartAt = performance.now();
+  // Le départ n'est envoyé qu'aux participants ; les joueurs laissés au salon reçoivent l'état du salon (nouvelle phase, « hors course »).
+  if (sans.length) { for (const [pid, c] of Net.conns) if (c.open && !sans.includes(Net.uidOf.get(pid))) { try { c.send(msg); } catch (e) { /* connexion fermée */ } } } else hostBroadcast(msg);
+  netStartRace(msg); if (sans.length) hostBroadcastLobby(); return true;
 }
 function netStartRace(msg) {
+  if (SG.ouvert) sgFermer(false, 'La course a démarré : ton brouillon n\'est pas appliqué, tu cours avec ton montage confirmé.');   // #34.G17 : départ concurrent
+  if (msg.ph != null) Net.ph = msg.ph | 0;
   const goAt = performance.now() + (msg.delay || 7000) - (Net.host ? 0 : 80); MINI.cur = null; clearTimeout(MINI.timer);
   UI.mode = 'online'; Net.inRace = true; Net.states.clear(); Net.settings.party = !!msg.party; Net.settings.dose = msg.dose || 1;
   Net.botLvl = msg.botLvl != null ? msg.botLvl : 1; Net.cupRound = msg.cupRound || 0; RACE_OPTS.laps = msg.laps || 0; RACE_OPTS.obst = msg.obst !== false; RACE_OPTS.seed = msg.seed || 1; RACE_OPTS.music = typeof msg.music === 'string' && MUSIC_OPTS.some((o) => o[0] === msg.music) ? msg.music : 'auto';
@@ -8209,7 +10332,7 @@ function onNetEvent(d) {
   if (d.e === 'bomb') { bombNet(d); return; }
   if (d.e === 'emo') { emoShow(String(d.n || '').slice(0, 12), String(d.x || '')); return; }
   if (d.e === 'kemo') { const k = (G.karts || []).find((q) => q.netId === d.id && !q.isPlayer); if (k) kartEmote(k, String(d.x || '')); return; }
-  if (d.e === 'reflect' || d.e === 'swap') { net13(d, K); return; }
+  if (d.e === 'reflect' || d.e === 'swap' || d.e === 'gpulse' || d.e === 'greflect') { net13(d, K); return; }
   if (d.e === 'hit' && R.bombMode && Net.host) bombHitPass(K(d.v), K(d.src));
   if (d.e === 'oil') { const n0 = G.hazards.length; spawnOil(+d.x, +d.z, +d.y, K(d.o), d.id, d.kind || 'oil'); if (Array.isArray(d.fly)) flyTrap(n0, { x0: +d.fly[0], z0: +d.fly[1], y0: +d.fly[2], t: 0, T: clamp(+d.fly[3] || .6, .2, 2) }); }
   else if (d.e === 'rocket') spawnRocket(+d.x, +d.z, +d.y, +d.h, +d.sp, K(d.o), K(d.tg), d.id, d.kind || 'rocket');
@@ -8281,7 +10404,7 @@ function emoShow(n, x) { if (!EMOS.includes(x)) return; const el = document.crea
 function goLobby() {
   if (G.race) G.race.spec = null; $('#spec').hidden = true; $('#b-pause').hidden = false;
   Net.inRace = false; G.paused = false; showHud(false); AudioSys.engine(0, false); AudioSys.stopMusic();
-  startAttract(G.W ? G.W.ti : 0); UI.mode = 'online'; show('online'); renderOnline();
+  startAttract(G.W ? G.W.ti : 0); UI.mode = 'online'; show('online'); renderOnline(); if (Net.host) hostBroadcastLobby();   // #34.G17 : nouvelle phase de salon diffusée
 }
 function chipsSel(el, list, cur, onPick) {
   el.innerHTML = ''; for (const [v, label] of list) { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.setAttribute('aria-pressed', String(v === cur)); b.onclick = () => { AudioSys.sfx('click'); onPick(v); }; el.appendChild(b); }
@@ -8291,7 +10414,7 @@ function renderOnline() {
   $('#on-start').hidden = inLobby; $('#on-lobby').hidden = !inLobby; if (!inLobby) return;
   $('#on-codeval').textContent = Net.code;
   const list = $('#on-players'); list.innerHTML = '';
-  for (const p of Net.players) { const b = document.createElement('span'); b.className = 'pchip'; b.style.setProperty('--c', (p.cfg && p.cfg.color) || '#ff4f3a'); b.innerHTML = '<i></i><span></span>'; b.querySelector('span').textContent = p.name + (p.host ? ' (hôte)' : '') + (p.id === Net.id ? ' · toi' : '') + (p.away ? ' · absent' : ''); if (p.away) b.style.opacity = '.55'; list.appendChild(b); }
+  for (const p of Net.players) { const b = document.createElement('span'); b.className = 'pchip'; b.style.setProperty('--c', (p.cfg && p.cfg.color) || '#ff4f3a'); b.innerHTML = '<i></i><span></span>'; b.querySelector('span').textContent = p.name + (p.host ? ' (hôte)' : '') + (p.inv ? ' · invité' : '') + (p.id === Net.id ? ' · toi' : '') + (p.away ? ' · absent' : '') + sgPuce(p); if (p.away) b.style.opacity = '.55'; list.appendChild(b); }
   const S = Net.settings; $('#on-host-opts').hidden = !Net.host; $('#on-go').hidden = !Net.host;
   if (Net.host) {
     const upd = (k, v) => { S[k] = v; hostBroadcastLobby(); };
@@ -8310,11 +10433,17 @@ function renderOnline() {
     chipsSel($('#on-type'), [['sips', 'Gorgées'], ['dares', 'Gages']], S.type || 'sips', (v) => upd('type', v));
     renderThemeChips();
     chipsSel($('#on-wmode'), [['random', 'Cases aléatoires'], ['custom', 'Cases perso']], S.wheelMode || 'random', (v) => upd('wheelMode', v));
+    { const bl = sgBloquants(); if (bl.length) { $('#on-wait').textContent = 'En attente avant le départ : ' + bl.join(', ') + '.'; sgRendre(); return; } }
     $('#on-wait').textContent = present().length < 2 ? 'Partage le code. Tu peux aussi lancer seul avec les bots.' : present().length + ' joueurs prêts.' + (Net.players.length > present().length ? ' Les absents reviennent tout seuls en rouvrant le jeu.' : '');
   } else {
-    $('#on-wait').textContent = 'En attente de l\'hôte… ' + (S.track >= 0 ? TRACKS[S.track].name : 'Circuit au hasard') + ' · ' + CC[S.cc].name + (S.laps ? ' · ' + S.laps + ' tour' + (S.laps > 1 ? 's' : '') : '') + (S.obst === false ? ' · sans obstacles' : '') + (S.pmode === 'pari' ? ' · Pari Pilote' : S.pmode === 'bombe' ? ' · Patate chaude' : S.party ? ' · Soirée' : '');
+    sgRendre();
+    $('#on-wait').textContent = 'En attente de l\'hôte… ' + (S.track >= 0 ? TRACKS[S.track].name : 'Circuit au hasard') + ' · ' + CC[S.cc].name + (S.laps ? ' · ' + S.laps + ' tour' + (S.laps > 1 ? 's' : '') : '') + (S.obst === false ? ' · sans obstacles' : '') + (S.pmode === 'pari' ? ' · Pari Pilote' : S.pmode === 'bombe' ? ' · Patate chaude' : S.party ? ' · Soirée' : '') + (Net.sg ? ' · karts perso ' + (S.kp === false ? 'NON autorisés' : 'autorisés') : '');
   }
+  if (Net.host) sgRendre();
 }
+// Puce d'état d'un joueur dans le salon (#34.G17/G18) ; rien pour un hôte d'ancienne version (champs absents).
+function sgPuce(p) { if (!Net.host && !Net.sg) return ''; const e = sgEtat(p), r = Net.host ? sgRefus(p) : p.ref, hors = (Net.host ? Net.inRace && Net.lastStart && Net.lastStart.sans || [] : Net.sansListe || []).includes(p.id);
+  return (hors ? ' · hors course (prochaine)' : '') + (e === 'garage' ? ' · au garage 🔧' : e === 'attente' ? ' · pas prêt' : p.host ? '' : ' · prêt') + (r ? ' · montage refusé' : '') + ((Net.host ? p.cfg && kartPerso(p.cfg).length : p.perso) ? ' · kart perso' : '') + (Net.host && !p.host && (p.v | 0) < 2 ? ' · ancienne version' : ''); }
 $('#on-create').onclick = () => { AudioSys.sfx('click'); netCreate(); };
 $('#on-join').onclick = () => { AudioSys.sfx('click'); netJoin($('#on-code').value); };
 $('#on-code').addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4); });
@@ -8324,6 +10453,174 @@ $$('#on-minis [data-mini]').forEach((b) => (b.onclick = () => { AudioSys.init();
 $('#on-leave').onclick = () => { AudioSys.sfx('click'); netReset(); renderOnline(); netStatus(''); };
 $('#on-back').onclick = () => { AudioSys.sfx('click'); netReset(); netStatus(''); show('title'); };
 $('#on-wedit').onclick = () => { AudioSys.sfx('click'); UI.weBack = 'online'; show('wedit'); };
+/* ================= #34.G17/G18 — Garage depuis le salon et règle « Karts personnalisés » ================= */
+/* G17 : le garage s'ouvre depuis le salon (avant ou entre deux courses) SANS quitter la partie : la connexion, la place, les amis et le rôle
+   d'hôte sont conservés. Ouvrir = « au garage » (pas prêt) ; tout changement reste LOCAL (aperçu, brouillon) ; seule « Confirmer » envoie le
+   montage à l'hôte, qui le valide puis le diffuse à tous. « Annuler » (ou toute autre sortie : course lancée entre-temps, mini-jeu, réseau
+   perdu, rechargement) remet l'ancien montage. Aucun accès pendant la course ; l'essai d'un tour de l'atelier est indisponible depuis le salon.
+   G18 : l'hôte choisit « Karts personnalisés : autorisés / non autorisés » (Net.settings.kp, défaut : autorisés = règle historique).
+   Définition CANONIQUE (jamais un nom, un drapeau du joueur ou l'écran d'origine) : un kart est « personnalisé » si une de ses pièces de
+   CONDUITE hors série diffère du réglage standard. Série = carrosserie, roues et planeur du jeu (choix rapide historique) ; apparence
+   (couleurs, pilote, accessoire, finition, déco, turbo, peau, titre) toujours libre. Toute nouvelle clé de conduite ajoutée à cleanCfg
+   (ex. moteur, futurs transmission/freins de G15/G16) est hors série dès qu'elle quitte sa valeur par défaut : rien n'est élargi en silence.
+   Autorité : l'HÔTE (le salon n'a pas de serveur de jeu) valide le schéma et les IDs, garde le montage refusé tel quel (rien n'est effacé),
+   contrôle à l'entrée, à la confirmation, au changement de règle et juste avant le départ ; les stats ne viennent jamais du joueur : chaque
+   appareil les recalcule par statsFor à partir des pièces du roster figé. Limite : un hôte au code modifié peut contourner sa propre règle. */
+const SG = { ouvert: false, depart: null, confirme: null, n: 0, attente: null, question: false };
+const sgEsc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const SG_CLES = ['body', 'wheels', 'glider', 'engine', 'susp', 'trans', 'frein', 'dir', 'rims', 'aileron', 'echap', 'ailes', 'parechocs', 'pilot', 'color', 'helmet', 'skin', 'acc', 'finish', 'deco', 'trail'];   // équipement (mêmes clés que l'atelier)
+const SG_LIBRE = new Set(['name', 'title', 'color', 'helmet', 'skin', 'pilot', 'acc', 'finish', 'deco', 'trail', 'body', 'wheels', 'glider', 'aileron', 'echap', 'ailes', 'parechocs']);
+const SG_CONDUITE = ['body', 'wheels', 'glider', 'engine', 'susp', 'trans', 'frein', 'dir', 'rims'];   // pièces lues par statsFor : un ID inconnu est refusé, jamais remplacé en silence
+const SG_RAISONS = { regle: 'karts personnalisés non autorisés par l\'hôte', piece: 'pièce inconnue du salon (versions différentes ?)', donnees: 'données de montage invalides',
+  garage: 'tu es encore au garage', course: 'course en cours : montage figé', perime: 'message périmé (le salon a changé)' };
+Net.settings.kp = true; Net.ph = 0;
+// Rechargement / fermeture brutale pendant un garage de salon : le brouillon non confirmé n'est jamais conservé comme équipement.
+if (SAVE.salonGar && SAVE.salonGar.depart && typeof SAVE.salonGar.depart === 'object') { for (const k of SG_CLES) if (SAVE.salonGar.depart[k] !== undefined) SAVE[k] = SAVE.salonGar.depart[k]; delete SAVE.salonGar; store(); }
+let SG_DEF = null; const sgDef = () => SG_DEF || (SG_DEF = cleanCfg({}));
+// Pièces de conduite hors série d'un montage (comparaison canonique des pièces nettoyées).
+// #34.G18 étendu (7 nov., soir) : l'hôte recalcule sur les pièces EFFECTIVES ; une pièce séparée sans effet de conduite (ex. jantes
+// Dorées) n'est pas « hors série ». Toute clé inconnue de cette liste reste hors série par défaut si elle diffère du standard.
+const SG_TABLES = Object.fromEntries(PIECES.map(([k, t]) => [k, t]));
+const SG_FAMILLE = { engine: 'moteur', susp: 'suspension', trans: 'transmission', frein: 'freins', dir: 'direction', rims: 'jantes' };
+// Noms lisibles des pièces hors série d'un montage (message de refus).
+function sgPiecesNoms(cfg) { const c = cleanCfg(cfg); return kartPerso(c).map((k) => (SG_FAMILLE[k] || k) + ' ' + ((SG_TABLES[k] && SG_TABLES[k][c[k]] || {}).name || c[k])).join(', ') || 'montage'; }
+function kartPerso(cfg) { const c = cleanCfg(cfg), d = sgDef(); return Object.keys(c).filter((k) => !SG_LIBRE.has(k) && c[k] !== d[k] && (!SG_TABLES[k] || pieceEffet(SG_TABLES[k][c[k]]))); }
+// Présélection permise la plus proche : mêmes carrosserie/roues/planeur/apparence, pièces hors série remises au standard.
+function kartSerie(cfg) { const c = cleanCfg(cfg), d = sgDef(); for (const k of kartPerso(c)) c[k] = d[k]; return c; }
+// Contrôle du schéma : objet attendu ; client récent (v ≥ 2, qui nettoie avant d'envoyer) → un ID de conduite inconnu est REFUSÉ ;
+// ancien client : nettoyage historique (compatibilité). Champs en trop (ex. « stats ») ignorés : jamais lus.
+function sgControle(brut, v) {
+  if (!brut || typeof brut !== 'object' || Array.isArray(brut)) return { err: 'donnees' };
+  const c = cleanCfg(brut), m = migrerPieces(Object.assign({}, brut)); if (v >= 2) for (const k of SG_CONDUITE) if (m[k] != null && m[k] !== c[k]) return { err: 'piece', cfg: c };   // moteur « souple » d'avant la séparation : migré, pas refusé
+  return { cfg: c };
+}
+const sgRefus = (p) => (p.err || (Net.settings.kp === false && p.cfg && kartPerso(p.cfg).length ? 'regle' : ''));
+const sgEtat = (p) => p.etat || p.st || 'pret';   // p.etat chez l'hôte, p.st dans la liste reçue par un joueur
+// « Lancer sans eux » (décision du propriétaire du 6 nov.) : participants = joueurs présents, prêts, hors garage, montage conforme ; les
+// autres (au garage, pas prêts, refusés) restent dans le salon. Jamais d'état « prêt » forcé, jamais d'exclusion sur simple délai.
+// Indisponible si l'hôte lui-même ne peut pas partir, sans personne à laisser, ou en Pari Pilote (manches et paris pour tout le groupe).
+function sgListeSans() { const pres = present(), part = [], exclus = [];
+  for (const p of pres) { const e = sgEtat(p), r = sgRefus(p); if (e === 'pret' && !r) part.push(p); else exclus.push({ p, raison: e === 'garage' ? 'au garage' : r ? 'montage refusé' : 'pas prêt' }); }
+  const hote = part.some((p) => p.host), pari = Net.settings.pmode === 'pari';
+  return { ok: hote && !pari && exclus.length > 0, hote, pari, part, exclus, cle: part.map((p) => p.id).sort().join(',') + '|' + exclus.map((x) => x.p.id).sort().join(',') }; }
+function sgBloquants() { return present().filter((p) => sgEtat(p) !== 'pret' || sgRefus(p)).map((p) => p.name + ' (' + (sgEtat(p) === 'garage' ? 'au garage' : sgRefus(p) ? 'montage refusé' : 'pas prêt') + ')'); }
+function sgJournal(o) { (Net.sgLog = (Net.sgLog || []).slice(-60)).push(Object.assign({ t: Date.now() }, o)); }   // décisions de l'hôte (bancs, diagnostic)
+// ---- hôte ----
+function sgHello(p, d, nouveau) {
+  p.v = d.v | 0;
+  if (nouveau || !Net.inRace) { const r = sgControle(d.cfg, p.v); if (r.err) { p.err = r.err; if (!p.cfg) p.cfg = r.cfg || cleanCfg({}); } else { p.cfg = r.cfg; p.err = ''; } if (sgN(d.n)) p.n = Math.max(sgN(p.n), sgN(d.n)); }   // en course : montage figé
+  if (p.v >= 2 && d.gar && !Net.inRace) p.etat = 'garage'; else if (nouveau) p.etat = 'pret'; else if (p.etat === 'garage') p.etat = 'attente';
+  sgJournal({ qui: p.name, msg: 'hello', v: p.v, etat: p.etat, ref: sgRefus(p) });
+}
+function sgDire(p, r) { sgJournal({ qui: p.name, refus: r }); if (p.id === Net.id) { toast('Refusé : ' + (SG_RAISONS[r] || r) + '.', 3500); return; } const c = Net.conns.get(p.pid); if (c && c.open) { try { c.send({ t: 'garko', r }); } catch (e) { /* rien */ } } }
+function hostSalonMsg(uid, d) {
+  const p = Net.players.find((x) => x.id === uid); if (!p || !d) return;
+  if (Net.inRace && !(Net.lastStart && (Net.lastStart.sans || []).includes(p.id))) return sgDire(p, 'course');   // édition en course refusée ; un message tardif n'a aucun effet sur la course
+  // (un joueur laissé au salon par « Lancer sans eux » peut régler son kart et se dire prêt : effet à la course SUIVANTE, roster figé)
+  if ((d.ph | 0) !== Net.ph) return sgDire(p, 'perime');            // message d'un salon précédent (avant une course) : sans effet
+  if (d.t === 'gar') {
+    if (d.o) p.etat = 'garage';
+    else { if (d.cfg !== undefined) { const n = sgN(d.n);
+        if (n > sgN(p.n)) { p.n = n; const r = sgControle(d.cfg, Math.max(2, p.v | 0)); if (r.err) { p.err = r.err; sgDire(p, r.err); } else { p.cfg = r.cfg; p.err = ''; if (sgRefus(p)) sgDire(p, sgRefus(p)); } }
+        else sgJournal({ qui: p.name, ignore: 'doublon', n }); }
+      p.etat = p.host ? 'pret' : 'attente'; }                         // l'hôte lance lui-même : prêt dès son retour ; un invité se remet prêt
+  } else if (d.t === 'pret') {
+    if (!d.v) { if (sgEtat(p) !== 'garage') p.etat = 'attente'; }
+    else if (sgEtat(p) === 'garage') sgDire(p, 'garage'); else if (sgRefus(p)) sgDire(p, sgRefus(p)); else p.etat = 'pret';
+  }
+  sgJournal({ qui: p.name, msg: d.t + (d.o ? ':ouvre' : d.cfg ? ':confirme' : d.t === 'gar' ? ':ferme' : ':' + !!d.v), etat: p.etat, ref: sgRefus(p) });
+  hostBroadcastLobby();
+}
+// Changement de règle : les joueurs concernés (montage désormais refusé) repassent « pas prêts » ; chacun reçoit un message clair.
+function sgRegle(v) { const S = Net.settings; if (S.kp === v) return; S.kp = v; for (const p of Net.players) if (!p.host && sgRefus(p) === 'regle' && sgEtat(p) === 'pret') p.etat = 'attente'; sgJournal({ regle: v }); hostBroadcastLobby(); }
+// ---- joueur (l'hôte passe par les mêmes fonctions, traitées chez lui) ----
+// Numéro de confirmation croissant même après un rechargement (horodatage) : l'hôte ignore un doublon ou un message plus ancien.
+const sgNum = () => Math.max(SG.n + 1, Date.now());
+const sgN = (x) => (Number.isFinite(+x) && +x > 0 ? Math.floor(+x) : 0);   // pas de « | 0 » : un horodatage dépasse 32 bits
+const sgEquipe = () => { const o = {}; for (const k of SG_CLES) o[k] = SAVE[k]; return o; };
+const sgCfgSalon = () => SG.confirme || (SG.confirme = cleanCfg(myCfgEquipe()));   // montage annoncé au salon (jamais un brouillon)
+function sgEnvoyer(d) { d.ph = Net.ph; if (Net.host) hostSalonMsg(Net.id, d); else if (Net.hc && Net.hc.open) { try { Net.hc.send(d); } catch (e) { /* la reconnexion renverra l'état (hello) */ } } }
+const sgMoi = () => Net.players.find((p) => p.id === Net.id) || null;
+const sgDispo = () => !!(Net.peer && Net.id && !Net.inRace && (Net.host || (Net.hc && Net.hc.open && Net.sg)));
+function sgOuvrirGarage() {
+  if (!sgDispo()) { toast(Net.inRace ? 'Pas de garage pendant la course.' : 'Garage du salon indisponible (hôte d\'une ancienne version ?).', 3200); return false; }
+  SG.ouvert = true; SG.depart = sgEquipe(); SAVE.salonGar = { depart: Object.assign({}, SG.depart), code: Net.code }; store();
+  sgEnvoyer({ t: 'gar', o: 1 }); show('garage'); sgBarre(); return true;
+}
+// Fermeture : « ok » = confirmer et diffuser ; sinon annuler (ancien montage remis, rien n'est envoyé d'autre que la fermeture).
+function sgFermer(ok, pourquoi) {
+  if (!SG.ouvert) return; const at = window.WKAtelier; if (at && at.ATL && at.ATL.ouvert) { try { at.fermer(); } catch (e) { /* rien */ } }
+  SG.ouvert = false; document.body.classList.remove('wk-sg'); const bar = $('#sg-barre'); if (bar) bar.hidden = true;
+  if (ok) { const cfg = cleanCfg(myCfgEquipe()); SG.confirme = cfg; SG.n = sgNum(); SG.attente = { n: SG.n, cfg, ph: Net.ph }; sgEnvoyer({ t: 'gar', o: 0, cfg, n: SG.n }); }
+  else { for (const k of SG_CLES) if (SG.depart && SG.depart[k] !== undefined) SAVE[k] = SG.depart[k]; if (Net.peer) sgEnvoyer({ t: 'gar', o: 0 }); }
+  delete SAVE.salonGar; store(); SG.depart = null;
+  if (pourquoi) toast(pourquoi, 3800); else if (pourquoi !== '') toast(ok ? 'Montage envoyé au salon. Mets-toi prêt quand tu veux.' : 'Garage fermé : ton montage précédent est conservé.', 3000);
+}
+function sgModifie() { if (!SG.depart) return false; const e = sgEquipe(); return SG_CLES.some((k) => e[k] !== SG.depart[k]); }
+function sgSerie() { const cfg = kartSerie(sgCfgSalon()); SG.confirme = cfg; SG.n = sgNum(); SG.attente = { n: SG.n, cfg, ph: Net.ph }; sgEnvoyer({ t: 'gar', o: 0, cfg, n: SG.n }); sgEnvoyer({ t: 'pret', v: true });
+  toast('Kart de série pour ce salon. Ton montage reste équipé et enregistré dans ton garage.', 4200); }
+// Un message de confirmation arrivé pendant une course déjà lancée est sans effet : de retour au salon, il est renvoyé (même montage).
+function sgRenvoi() { const me = sgMoi(); if (!SG.attente || !me || Net.inRace) return; if (sgN(me.n) >= SG.attente.n) { SG.attente = null; return; }
+  if (SG.attente.ph === Net.ph) return; SG.attente.ph = Net.ph; sgEnvoyer({ t: 'gar', o: 0, cfg: SG.attente.cfg, n: SG.attente.n }); toast('Ton dernier montage est renvoyé au salon (la course était déjà lancée).', 3500); }
+// Styles du salon et de la barre du garage (injectés une fois).
+function sgStyle() { if (document.getElementById('sg-style')) return;
+  const st = document.createElement('style'); st.id = 'sg-style'; st.textContent = '#sg-box{gap:6px;margin:6px 0}#sg-box .row{display:flex;gap:6px;flex-wrap:wrap}#sg-box .sg-regle{font-size:13px}#sg-box .sg-refus{background:#ffe1df;color:#5a1010;border-radius:10px;padding:8px}' +
+      '#sg-barre{display:flex;gap:8px;align-items:center;box-sizing:border-box;background:rgba(255,253,247,.96);color:#17143a;border:2px solid #17143a;border-radius:12px;padding:5px 8px;z-index:6;opacity:.995;line-height:1.15;position:fixed;top:max(10px,env(safe-area-inset-top,0px));right:max(12px,env(safe-area-inset-right,0px));width:min(436px,calc(50vw - 14px))}#sg-barre[hidden]{display:none}#sg-barre .sg-txt{display:flex;flex-direction:column;gap:1px;flex:1;min-width:0}#sg-barre b{font-size:12px}#sg-barre small{font-size:11px}#sg-barre .sg-info{display:none}#sg-barre .sg-alerte{color:#a0150f;font-weight:800}#sg-barre .sg-btns{display:flex;gap:6px;flex-shrink:0}#sg-barre .btn{margin:0;min-height:40px;padding-left:10px;padding-right:10px}body.wk-sg #s-garage .g-panel,body.wk-sg #atl{padding-top:calc(var(--sg-h,60px) + 8px)}@media (orientation:portrait){#sg-barre{top:auto;right:max(8px,env(safe-area-inset-right,0px));left:max(8px,env(safe-area-inset-left,0px));bottom:max(8px,env(safe-area-inset-bottom,0px));width:auto;flex-direction:column;align-items:stretch;gap:6px;padding:7px 9px}#sg-barre b{font-size:13px}#sg-barre .sg-btns .btn{flex:1;min-height:44px}body.wk-sg #s-garage .g-panel,body.wk-sg #atl{padding-top:12px;padding-bottom:calc(var(--sg-h,120px) + 24px)}}' +
+      'body.wk-sg #atl-essai{opacity:.4}body.wk-sg #s-garage .back{display:none}'; document.head.appendChild(st); }
+// Barre du garage en mode salon : état, règle, confirmer / annuler.
+function sgBarre() {
+  let bar = $('#sg-barre'); const st = $('#s-garage .g-stage'); if (!bar && st) { bar = document.createElement('div'); bar.id = 'sg-barre'; const nm = $('#g-name'); st.insertBefore(bar, nm ? nm.nextSibling : st.firstChild); }
+  if (!bar) return; sgStyle(); document.body.classList.add('wk-sg'); bar.hidden = false; const perso = kartPerso(myCfgEquipe()).length > 0, regle = Net.settings.kp === false;
+  bar.innerHTML = '<div class="sg-txt"><b>Salon ' + sgEsc(Net.code) + ' · au garage (pas prêt)</b><small class="sg-info">Les autres voient ton ancien kart jusqu\'à ta confirmation.</small>' +
+    (regle && perso ? '<small class="sg-alerte">Karts perso NON autorisés : ' + sgEsc(sgPiecesNoms(myCfgEquipe())) + ' refusé (il reste enregistré).</small>' : '<small>Karts personnalisés : ' + (regle ? 'non autorisés' : 'autorisés') + '.</small>') +
+    (SG.question ? '<small class="sg-alerte">Kart modifié : confirmer ou annuler ?</small>' : '') +
+    '</div><div class="sg-btns"><button class="btn red sm" id="sg-ok"><span>Confirmer</span></button><button class="btn ghost sm" id="sg-annuler"><span>Annuler</span></button></div>';
+  sgHauteur();
+  $('#sg-annuler').onclick = () => { AudioSys.sfx('click'); SG.question = false; sgFermer(false); show('online'); };
+  $('#sg-ok').onclick = () => { AudioSys.sfx('click'); SG.question = false; sgFermer(true); show('online'); };
+}
+function sgHauteur() { const bar = $('#sg-barre'); if (bar && !bar.hidden) document.body.style.setProperty('--sg-h', Math.ceil(bar.getBoundingClientRect().height) + 'px'); }
+addEventListener('resize', () => { if (SG.ouvert) requestAnimationFrame(sgHauteur); });
+// Retour (←) du garage en mode salon : on revient au salon, jamais au menu ; s'il y a des changements, on demande.
+document.addEventListener('click', (e) => { if (!SG.ouvert) return; const t = e.target.closest && e.target.closest('#s-garage [data-go], #atl-essai'); if (!t) return;
+  e.stopImmediatePropagation(); e.preventDefault();
+  if (t.id === 'atl-essai') { toast('Essai d\'un tour indisponible depuis le salon : il ferait quitter la partie.', 3500); return; }
+  if (sgModifie()) { SG.question = true; sgBarre(); } else { sgFermer(false, ''); show('online'); } }, true);
+// Interface du salon : état de chacun, règle visible par tous, garage, prêt / pas prêt, refus avec présélection permise.
+function sgRendre() {
+  let box = $('#sg-box'); const lob = $('#on-lobby'); if (!lob) return;
+  if (!box) { box = document.createElement('div'); box.id = 'sg-box'; box.className = 'col'; lob.insertBefore(box, $('#on-host-opts'));
+    sgStyle();
+    const pane = $('#on-host-opts .tabpane[data-p="race"]'); if (pane) { const o = document.createElement('div'); o.className = 'opt'; o.innerHTML = '<span>Karts personnalisés</span><div class="chips" id="on-kp"></div>'; pane.appendChild(o); } }
+  const me = sgMoi(), S = Net.settings; if (!me) { box.innerHTML = ''; return; }
+  if (Net.host) chipsSel($('#on-kp'), [[true, 'Autorisés'], [false, 'Non autorisés']], S.kp !== false, (v) => sgRegle(v));
+  const regle = '<p class="hint sg-regle">Karts personnalisés : <b>' + (S.kp === false ? 'non autorisés' : 'autorisés') + '</b> — personnalisé = une pièce de conduite de l\'atelier hors série (aujourd\'hui : Moteur &amp; suspension autre que Standard). Carrosserie, roues, planeur du jeu et toute l\'apparence restent libres.</p>';
+  if (!Net.host && !Net.sg) { box.innerHTML = regle.replace(/Karts personnalisés : <b>[^<]*<\/b>/, 'Karts personnalisés : <b>règle inconnue</b>') + '<p class="hint">Hôte d\'une ancienne version : garage du salon et état prêt indisponibles.</p>'; return; }
+  const etat = sgEtat(me), ref = Net.host ? sgRefus(me) : me.ref || '';
+  let h = regle + '<div class="row"><button class="btn blue sm" id="sg-garage"><span>🔧 Garage</span></button>';
+  if (!Net.host) h += etat === 'pret' ? '<button class="btn ghost sm" id="sg-pret"><span>Je ne suis plus prêt</span></button>' : '<button class="btn red sm" id="sg-pret"' + (ref ? ' disabled' : '') + '><span>Je suis prêt</span></button>';
+  h += '</div>';
+  if (Net.horsCourse) h += '<p class="hint sg-hors"><b>Course en cours sans toi</b> : tu restes dans le salon. Règle ton kart et mets-toi prêt : tu participeras à la prochaine course.</p>';
+  if (Net.host) { const L = sgListeSans();
+    if (L.exclus.length && L.pari) h += '<p class="hint">Pari Pilote : tout le monde doit être prêt (paris et manches pour tout le groupe).</p>';
+    else if (L.ok && !SG.sansVoir) h += '<div class="row"><button class="btn ghost sm" id="sg-sans"><span>Lancer sans ' + (L.exclus.length > 1 ? 'eux' : sgEsc(L.exclus[0].p.name)) + '…</span></button></div>';
+    else if (L.ok) { const change = !!SG.sansCle && SG.sansCle !== L.cle; if (!SG.sansCle) SG.sansCle = L.cle;
+      h += '<div class="sg-refus sg-conf" id="sg-conf"><b>' + (change ? '⚠ La liste a changé : vérifie-la' : 'Lancer sans attendre ?') + '</b><br>Participeront : ' + L.part.map((p) => sgEsc(p.name)).join(', ') + (Net.settings.bots ? ' (+ bots)' : '') +
+      '.<br>Restent au salon pour cette course : ' + L.exclus.map((x) => sgEsc(x.p.name) + ' (' + x.raison + ')').join(', ') + '. Leur montage et leur place sont conservés ; ils joueront la suivante s\'ils sont prêts.' +
+      '<div class="row"><button class="btn red sm" id="sg-sans-ok" data-cle="' + sgEsc(L.cle) + '"' + (change ? ' data-revoir="1"><span>J\'ai vu la nouvelle liste' : '><span>Confirmer le départ') + '</span></button><button class="btn ghost sm" id="sg-sans-non"><span>Attendre</span></button></div></div>'; }
+    else if (SG.sansVoir) { SG.sansVoir = false; SG.sansCle = ''; } }
+  if (ref) h += '<div class="sg-refus"><b>Montage refusé</b> : ' + sgEsc(SG_RAISONS[ref] || ref) + '. Ton montage reste équipé et enregistré.' + (ref === 'regle' ? '<div class="row"><button class="btn red sm" id="sg-serie"><span>Courir avec le kart de série équivalent</span></button></div>' : '') + '</div>';
+  box.innerHTML = h;
+  $('#sg-garage').onclick = () => { AudioSys.sfx('click'); sgOuvrirGarage(); };
+  const bp = $('#sg-pret'); if (bp) bp.onclick = () => { AudioSys.sfx('click'); sgEnvoyer({ t: 'pret', v: etat !== 'pret' }); };
+  const bs = $('#sg-serie'); if (bs) bs.onclick = () => { AudioSys.sfx('click'); sgSerie(); };
+  { const e = $('#sg-sans'); if (e) e.onclick = () => { AudioSys.sfx('click'); SG.sansVoir = true; SG.sansCle = ''; renderOnline(); }; }
+  { const e = $('#sg-sans-non'); if (e) e.onclick = () => { AudioSys.sfx('click'); SG.sansVoir = false; SG.sansCle = ''; renderOnline(); }; }
+  // Confirmer = la liste AFFICHÉE (data-cle) doit être celle lue à l'ouverture ; si elle a changé, un premier clic ne fait que la valider.
+  { const e = $('#sg-sans-ok'); if (e) e.onclick = () => { AudioSys.sfx('click'); if (e.dataset.revoir) { SG.sansCle = e.dataset.cle; renderOnline(); return; } if (hostStart({ sans: e.dataset.cle })) SG.sansCle = ''; }; }
+}
+// Accès des bancs (tests/salon-garage*.cjs) ; game.js étant enveloppé, rien n'est autrement visible de l'extérieur.
+window.__TK_SG = { SG, sgListeSans, sgBarre, sgRendre, hostCupRace, sgOuvrirGarage, sgFermer, sgSerie, sgRegle, sgBloquants, kartPerso, kartSerie, sgCfgSalon, hostSalonMsg, goLobby, hostBroadcast, sgEtat, sgRefus };
 $('#on-copy').onclick = () => { const t = Net.code; try { navigator.clipboard.writeText(t).then(() => toast('Code copié : ' + t)).catch(() => toast('Code : ' + t)); } catch (e) { toast('Code : ' + t); } };
 
 
@@ -8428,6 +10725,35 @@ $('#we-reset').onclick = () => { SAVE.wheel = DEFAULT_WHEEL.slice(); store(); re
 $('#we-done').onclick = () => { AudioSys.sfx('click'); const back = UI.weBack || 'party'; if (back === 'wheel') { show('wheel'); requestAnimationFrame(wheelPrepare); } else if (back === 'mini' && Net.host) { show('online'); renderOnline(); } else show(back); };
 
 /* ================= Mini-jeux de soirée en ligne ================= */
+/* ================= Questions de soirée triées (3 novembre) =================
+   Critère : chaque carte doit faire raconter une vraie histoire, lancer un débat ou provoquer un fou rire collectif ; pas de question
+   à réponse d'un mot ni de remplissage. Elles alimentent les cartes ET les votes en ligne (« Qui ici… », « Tu préfères », « Qui ici a déjà… »). */
+QUIZ.soft.items.push(...Q_('q', ['{p}, quelle est la chose la plus folle que tu aies faite pour quelqu\'un ?', '{p}, quel conseil donnerais-tu à toi-même à 15 ans ?',
+  '{p}, quelle opinion impopulaire es-tu prêt à défendre devant tout le monde ici ?', '{p}, quel compliment ne t\'a jamais quitté depuis qu\'on te l\'a fait ?',
+  '{p}, si tu devais tout changer dans ta vie demain, tu ferais quoi ?', '{p}, raconte le plus gros malentendu de ta vie.', '{p}, à quel moment as-tu été le plus fier de toi ?',
+  '{p}, sur quoi les gens se trompent-ils toujours à ton sujet ?', '{p}, quel sujet déclenche une dispute à chaque repas de famille chez toi ?', '{p}, quel mauvais conseil as-tu suivi quand même ?',
+  '{p}, quelle compétence totalement inutile maîtrises-tu parfaitement ?', '{p}, raconte la fois où tu as eu le plus de chance.', '{p}, qui ici as-tu mal jugé au premier regard, et pourquoi ?',
+  '{p}, quel fou rire as-tu eu au pire moment possible ?', '{p}, si tu pouvais maîtriser un métier en une nuit, lequel ?',
+  '{p}, quelle phrase de tes parents tu te surprends à répéter ?', '{p}, quelle est la plus belle chose qu\'un inconnu ait faite pour toi ?']),
+  ...Q_('v', ['Qui ici a le plus de secrets ?', 'Qui ici prendrait la tête du groupe en cas d\'apocalypse ?', 'Qui ici a le plus changé depuis qu\'on se connaît ?',
+  'Qui ici ferait le discours de mariage le plus émouvant ?', 'Qui ici a le meilleur instinct pour juger les gens ?', 'Qui ici écrira un livre un jour ?', 'Qui ici sera encore en soirée à 70 ans ?',
+  'Qui ici est l\'ami le plus fidèle ?', 'Qui ici gère le mieux une crise ?', 'Qui ici pourrait convaincre n\'importe qui de n\'importe quoi ?']));
+QUIZ.fun.items.push(...Q_('d', ['{p}, fais deviner un film à {p2} uniquement avec des bruitages.', '{p}, improvise le discours de mariage de {p2} en 30 secondes.',
+  '{p}, présente {p2} comme dans une émission de rencontres.', '{p}, réponds à tout par une question jusqu\'à ton prochain tour.', '{p}, présente la météo de la soirée comme à la télé.',
+  '{p}, vends ton téléphone à {p2} façon télé-achat.', '{p}, raconte comment {p2} et toi vous êtes rencontrés, version film d\'action.', '{p}, trouve trois points communs avec {p2} en 20 secondes.',
+  '{p}, fais la critique gastronomique de la dernière chose que tu as mangée.', '{p}, dis une anecdote vraie ou fausse sur toi ; le groupe vote pour deviner.']),
+  ...Q_('v', ['Qui ici serait le pire témoin de mariage ?',
+'Qui ici aurait le meilleur plan pour un casse ?', 'Qui ici se ferait démasquer en premier pendant un casse ?',
+  'Qui ici deviendrait célèbre par accident ?', 'Qui ici craquerait en premier lors d\'une semaine sans téléphone ?', 'Qui ici rirait pendant une minute de silence ?',
+  'Qui ici serait le meilleur dans un escape game ?', 'Qui ici partirait faire le tour du monde sans prévenir ?', 'Qui ici a toujours une excuse pour tout ?']));
+QUIZ.jamais.items.push(...QN(['relu une conversation entière pour décoder un seul message', 'menti en disant avoir vu un film culte', 'changé de trottoir pour éviter de dire bonjour', 'raconté une anecdote qui était arrivée à quelqu\'un d\'autre',
+  'oublié le prénom de quelqu\'un en pleine conversation', 'chanté une chanson entière avec les mauvaises paroles', 'répondu à un message des semaines plus tard comme si de rien n\'était',
+  'dit « j\'arrive dans cinq minutes » en étant encore sous la douche', 'gardé un cadeau affreux « au cas où la personne viendrait »', 'lu la dernière page d\'un livre avant de le commencer']));
+QUIZ.prefere.items.push(...QP([['connaître la date de ta mort', 'connaître sa cause'], ['revenir 10 secondes en arrière quand tu veux', 'voir 10 secondes dans le futur'],
+  ['que tes pensées s\'affichent une heure par jour', 'que ton historique de recherche soit public'], ['parler à toi-même il y a 10 ans', 'à toi-même dans 10 ans'],
+  ['être le meilleur d\'une équipe nulle', 'le plus nul d\'une équipe de champions'], ['1 million d\'euros aujourd\'hui', '4 000 euros par mois à vie'],
+  ['que tes parents lisent tous tes messages', 'que ton patron les lise'], ['un week-end parfait que tu oublies ensuite', 'un week-end moyen dont tu te souviens toute ta vie'], ['trouver l\'amour à 20 ans et le perdre à 30', 'le trouver à 40 ans pour toujours'],
+  ['savoir quand quelqu\'un te ment', 'pouvoir mentir sans jamais être démasqué'], ['revivre ta meilleure journée en boucle', 'vivre une journée inconnue chaque jour']]));
 const MINI = { cur: null, votes: new Map(), res: new Map(), timer: null, greenAt: 0, sent: false, wheel: { ang: 0 }, wturn: 0 };
 const THEMES = [['random', 'Aléatoire'], ['soft', 'Soft'], ['fun', 'Fun'], ['hot', 'Hot 18+'], ['jamais', 'Je n\'ai jamais'], ['prefere', 'Tu préfères']];
 function miniSips() { return Math.max(1, Math.ceil(2 * (Net.settings.dose || 1))); }
@@ -8483,6 +10809,7 @@ function cupCard(p, others, kinds) {
 function cupStandings() { const C = Net.cup; return Object.keys(C.scores).map((id) => ({ id, name: C.names[id], total: C.scores[id] })).sort((a, b) => b.total - a.total); }
 function hostCupStart() {
   if (!Net.host || Net.inRace) return;
+  { const bl = sgBloquants(); if (bl.length) { toast('Pari Pilote impossible : ' + bl.join(', ') + '.', 4500); renderOnline(); return false; } }   // #34.G17 : sinon le pari fermerait un garage ouvert et la manche attendrait un joueur qui ne peut plus se remettre prêt
   Net.cup = { round: 0, total: Net.settings.rounds || 3, scores: {}, names: {}, bets: new Map(), betsDone: {}, racing: false };
   for (const p of present()) { Net.cup.scores[p.id] = 0; Net.cup.names[p.id] = p.name; }
   hostCupBet();
@@ -8497,6 +10824,7 @@ function hostCupBet() {
 }
 function hostCupRace() {
   const C = Net.cup; if (!Net.host || !C || C.racing) return; clearTimeout(MINI.timer);
+  { const bl = sgBloquants(); if (bl.length) { toast('Manche en attente : ' + bl.join(', ') + '.', 2800); MINI.timer = setTimeout(hostCupRace, 3000); return; } }   // #34.G17 : personne au garage au départ
   C.betsDone = Object.fromEntries(C.bets); C.racing = true; MINI.cur = null; hostStart();
 }
 function hostCupVerdict() {
@@ -8659,6 +10987,8 @@ function onMini(m) {
 /* ================= Menus ================= */
 const SCREENS = ['chef', 'friends', 'title', 'tracks', 'garage', 'settings', 'calib', 'pause', 'results', 'install', 'party', 'turn', 'card', 'online', 'mini', 'wheel', 'wedit'];
 function show(id) {
+  if (id === 'garage' && Net.inRace) { toast('Pas de garage pendant une course en ligne : ton montage est figé jusqu\'à la fin.', 3200); return; }   // #34.G17 : verrou (appels internes compris)
+  if (UI.screen === 'garage' && id !== 'garage' && SG.ouvert) sgFermer(false, 'Garage du salon fermé sans confirmation : ancien montage conservé.');   // toute autre sortie = annulation
   for (const s of SCREENS) { const el = $('#s-' + s); if (el) el.hidden = s !== id; }
   const prev = UI.screen; UI.screen = id;
   if (id === 'garage') enterGarage(); else if (prev === 'garage') leaveGarage();
@@ -8687,7 +11017,17 @@ function goFullscreen() {
   if (!req) return; try { const p = req.call(el, { navigationUI: 'hide' }); if (p && p.then) p.then(() => { if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {}); }).catch(() => {}); } catch (e) { /* refusé */ }
 }
 function isStandalone() { return matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches || navigator.standalone === true; }
-function toMenu() { if (Net.peer) netReset(); UI.quiz = null; UI.party = null; UI.mode = 'quick'; G.race = null; G.paused = false; showHud(false); AudioSys.engine(0, false); AudioSys.stopMusic(); UI.gp = null; show('title'); }
+// Wild Kart Studio : chargé seulement à la première ouverture (aucun coût au démarrage du jeu).
+// Même version (?v=) que game.js : après une mise à jour, le cache hors ligne ne peut pas servir un ancien Studio.
+function studioSrc(f) { const sc = [...document.scripts].find((e) => /(^|\/)game\.js(\?|$)/.test(e.getAttribute('src') || '')), q = sc ? (sc.getAttribute('src').split('?')[1] || '') : ''; return f + (q ? '?' + q : ''); }
+function openStudio() {
+  if (window.WKStudio) { window.WKStudio.open(); return; }
+  const load = (src) => new Promise((ok, ko) => { const sc = document.createElement('script'); sc.src = src; sc.onload = ok; sc.onerror = () => ko(new Error(src)); document.head.appendChild(sc); });
+  toast('Ouverture du Studio…', 1500);
+  load(studioSrc('studio-core.js')).then(() => load(studioSrc('studio3d.js')).catch(() => null)).then(() => load(studioSrc('studio.js'))).then(() => window.WKStudio.open()).catch(() => toast('Le Studio n\'a pas pu se charger (connexion ?).'));
+}
+function toMenu() { { const E = window.WK_ESSAI; if (E) { window.WK_ESSAI = null; const P = G.race && G.race.player; E.tour = P && isFinite(P.bestLap) && P.bestLap > 0 ? P.bestLap : null; E.fini = !!(P && P.finished); E.cfgCourse = P && P.cfg ? { body: P.cfg.body, wheels: P.cfg.wheels, glider: P.cfg.glider } : null; window.WK_ESSAI_FIN = E; } }   // #34.G2 : fin d'essai de l'atelier
+  resetPerf(); if (Net.peer) netReset(); UI.quiz = null; UI.party = null; UI.mode = 'quick'; G.race = null; G.paused = false; showHud(false); AudioSys.engine(0, false); AudioSys.stopMusic(); UI.gp = null; show('title'); const back = UI.afterMenu; UI.afterMenu = null; if (back) back(); }
 
 function drawTrackThumb(c, def) {
   const S = buildSamples(def), x = c.getContext('2d'), w = c.width, h = c.height;
@@ -8724,7 +11064,7 @@ function begin() {
     go();
   });
 }
-function launch() { if (UI.mode === 'daily') { dailyPlay(); return; } if (UI.mode === 'party' && UI.party) { const P = UI.party; startRace(P.roundTrack, SAVE.cc, P.players[P.turn]); return; } const ti = UI.mode === 'gp' && UI.gp ? UI.gp.i % TRACKS.length : UI.track; startRace(ti, UI.mode === 'gp' && UI.gp ? UI.gp.cc : SAVE.cc); if (UI.mode === 'quick' && SAVE.soloBomb) soloBomb(); }
+function launch() { if (UI.mode === 'daily') { dailyPlay(); return; } if (UI.mode === 'party' && UI.party) { const P = UI.party; startRace(P.roundTrack, SAVE.cc, P.players[P.turn]); return; } const ti = UI.mode === 'gp' && UI.gp ? (UI.gp.list ? UI.gp.list[UI.gp.i % UI.gp.list.length] : UI.gp.i % nOff()) : UI.track; return launchPrepared(ti, UI.mode === 'gp' && UI.gp ? UI.gp.cc : SAVE.cc).then(() => { if (UI.mode === 'quick' && SAVE.soloBomb && G.race) soloBomb(); }); }
 function soloBomb() { const R = G.race; if (!R || R.online) return; R.bombMode = true; R.bombType = 'sips'; G.netKarts = new Map(); G.karts.forEach((k, i) => { k.netId = k.isPlayer ? 'moi' : 'bot' + i; G.netKarts.set(k.netId, k); }); }
 $('#b-start').onclick = begin;
 
@@ -8732,6 +11072,7 @@ document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-go]'); if (!b) return; AudioSys.init(); AudioSys.sfx('click'); trapBack(); const go = b.dataset.go;
   if (go === 'quick' || go === 'gp' || go === 'practice') { UI.mode = go === 'gp' ? 'gp' : 'quick'; show('tracks'); }
   else if (go === 'daily') dailyOpen();
+  else if (go === 'studio') openStudio();
   else if (go === 'prog') progOpen();
   else if (go === 'rejoin') { show('online'); if (SAVE.lastCode) { $('#on-code').value = SAVE.lastCode; netJoin(SAVE.lastCode); } }
   else if (go === 'chef') { if (!isChef()) return; if (UI.screen !== 'chef') CHU.back = UI.screen; show('chef'); }
@@ -8744,8 +11085,35 @@ document.addEventListener('click', (e) => {
 });
 
 /* garage */
-const GS = { scene: null, kart: null, rot: 0 };
+const GS = { scene: null, kart: null, rot: 0, vit: 0, glisse: null, touche: 0 };
+const GARAGE_K = { spin: 0, boost: 0, finished: false, place: 0, drift: 0, air: false };   // kart à l'arrêt pour poser le pilote au garage
+/* #36 finition du garage (7 nov., retour « trop brut ») : studio de présentation — fond en dégradé, flaque de lumière et ombre de contact
+   au sol, plateau tournant biseauté à liseré encastré et lampes, éclairage trois points. Coût : ~10 maillages, trois textures 256 px.
+   WK_GARAGE_AVANT = ancien rendu (témoin). */
+function texDegrade(stops, radial) { const c = document.createElement('canvas'); c.width = c.height = 256; const x = c.getContext('2d');
+  const g = radial ? x.createRadialGradient(128, 128, 0, 128, 128, 128) : x.createLinearGradient(0, 0, 0, 256); for (const [o, col] of stops) g.addColorStop(o, col); x.fillStyle = g; x.fillRect(0, 0, 256, 256);
+  const t = new T.CanvasTexture(c); t.colorSpace = T.SRGBColorSpace; return t; }
+function buildGarageStudio(s) {
+  s.background = texDegrade([[0, '#6a5fd6'], [.45, '#3a3184'], [1, '#141033']]);
+  s.add(new T.HemisphereLight('#f4f0ff', '#2a2560', 1.1));
+  const cle = new T.DirectionalLight('#fff1dc', 2.8); cle.position.set(5, 9, 6); s.add(cle);           /* principale, chaude */
+  const rem = new T.DirectionalLight('#b9c7ff', .9); rem.position.set(-7, 4, 4); s.add(rem);              /* remplissage, froide */
+  const cj = new T.DirectionalLight('#9a7bff', 2.2); cj.position.set(-3, 5, -8); s.add(cj);                /* contre-jour : détache la silhouette */
+  const sol = new T.Mesh(new T.CircleGeometry(40, 48), new T.MeshStandardMaterial({ map: texDegrade([[0, '#4a42a0'], [.18, '#2c2668'], [.55, '#1a1642'], [1, '#100d2a']], true), roughness: .95 }));
+  sol.rotation.x = -Math.PI / 2; sol.position.y = -.36; s.add(sol);
+  /* plateau tournant : profil biseauté (tour), dessus légèrement bombé, liseré lumineux encastré, lampes sur le pourtour */
+  const prof = [[0, -.36], [3.95, -.36], [4.05, -.28], [3.92, -.06], [3.75, .0], [0, .02]].map(([x, y]) => new T.Vector2(x, y));
+  const plateau = new T.Mesh(new T.LatheGeometry(prof, 72), new T.MeshStandardMaterial({ color: '#1d1946', roughness: .35, metalness: .3 })); s.add(plateau);
+  const liseret = new T.Mesh(new T.TorusGeometry(3.62, .06, 8, 96), new T.MeshStandardMaterial({ color: '#ffc531', emissive: '#ffb000', emissiveIntensity: 1.2, roughness: .3 })); liseret.rotation.x = Math.PI / 2; liseret.position.y = .04; s.add(liseret);
+  const lampe = new T.InstancedMesh(new T.SphereGeometry(.06, 10, 8), new T.MeshBasicMaterial({ color: '#fff0c0' }), 24), m = new T.Matrix4();
+  for (let i = 0; i < 24; i++) { const a = i / 24 * TAU; m.makeTranslation(Math.cos(a) * 3.99, -.17, Math.sin(a) * 3.99); lampe.setMatrixAt(i, m); } s.add(lampe);
+  /* ombre de contact douce sous le kart (ancrage au sol, indépendante des ombres portées) */
+  const ombre = new T.Mesh(new T.PlaneGeometry(5.2, 6.4), new T.MeshBasicMaterial({ map: texDegrade([[0, 'rgba(0,0,0,.55)'], [.55, 'rgba(0,0,0,.25)'], [1, 'rgba(0,0,0,0)']], true), transparent: true, depthWrite: false }));
+  ombre.rotation.x = -Math.PI / 2; ombre.position.y = .03; s.add(ombre); GS.ombre = ombre;
+  GS.env = makeEnv('#6a5fd6', '#2a2560', '#17143a', 3.2); s.environment = GS.env.texture;
+}
 function buildGarageScene() {
+  if (!(typeof window !== 'undefined' && window.WK_GARAGE_AVANT)) { const s = new T.Scene(); buildGarageStudio(s); GS.scene = s; return; }
   const s = new T.Scene(); s.background = new T.Color('#2a2560');
   s.add(new T.HemisphereLight('#ffffff', '#2a2560', 1.6)); const d = new T.DirectionalLight('#fff3e0', 2.6); d.position.set(5, 8, 6); s.add(d);
   const r = new T.DirectionalLight('#7c4dff', 1.6); r.position.set(-6, 3, -5); s.add(r);
@@ -8765,12 +11133,12 @@ function swatchGroup(el, key, list) {
   el.innerHTML = ''; for (const c of list) { const b = document.createElement('button'); b.type = 'button'; b.style.background = c; b.setAttribute('aria-label', 'Couleur ' + c); b.setAttribute('aria-pressed', String(SAVE[key] === c));
     b.onclick = () => { AudioSys.sfx('click'); SAVE[key] = c; store(); swatchGroup(el, key, list); refreshGarageKart(); }; el.appendChild(b); }
 }
-function leaveGarage() { if (G.race && G.race.state === 'attract') startAttract(G.W.ti); }
+function leaveGarage() { if (G.race && G.race.state === 'attract') attractAsync(G.W.ti); }
 { const gp = $('#g-pseudo'); if (gp && gp.closest('.g-row')) gp.closest('.g-row').hidden = true; }   // le nom = le pseudo du compte (Réglages > Compte)
 
 /* réglages */
 $$('#set-ctrl button').forEach((b) => (b.onclick = () => { AudioSys.sfx('click'); SAVE.control = b.dataset.v; store(); syncSettings(); if (SAVE.control === 'tilt' && isTouch) ensureMotion().then((ok) => { if (!ok) toast('Capteur non autorisé. Sur iPhone, ouvre le jeu dans Safari en https.'); }); }));
-$$('#set-q button').forEach((b) => (b.onclick = () => { AudioSys.sfx('click'); SAVE.quality = b.dataset.v; store(); syncSettings(); applyQuality(); toast({ high: 'Haut : ombres et décor complet, à la prochaine course.', medium: 'Moyen : bon compromis, à la prochaine course.', low: 'Bas : le plus fluide, à la prochaine course.' }[SAVE.quality]); }));
+$$('#set-q button').forEach((b) => (b.onclick = () => { AudioSys.sfx('click'); QAUTO.choix = null; SAVE.quality = b.dataset.v; store(); syncSettings(); applyQuality(); toast({ high: 'Haut : ombres et décor complet, à la prochaine course.', medium: 'Moyen : bon compromis, à la prochaine course.', low: 'Bas : le plus fluide, à la prochaine course.' }[SAVE.quality]); }));
 $('#set-enhanced').onclick = () => { SAVE.enhancedGraphics = !enhancedGraphics(); store(); syncSettings(); if (Graphics && G.W) Graphics.applyMode(G.W, enhancedGraphics(), renderer); AudioSys.sfx('click'); };
 $('#set-sens').oninput = (e) => { SAVE.sens = +e.target.value; store(); $('#set-sens-o').textContent = SAVE.sens.toFixed(1); };
 for (const [id, key] of [['#set-inv', 'invert'], ['#set-snd', 'sound'], ['#set-mus', 'music'], ['#set-perf', 'showPerf']]) $(id).onclick = () => { SAVE[key] = !SAVE[key]; store(); syncSettings(); AudioSys.init(); AudioSys.setVolumes(); AudioSys.sfx('click'); };
@@ -8833,7 +11201,7 @@ window.addEventListener('popstate', () => {
 if (!SAVE.v7) { if (isTouch) SAVE.control = 'stick'; SAVE.assist = true; SAVE.fps = 60; SAVE.glider = SAVE.glider || 'classique'; SAVE.hintsN = 0; SAVE.v7 = 1; store(); }
 if (SAVE.fps !== 30 && SAVE.fps !== 60) SAVE.fps = 60;
 const CUPS = [['Coupe Apéro', ['piquenique', 'coupsoleil', 'pinacolada', 'sieste']], ['Coupe Pousse-Café', ['soldes', 'neonafter', 'safaribouchon', 'barbapapa']], ['Coupe Grand Frisson', ['glissade', 'tchintchin', 'grandsaut', 'gravitezero']], ['Coupe Gueule de Bois', ['barbecue', 'flipper', 'bellemere', 'ruban']], ['Coupe After (XXL)', ['tonton', 'trainfou', 'croisiere', 'festival', 'cameleon']], ['Coupe Remix', ['plongeon', 'tirebouchon', 'cascade', 'deuxroutes']]];
-function cupOrder() { const out = []; for (const [name, ids] of CUPS) { const list = ids.map((id) => TRACKS.findIndex((t) => t.id === id)).filter((i) => i >= 0); out.push([name, list]); } const seen = new Set(out.flatMap((c) => c[1])); const rest = TRACKS.map((t, i) => i).filter((i) => !seen.has(i)); if (rest.length) out.push(['Autres', rest]); return out; }
+function cupOrder() { const out = []; for (const [name, ids] of CUPS) { const list = ids.map((id) => TRACKS.findIndex((t) => t.id === id)).filter((i) => i >= 0); out.push([name, list]); } const seen = new Set(out.flatMap((c) => c[1])); const rest = TRACKS.map((t, i) => i).filter((i) => !seen.has(i) && !TRACKS[i].prototype), proto = TRACKS.map((t, i) => i).filter((i) => TRACKS[i].prototype); if (rest.length) out.push(['Autres', rest]); if (proto.length) out.push(['PROTOTYPES — À ESSAYER (non validés)', proto]); return out; }
 // onglets génériques
 function wireTabs(box) {
   const btns = Array.from(box.querySelectorAll('button[data-t]')); const panes = Array.from(box.parentElement.querySelectorAll(':scope > .tabpane'));
@@ -8863,30 +11231,42 @@ function buildTrackCards() {
     const h = document.createElement('div'); h.className = 'cup'; h.textContent = name; wrap.appendChild(h);
     for (const i of list) { const def = TRACKS[i];
       const b = document.createElement('button'); b.className = 'card panel' + (i === UI.track ? ' sel' : ''); b.type = 'button'; const rec = SAVE.records[def.id] || {};
-      b.innerHTML = '<canvas></canvas><h3></h3><p></p><div class="meta"><span class="lvl"></span><span class="rec"></span></div>';
+      b.innerHTML = '<div class="thumb"><canvas></canvas></div><h3></h3><p></p><div class="meta"><span class="lvl"></span><span class="rec"></span></div>'; b.dataset.ti = i;
+      // Aperçu du circuit (C2-8) : image légère pré-rendue (scripts/apercus.cjs), chargée quand la carte devient visible ; le plan 2D
+      // passe en incrustation. Rien n'est construit au toucher. Sans image (circuit du Studio, hors ligne) : plan 2D seul, comme avant.
+      if (!def.studio) { const th = b.querySelector('.thumb'), im = new Image(); im.className = 'apercu'; im.alt = ''; im.decoding = 'async';
+        im.onload = () => th.classList.add('photo'); im.onerror = () => im.remove(); im.src = def.apercuSrc || 'assets/apercus/' + def.id + '.webp'; th.prepend(im); }
       b.querySelector('h3').textContent = def.name; b.querySelector('p').textContent = def.desc;
       b.querySelector('.lvl').innerHTML = [1, 2, 3].map((n) => '<i class="' + (n <= def.level ? 'on' : '') + '"></i>').join('');
       b.querySelector('.rec').textContent = rec.lap ? 'Record ' + fmtTime(rec.lap) : '';
       thumbInto(b.querySelector('canvas'), i);
-      b.onclick = () => { AudioSys.sfx('click'); UI.track = i; SAVE.track = i; store(); $$('#track-cards .card').forEach((c) => c.classList.remove('sel')); b.classList.add('sel'); if (G.race && G.race.state === 'attract' && G.W.ti !== i) startAttract(i); };
+      // Toucher une carte : sélection seulement (ticket #27, demande du propriétaire). Le décor 3D du menu n'est plus reconstruit à
+      // chaque toucher : l'aperçu pré-rendu de la carte suffit ; le circuit n'est construit qu'au bouton « Démarrer ».
+      b.onclick = () => { AudioSys.sfx('click'); UI.track = i; SAVE.track = i; store(); $$('#track-cards .card').forEach((c) => c.classList.remove('sel')); b.classList.add('sel'); };
       wrap.appendChild(b); }
   }
   syncCC();
 }
+// Aperçus des circuits (26 images, ~380 Ko) préchargés une fois, au repos, après l'arrivée au menu : l'écran Entraînement les
+// affiche aussitôt (et le service worker les garde pour le hors-ligne). Rien n'est construit en 3D.
+let APERCUS_OK = false;
+function prechargerApercus() { if (APERCUS_OK) return; APERCUS_OK = true; const go = () => { for (const def of TRACKS) if (!def.studio) { const im = new Image(); im.decoding = 'async'; im.src = def.apercuSrc || 'assets/apercus/' + def.id + '.webp'; } };
+  setTimeout(() => (window.requestIdleCallback ? requestIdleCallback(go, { timeout: 4000 }) : go()), 2500); }
 function refreshTitle() {
+  prechargerApercus();
   { const rb = $('#b-rejoin'); if (rb) { const ok = BUILD === 'pwa' && SAVE.lastCode && Date.now() - (SAVE.lastCodeAt || 0) < 3 * 3600e3; rb.hidden = !ok; if (ok) rb.textContent = 'Revenir dans la partie ' + SAVE.lastCode; } }
   const chip = $('#ctrl-chip'); const c = SAVE.control;
   chip.classList.toggle('warn', c === 'tilt' && Input.listening && !Input.tiltSeen && isTouch);
   chip.querySelector('span').textContent = !isTouch ? 'Commandes : clavier' : 'Commandes : ' + ({ stick: 'joystick', tilt: 'inclinaison', touch: 'boutons' }[c] || 'joystick');
   $('#b-install').hidden = isStandalone();
-  if (!G.race || G.race.state !== 'attract') startAttract(UI.track);
+  if ((!G.race || G.race.state !== 'attract') && !(ATTRACT_P && ATTRACT_TI === UI.track)) { if (G.W) attractAsync(UI.track); else startAttract(UI.track); }
   AudioSys.stopMusic();
 }
 /* ---- réglages ---- */
 function syncSettings() {
   $('#set-enhanced').setAttribute('aria-pressed', String(enhancedGraphics()));
   $$('#set-ctrl button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === SAVE.control)));
-  $$('#set-q button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === SAVE.quality)));
+  $$('#set-q button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === (QAUTO.choix || SAVE.quality))));
   $$('#set-fps button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === SAVE.fps)));
   $('#set-sens').value = SAVE.sens; $('#set-sens-o').textContent = (+SAVE.sens).toFixed(1);
   $('#set-inv').setAttribute('aria-pressed', String(!!SAVE.invert)); $('#set-snd').setAttribute('aria-pressed', String(!!SAVE.sound)); $('#set-mus').setAttribute('aria-pressed', String(!!SAVE.music)); $('#set-perf').setAttribute('aria-pressed', String(!!SAVE.showPerf)); try { syncVol(); } catch (e) { /* rien */ }
@@ -8909,25 +11289,53 @@ $('#p-settings').onclick = () => { AudioSys.sfx('click'); UI.settingsBack = 'pau
 function refreshGarageKart() {
   if (!GS.scene) buildGarageScene();
   if (GS.kart) { GS.scene.remove(GS.kart.g); GS.kart.g.traverse((o) => { if (o.geometry && !o.geometry.userData.keep) o.geometry.dispose(); }); }
-  GS.kart = kartMesh(myCfg()); GS.kart.shadow = null; GS.scene.add(GS.kart.g); GS.fake = { air: GS.showGlider ? 'glide' : false, glOpen: 0, vy: 0, x: 0, h: 0, vh: 0 };
+  GS.kart = kartMesh(window.WK_APERCU ? Object.assign(myCfgEquipe(), window.WK_APERCU) : myCfg()); GS.kart.shadow = null; if (GS.kart.rig && !window.WK_GARAGE_SANS_POSE) heroAnimate(GS.kart.rig, GARAGE_K, 0, 1, performance.now() / 1000);   /* posé dès la création (pas d'attente de l'image suivante) */ /* WK_APERCU : brouillon de l'atelier (#34.G2) */ GS.scene.add(GS.kart.g); GS.fake = { air: GS.showGlider ? 'glide' : false, glOpen: 0, vy: 0, x: 0, h: 0, vh: 0 };
   $('#g-name').textContent = SAVE.name || 'Toi';
-  const st = statsFor(SAVE.body, SAVE.wheels, SAVE.glider); const box = $('#g-stats'); box.innerHTML = '';
+  const st = statsFor(SAVE.body, SAVE.wheels, SAVE.glider, SAVE.engine, myCfgEquipe()); const box = $('#g-stats'); box.innerHTML = '';
   [['Vitesse', st.speed], ['Accélération', st.accel], ['Maniabilité', st.handling], ['Poids', st.weight], ['Tout-terrain', st.off], ['Planeur', st.air]].forEach(([n, v]) => {
     const l = document.createElement('span'); l.textContent = n; const bar = document.createElement('div'); bar.className = 'bar'; const i = document.createElement('i'); i.style.width = Math.round(15 + v * 85) + '%'; bar.appendChild(i); box.append(l, bar);
   });
 }
-function enterGarage() { if (typeof progRender === 'function') progRender(); chipGroup($('#g-body'), BODIES, 'body'); chipGroup($('#g-wheels'), WHEELS, 'wheels'); chipGroup($('#g-glider'), GLIDERS, 'glider'); chipGroup($('#g-pilot'), PILOTS, 'pilot'); chipGroup($('#g-acc'), ACCS, 'acc'); chipGroup($('#g-finish'), FINISHES, 'finish'); chipGroup($('#g-deco'), DECOS, 'deco'); chipGroup($('#g-trail'), TRAILS, 'trail'); swatchGroup($('#g-color'), 'color'); swatchGroup($('#g-helmet'), 'helmet'); swatchGroup($('#g-skin'), 'skin', SKINS); $('#g-pseudo').value = SAVE.name; refreshGarageKart(); }
+function enterGarage() { garageRotation(); if (typeof progRender === 'function') progRender(); chipGroup($('#g-body'), BODIES, 'body'); chipGroup($('#g-wheels'), WHEELS, 'wheels'); chipGroup($('#g-glider'), GLIDERS, 'glider'); chipGroup($('#g-pilot'), PILOTS, 'pilot'); chipGroup($('#g-acc'), ACCS, 'acc'); chipGroup($('#g-finish'), FINISHES, 'finish'); chipGroup($('#g-deco'), DECOS, 'deco'); chipGroup($('#g-trail'), TRAILS, 'trail'); swatchGroup($('#g-color'), 'color'); swatchGroup($('#g-helmet'), 'helmet'); swatchGroup($('#g-skin'), 'skin', SKINS); $('#g-pseudo').value = SAVE.name; refreshGarageKart(); }
 $('#g-glide').onclick = () => { AudioSys.sfx('click'); GS.showGlider = !GS.showGlider; if (GS.fake) GS.fake.air = GS.showGlider ? 'glide' : false; $('#g-glide span').textContent = GS.showGlider ? 'Ranger le planeur' : 'Voir le planeur'; };
 $$('#g-tabs button').forEach((b) => b.addEventListener('click', () => { if (b.dataset.t === 'planeur' && !GS.showGlider) $('#g-glide').click(); }));
+/* #34.G12 (demande du 5 nov.) : tourner le kart au doigt ou à la souris en glissant sur la scène du garage. Lâché, il garde un
+   peu d'élan puis ralentit ; la rotation automatique reprend en douceur après 3 s sans geste. Les boutons et le panneau de réglages
+   (défilement vertical) ne sont pas concernés. */
+function garageRotation() {
+  const zone = document.querySelector('#s-garage .g-stage'); if (!zone || zone.dataset.rotation) return; zone.dataset.rotation = '1';
+  zone.style.touchAction = 'none'; zone.style.cursor = 'grab';
+  zone.addEventListener('pointerdown', (e) => { if (e.target.closest('button,input,a')) return; GS.glisse = { id: e.pointerId, x: e.clientX, t: performance.now() }; GS.vit = 0; GS.touche = performance.now(); zone.style.cursor = 'grabbing'; try { zone.setPointerCapture(e.pointerId); } catch (x) { /* rien */ } });
+  zone.addEventListener('pointermove', (e) => { const g = GS.glisse; if (!g || g.id !== e.pointerId) return; const now = performance.now(), dx = e.clientX - g.x, d = dx * .012;
+    GS.rot += d; GS.vit = d / Math.max(.008, (now - g.t) / 1000); g.x = e.clientX; g.t = now; GS.touche = now; });
+  const fin = (e) => { if (!GS.glisse || GS.glisse.id !== e.pointerId) return; GS.glisse = null; GS.touche = performance.now(); zone.style.cursor = 'grab'; };
+  zone.addEventListener('pointerup', fin); zone.addEventListener('pointercancel', fin);
+}
 function renderGarage(dt) {
-  GS.rot += dt * .6; GS.kart.g.rotation.y = GS.rot;
+  { const repos = (performance.now() - GS.touche) / 1000;
+    if (!GS.glisse) { GS.rot += GS.vit * dt; GS.vit *= Math.exp(-dt * 3.5); if (Math.abs(GS.vit) < .02) GS.vit = 0; }
+    if (!GS.glisse && repos > 3) GS.rot += dt * .6 * Math.min(1, (repos - 3) / 1.5); }   // reprise douce de la rotation automatique
+  GS.kart.g.rotation.y = GS.rot; if (GS.ombre) GS.ombre.rotation.z = GS.rot;   /* l'ombre de contact suit le kart */
   if (GS.fake) animateGlider(GS.fake, GS.kart, dt, performance.now() / 1000);
+  // Pose du pilote au garage (et dans l'atelier) : heroAnimate n'était appelé qu'en course, si bien qu'au garage les bras restaient
+  // non posés (segments à l'origine, mains à 1,22 m du volant, cachées dans le corps) — constaté le 6 nov., antérieur à la fusion #36.P1.
+  if (GS.kart.rig && !window.WK_GARAGE_SANS_POSE) heroAnimate(GS.kart.rig, GARAGE_K, 0, Math.min(dt, .1), performance.now() / 1000);   /* WK_GARAGE_SANS_POSE : témoin des bancs (ancien comportement) */
   const portrait = camera.aspect < 1;
   camera.fov = 40; camera.updateProjectionMatrix();
   const up = GS.showGlider ? 1 : 0;
-  if (portrait) { camera.position.set(0, 3.4 + up, 11 + up * 2); camera.lookAt(0, 1.7 + up * .6, 0); }
+  // #34.G1 — En portrait, le panneau couvre le bas de l'écran : le kart (centré sur l'axe de visée) était rendu DERRIÈRE lui.
+  // On recule la caméra selon la hauteur de la zone de scène visible (.g-stage) et on décale l'image pour que le point visé
+  // tombe au centre de cette zone ; le décalage est retiré après le rendu (la caméra de course reste intacte).
+  let dec = 0, zone = null;
+  if (portrait) { const st = GS.stageEl || (GS.stageEl = document.querySelector('#s-garage .g-stage')), H = renderer.domElement.clientHeight;
+    if (st && H > 0) { const r0 = st.getBoundingClientRect(); let bas = r0.bottom;
+      for (const el of [document.querySelector('#s-garage .g-panel'), document.getElementById('atl')]) if (el && !el.hidden) { const q = el.getBoundingClientRect(); if (q.height > 0 && q.top > r0.top + 40) bas = Math.min(bas, q.top); }   /* panneau affiché (choix rapide ou atelier #34.G2) */
+      const r = { top: r0.top, bottom: bas, height: bas - r0.top }; if (r.height > 40 && r.bottom < H * .8) zone = { r, H, W: renderer.domElement.clientWidth }; } }
+  if (portrait) { const pp = zone ? clamp(.55 * zone.H / zone.r.height, 1, 2.4) : 1; camera.position.set(0, (3.4 + up) * pp, (11 + up * 2) * pp); camera.lookAt(0, (zone ? 1.2 : 1.7) + up * .6, 0); }
   else { camera.position.set(2.8, 3.2 + up * 1.2, 9 + up * 2.4); camera.lookAt(3.1, 1.0 + up * .7, 0); }
+  if (zone) { dec = Math.round(zone.H / 2 - (zone.r.top + zone.r.height * .5)); camera.setViewOffset(zone.W, zone.H, 0, dec, zone.W, zone.H); }
   renderer.render(GS.scene, camera);
+  if (zone) camera.clearViewOffset();
 }
 /* ---- aide au démarrage (premières courses) ---- */
 function showHints() {
@@ -8946,26 +11354,40 @@ function fpsCap() { return SAVE.fps === 0 ? 0 : SAVE.fps === 30 ? 30 : 60; }
 let last = performance.now(), lastTick = last, acc = 0; const STEP = 1 / 60;
 // Interpolation d'affichage (« Fix Your Timestep ») : état avant le dernier pas, mélange pour le rendu, puis restauration.
 const KART_POSE = ['x', 'y', 'z', 'lat', 'groundY', 'airH'], KART_ANG = ['h', 'vh'];
-function snapKarts() { for (const k of G.karts || []) { const p = k._pv || (k._pv = {}); for (const f of KART_POSE) p[f] = k[f] || 0; for (const f of KART_ANG) p[f] = k[f] || 0; p.P = k.P; p.idx = k.idx; p.ok = true; } }
+function snapKarts() { for (const k of G.karts || []) { const p = k._pv || (k._pv = {}); for (const f of KART_POSE) p[f] = k[f] || 0; for (const f of KART_ANG) p[f] = k[f] || 0; p.P = k.P; p.idx = k.idx; p.along = k.along || 0; p.ok = true; } }
+// Objets de sauvegarde réutilisés (un par kart) et tableau réutilisé : aucune allocation par image.
+const BLEND_SAVED = [];
 function blendKarts(a) {
-  const saved = [];
+  const saved = BLEND_SAVED; saved.length = 0;
   for (const k of G.karts || []) { const p = k._pv; if (!p || !p.ok || p.P !== k.P || Math.abs(p.idx - k.idx) > 6 || (k.x - p.x) ** 2 + (k.z - p.z) ** 2 > 64) continue;
-    const s = { k }; for (const f of KART_POSE) { s[f] = k[f]; k[f] = lerp(p[f], k[f] || 0, a); } for (const f of KART_ANG) { s[f] = k[f]; k[f] = p[f] + angDiff(p[f], k[f]) * a; } saved.push(s); }
+    const s = k._sv || (k._sv = { k }); s.k = k; s.idx = null; s.along = null; // objet réutilisé (Claude 2), remis à zéro
+    for (const f of KART_POSE) { s[f] = k[f]; k[f] = lerp(p[f], k[f] || 0, a); } for (const f of KART_ANG) { s[f] = k[f]; k[f] = p[f] + angDiff(p[f], k[f]) * a; }
+    // Sections spéciales (loopings, vrilles, plafond) : le rendu place le kart et la caméra d'après la position le long de la route
+    // (idx + along), pas d'après x/z. Sans l'interpoler, à 120 Hz ou à cadence irrégulière, kart et caméra avançaient par à-coups
+    // d'un pas de physique (≈ 1 m logique, 2 à 3 m affichés dans un looping).
+    const P = k.P, seg = (P && P.seg) || 2, N = P && P.N; if (N) { const u0 = p.idx + (p.along || 0) / seg; let u1 = k.idx + (k.along || 0) / seg; if (P.closed !== false) { if (u1 - u0 > N / 2) u1 -= N; else if (u0 - u1 > N / 2) u1 += N; }
+      let u = u0 + (u1 - u0) * a; if (P.closed !== false) u = ((u % N) + N) % N; s.idx = k.idx; s.along = k.along; k.idx = Math.floor(u); k.along = (u - k.idx) * seg; }
+    saved.push(s); }
   return saved;
 }
-function restoreKarts(saved) { for (const s of saved) { for (const f of KART_POSE) s.k[f] = s[f]; for (const f of KART_ANG) s.k[f] = s[f]; } }
+function restoreKarts(saved) { for (const s of saved) { for (const f of KART_POSE) s.k[f] = s[f]; for (const f of KART_ANG) s.k[f] = s[f]; if (s.idx != null) { s.k.idx = s.idx; s.k.along = s.along; } } }
 function frame(now) {
   requestAnimationFrame(frame);
   const iv = fpsCap() ? 1000 / fpsCap() : 0, el = now - last; if (el < iv - 2.5) return;
   let dt = (now - lastTick) / 1000; lastTick = now; last = iv && el >= iv ? now - (el % iv) : now; RFR.n++; if (!(dt > 0)) dt = 0; dt = Math.min(dt, .1);
   if (UI.screen === 'calib') updateCalibUI();
   if (UI.screen === 'garage' && GS.kart) { renderGarage(dt); return; }
-  if (!G.W || !G.race) return;
+  if (!G.W || !G.race || G.prep) return;
+  if (window.WK_LOADER && window.WK_LOADER.couvre && window.WK_LOADER.couvre()) return; // animation de démarrage au premier plan
+  { const st = window.WKStudio && window.WKStudio.state; if (st && st.el && !st.el.hidden) return; } // Wild Kart Studio plein écran : la 3D cachée derrière n'est ni calculée ni dessinée (éditeur plus fluide au téléphone)
   const racing = !!G.race.player && G.race.state !== 'attract';
   // en menu derrière un écran plein (roulette, questions…), on rafraîchit la 3D moins souvent
-  const overlay = !racing && ['mini', 'card', 'wheel', 'wedit', 'party', 'online', 'settings', 'install', 'results'].includes(UI.screen);
+  // Choix du circuit (« tracks ») compris : le décor de démonstration reste visible entre les cartes, mais une image sur trois suffit
+  // (ticket #27 : navigation entre les cartes plus légère pour la carte graphique du téléphone).
+  const overlay = !racing && ['mini', 'card', 'wheel', 'wedit', 'party', 'online', 'settings', 'install', 'results', 'tracks'].includes(UI.screen);
   if (overlay && (frameN++ % 3)) return;
   if (REPLAY.on) { replayFrame(dt); renderer.render(G.W.scene, camera); return; }
+  const DG = window.WK_DIAG && window.WK_DIAG.image, tA = DG ? performance.now() : 0; // relevé ?diag=1 : logique et rendu de chaque image
   if (!G.paused) {
     const ts = G.testSpeed || 1; acc += dt * ts; let n = 0; while (acc >= STEP && n < 6 * ts) { snapKarts(); simStep(STEP); acc -= STEP; n++; } if (n === 6 * ts) acc = 0;
     // Affichage interpolé entre les deux derniers pas fixes (α = acc / STEP) : plus de saccades ni d'à-coups « en arrière »
@@ -8975,10 +11397,16 @@ function frame(now) {
     if (Net.inRace && G.race.online) { Net.sendT += dt; if (Net.sendT >= 1 / 15) { Net.sendT = 0; netSendStates(); } }
   }
   if (racing) adaptPerf(dt);
+  const tB = DG ? performance.now() : 0;
   renderer.render(G.W.scene, camera);
+  if (DG) DG(tB - tA, performance.now() - tB, renderer.info.render.calls, renderer.info.render.triangles, racing);
 }
 // résolution dynamique : baisse la définition si le téléphone rame, la remonte quand ça va mieux
 let frameN = 0; const PERF = { avg: 1 / 60, slowT: 0, fastT: 0, scale: 1, warned: false };
+// Affichage flou (C2-4) : la baisse automatique de définition ou de qualité ne vaut que pour la course en cours ; au retour au menu
+// et à chaque lancement, définition normale et qualité choisie par le joueur (avant : le menu et les courses suivantes restaient
+// à 60 % de la définition, ou en qualité basse, jusqu'à une course assez fluide pour remonter).
+function resetPerf() { if (QAUTO.choix) { SAVE.quality = QAUTO.choix; QAUTO.choix = null; } PERF.scale = 1; PERF.slowT = 0; PERF.fastT = 0; PERF.avg = 1 / 60; applyQuality(); }
 function adaptPerf(dt) {
   PERF.avg += (dt - PERF.avg) * .05; const base = Math.min(window.devicePixelRatio || 1, qual().pr);
   const cap = fpsCap() || 60; if (PERF.avg > 1.33 / cap) { PERF.slowT += dt; PERF.fastT = 0; } else if (PERF.avg < 1.05 / cap) { PERF.fastT += dt; PERF.slowT = 0; } else { PERF.slowT = 0; PERF.fastT = 0; }
@@ -8986,19 +11414,34 @@ function adaptPerf(dt) {
     PERF.slowT = 0;
     if (PERF.scale > .62) { PERF.scale = Math.max(.6, PERF.scale - .12); renderer.setPixelRatio(Math.max(.75, base * PERF.scale)); }
     else if (enhancedGraphics() && G.W.gfx) { if (G.W.gfx.budget > 0) Graphics.setBudget(G.W, G.W.gfx.budget - 1, renderer); }
-    else if (SAVE.quality === 'high') { SAVE.quality = 'medium'; store(); applyQuality(); if (G.W.sun) G.W.sun.castShadow = false; G.W.scene.traverse((o) => { if (o.material && !Array.isArray(o.material)) o.material.needsUpdate = true; }); for (const k of G.karts) if (k.mesh.g.children[2]) k.mesh.g.children.forEach((c) => { if (c.material && c.material.map === SHADOW_TEX) c.visible = true; }); if (!PERF.warned) { PERF.warned = true; toast('Graphismes passés en Moyen pour plus de fluidité.'); } }
-    else if (SAVE.quality === 'medium') { SAVE.quality = 'low'; PERF.scale = 1; store(); applyQuality(); toast('Graphismes passés en Bas pour plus de fluidité.'); }
+    else if (SAVE.quality === 'high') { if (!QAUTO.choix) QAUTO.choix = SAVE.quality; SAVE.quality = 'medium'; applyQuality(); if (G.W.sun) G.W.sun.castShadow = false; G.W.scene.traverse((o) => { if (o.material && !Array.isArray(o.material)) o.material.needsUpdate = true; }); for (const k of G.karts) if (k.mesh.g.children[2]) k.mesh.g.children.forEach((c) => { if (c.material && c.material.map === SHADOW_TEX) c.visible = true; }); if (!PERF.warned) { PERF.warned = true; toast('Graphismes passés en Moyen pour plus de fluidité.'); } }
+    else if (SAVE.quality === 'medium') { if (!QAUTO.choix) QAUTO.choix = SAVE.quality; SAVE.quality = 'low'; PERF.scale = 1; applyQuality(); toast('Graphismes baissés pour cette partie (ton réglage est gardé).'); }
   } else if (PERF.fastT > 4 && PERF.scale < 1) { PERF.fastT = 0; PERF.scale = Math.min(1, PERF.scale + .1); renderer.setPixelRatio(Math.max(.75, base * PERF.scale)); }
 }
 
 /* ================= Démarrage ================= */
+// Démarrage coopératif (animation de chargement fluide) : le circuit de fond est construit par tranches, les shaders sont compilés en
+// parallèle (KHR_parallel_shader_compile, compileAsync) puis une image est rendue avant d'annoncer « prêt ». L'avancement réel est
+// transmis à l'animation (WK_LOADER.progress) ; le menu n'est pas rendu derrière l'animation tant qu'elle couvre l'écran.
 applyQuality();
 listenMotion();
-startAttract(UI.track);
-show('title');
-// Jeu prêt : l'animation de démarrage (boot.js) termine sa fin classique, puis l'écran de chargement s'efface sur le menu.
-if (window.WK_LOADER) window.WK_LOADER.done(() => { $('#loading').hidden = true; }); else $('#loading').hidden = true;
-requestAnimationFrame((t) => { last = t; frame(t); });
+(async function demarrer() {
+  const L = window.WK_LOADER, prog = (p) => { if (L && L.progress) L.progress(p); };
+  prog(.15);
+  try { await startAttractSliced(UI.track, (p) => prog(.15 + .65 * p)); }
+  catch (e) { console.error(e); startAttract(UI.track); }
+  show('title'); prog(.85);
+  try { await compilerShaders(G.W.scene, camera, 60000); } catch (e) { /* compilation au premier rendu */ }
+  prog(.9);
+  // Téléversement des textures une par une (sinon toutes dans la première image : 0,6 s d'un bloc, 2,5 s sur un téléphone modeste).
+  try { await texturesPretes(G.W.scene); await runSliced(televerser(G.W.scene)); } catch (e) { /* téléversement au premier rendu */ }
+  prog(.95);
+  renderer.render(G.W.scene, camera); // première image : téléversement des textures et tampons pendant que le chargement est encore affiché
+  await new Promise((r) => requestAnimationFrame(() => r()));
+  // Jeu prêt : l'animation de démarrage (boot.js) termine sa fin classique, puis l'écran de chargement s'efface sur le menu.
+  if (L) L.done(() => { $('#loading').hidden = true; }); else $('#loading').hidden = true;
+  requestAnimationFrame((t) => { last = t; frame(t); });
+})();
 
 /* ================= version de test seulement : panneau 🧪 pour essayer les nouveautés ================= */
 if (window.TK_TEST) (function testPanel() {
@@ -9034,6 +11477,7 @@ if (window.TK_TEST) (function testPanel() {
 })();
 
 // accès pour les tests automatisés
-window.__TK = { netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, updateItems, throwFwd, FRONT_TRAPS, onNetEvent, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, videoReady, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner, progOpen, weekDefs, updateObstacles, bridgeAvoid, brAt, raftsAvoid, playerEmote, kartEmote };
-Object.assign(window.__TK, { Graphics, adaptPerf, enhancedGraphics });
+window.__TK = { ENGINES, SUSPS, TRANS, FREINS, DIRS, RIMS, AILERONS, ECHAPS, AILES, PARECHOCS, PIECES, PIECES_CONDUITE, PIECES_APPARENCE, pieceEffet, pieceIncompatible, migrerPieces, cleanCfg, myCfgEquipe, PILOTS, ACCS, FINISHES, DECOS, TRAILS, COLORS, SKINS, lockInfo, refreshGarageKart, launchPrepared, toast, ownedColors: typeof ownedColors === 'function' ? ownedColors : null, lobbyPlayers, heroAnimate, frAddFriend, frSend, buildWorldSteps, acctUpload, acctCall, ONGLET, GS, hostOnData, hostVerifTicket, clientOnData, netTicketEnvoi, disposeWorld, QAUTO, adaptPerf, PERF, setInstZone: (v) => { INST_ZONE = v; }, setDecorLeger: (v) => { DECOR_LEGER = !!v; delete DECOR.bush; }, startAttract, simStep, netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, updateItems, throwFwd, FRONT_TRAPS, onNetEvent, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, videoReady, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner, progOpen, weekDefs, updateObstacles, bridgeAvoid, brAt, raftsAvoid, playerEmote, kartEmote, aiControl, collideKarts, openStudio, toMenu, zoneEnv, studioSurfAt, obstacleHits };
+Object.assign(window.__TK, { Graphics, adaptPerf, enhancedGraphics, gravPulse, gravExposed, gravSurf, gravAvail, aiUse13x, GCUT_T, ICONS, ITEM_FR, heroAnimate, QUIZ });
 })();
+

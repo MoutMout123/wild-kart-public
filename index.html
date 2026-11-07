@@ -74,6 +74,8 @@ p{margin:0;line-height:1.4}
 .logo{font-family:var(--f-display);font-size:clamp(54px,11vw,112px);line-height:.86;transform:rotate(-6deg);transform-origin:left bottom;
   display:flex;flex-direction:column;letter-spacing:.01em}
 .logo span{-webkit-text-stroke:3px var(--ink);paint-order:stroke fill;text-shadow:6px 6px 0 var(--ink)}
+/* Lettrage « WILD KART » extrait du logo d'origine (icon-512.png, scripts/lettrage-logo.py) : affiché tel quel, sans rotation ni effet */
+.logo.logo-lettrage{transform:none;display:block;line-height:0}.logo-img{display:block;width:clamp(240px,34vw,440px);height:auto;max-width:100%}
 .logo .l1{color:var(--sun)}
 .logo .l2{color:var(--tomato);margin-left:.5em}
 .flag{width:min(300px,60vw);height:18px;border:3px solid var(--ink);border-radius:4px;transform:rotate(-6deg);margin:6px 0 0 18px;
@@ -95,6 +97,7 @@ p{margin:0;line-height:1.4}
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px}
 .card{text-align:left;padding:10px;display:flex;flex-direction:column;gap:6px;transition:transform .12s;position:relative}
 .card canvas{width:100%;aspect-ratio:16/9;max-width:100%;border-radius:10px;border:2px solid var(--ink);display:block}
+.card .thumb{position:relative}.card .apercu{width:100%;aspect-ratio:2/1;object-fit:cover;border-radius:10px;border:2px solid var(--ink);display:block;background:var(--ink2)}.card .thumb:not(.photo) .apercu{position:absolute;inset:0;opacity:0}.card .thumb.photo canvas{position:absolute;right:5px;bottom:5px;width:36%;border-width:1.5px;border-radius:7px;box-shadow:0 1px 4px rgba(0,0,0,.35)}
 .card h3{font-family:var(--f-display);font-weight:400;font-size:17px;margin:0;line-height:1.1}
 .card p{font-size:12.5px;color:var(--muted);line-height:1.3}
 .card .meta{display:flex;justify-content:space-between;font-size:12px;font-weight:700;font-variant-numeric:tabular-nums}
@@ -320,6 +323,7 @@ p{margin:0;line-height:1.4}
 /* ---------- petits écrans en paysage ---------- */
 @media (max-height:440px){
   .logo{font-size:clamp(46px,9vw,84px)}
+  .logo-img{width:clamp(200px,31vw,330px)}
   .tag{font-size:14px}
   .btn.big{font-size:18px;padding:12px 18px}
   .menu{gap:10px}
@@ -341,6 +345,8 @@ p{margin:0;line-height:1.4}
   .calib,.small,.results,.install{padding:14px;gap:9px}
   #r-table td{padding:3px 6px}
 }
+/* Téléphones bas en paysage (≤ 400 px de haut) : la mini-carte passe à gauche de la case objet, sinon les boutons de droite la recouvrent */
+@media (max-height:400px) and (orientation:landscape){.hud-right{flex-direction:row-reverse;align-items:flex-start}#h-map{width:88px;height:88px}}
 @media (max-width:640px) and (orientation:portrait){
   .title-wrap{flex-direction:column;align-items:stretch}
   .cards{grid-template-columns:1fr}
@@ -631,7 +637,7 @@ body{font-size:16px}
   <section id="s-title" class="screen" hidden>
     <div class="title-wrap">
       <div class="brand">
-        <div class="logo" aria-label="Wild Kart"><span class="l1">WILD</span><span class="l2">KART</span></div>
+        <div class="logo logo-lettrage"><picture><source srcset="assets/logo/lettrage-wild-kart.webp" type="image/webp"><img class="logo-img" src="assets/logo/lettrage-wild-kart.png" alt="Wild Kart" width="382" height="232" decoding="async"></picture></div>
         <div class="flag"></div>
         <p class="tag">Le kart des soirées entre potes. Chacun sur son téléphone, tous en même temps.</p>
         <div id="ctrl-chip" class="status"><i></i><span>Commandes : joystick</span></div>
@@ -649,6 +655,7 @@ body{font-size:16px}
         <div class="row small-links">
           <button class="link" id="b-rejoin" data-go="rejoin" hidden>Revenir dans la partie</button>
           <button class="link" data-go="practice">S'entraîner seul</button>
+          <button class="link" data-go="studio">Wild Kart Studio</button>
           <button class="link" id="b-install" data-go="install">Installer le jeu</button>
         </div>
       </nav>
@@ -933,18 +940,25 @@ body{font-size:16px}
   <div id="loading">Chargement…</div>
 </div>
 
-<script src="boot.js?v=810e1cf9"></script>
+<script src="diag.js?v=46fd4305" async></script>
+<script src="boot.js?v=46fd4305"></script>
 <script src="three.min.js"></script>
-<script src="tracks.generated.js"></script>
-<script src="production.js"></script>
-<script src="surfaces.js"></script>
-<script src="scenery.js"></script>
-<script src="nature.js"></script>
-<script src="vivant.js"></script>
+<script src="tracks.generated.js?v=46fd4305"></script>
+<script src="production.js?v=46fd4305"></script>
+<script src="surfaces.js?v=46fd4305"></script>
+<script src="scenery.js?v=46fd4305"></script>
+<script src="nature.js?v=46fd4305"></script>
+<script src="decors.js?v=46fd4305"></script>
+<script src="vivant.js?v=46fd4305"></script>
 <script src="peerjs.min.js"></script>
 <script src="nacl.min.js"></script>
-<script src="graphics.js"></script>
-<script src="game.js?v=810e1cf9"></script>
-<script src="bac-a-sable.js"></script>
+<script src="graphics.js?v=46fd4305"></script>
+<script src="equilibre-prototype.js?v=46fd4305"></script>
+<script src="carrosseries-prototype.js?v=46fd4305"></script>
+<script src="pilotes-prototype.js?v=46fd4305"></script>
+<script src="game.js?v=46fd4305"></script>
+<script src="atelier.js?v=46fd4305"></script>
+<script src="bac-a-sable.js?v=46fd4305"></script>
 </body>
 </html>
+

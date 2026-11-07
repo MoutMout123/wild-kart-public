@@ -1,0 +1,78 @@
+<!doctype html><html lang="fr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Wild Kart TEST — atelier graphique</title>
+<style>*{box-sizing:border-box}body{margin:0;background:#eee8dd;color:#242638;font:16px system-ui}header,nav,footer{padding:18px 24px}h1{margin:0 0 8px;font-size:26px}p{margin:6px 0;max-width:850px;line-height:1.45}nav{display:flex;gap:12px;flex-wrap:wrap;align-items:center}select,button{font:inherit;padding:10px;background:#fff;border:1px solid #b6b2a5;border-radius:8px}button{cursor:pointer}#vue{height:66vh;min-height:300px;touch-action:none}canvas{display:block;width:100%;height:100%}#message{font-weight:600}footer{font-size:14px}.test{font-weight:700;color:#b22a65}</style>
+<header><div class="test">WILD KART · TEST</div><h1>Atelier roche, sol et végétation</h1><p>Six études pour examiner les formes et les matières. Tourne autour avec le doigt ou la souris, puis compare les deux versions de chaque famille.</p></header>
+<nav><label>Étude <select id="choix"></select></label><button id="face">Face</button><button id="trois">Trois-quarts</button><button id="zoomPlus">Zoom +</button><button id="zoomMoins">Zoom −</button></nav>
+<div id="vue"></div><footer><div id="message">Préparation…</div><p>Recettes expérimentales : ton avis sur les textures, les formes et leur cohérence servira aux prochaines corrections. Ces études ne valent pas validation du décor d’un circuit.</p></footer>
+<script src="three.min.js"></script><script>/* Petits constructeurs graphiques originaux : géométrie + pixels déterministes, sans WebGL requis pour les construire.
+   Ce lot est un atelier de recettes ; il ne modifie pas encore les décors des 26 cartes. */
+(function (root) {
+  'use strict';
+  const VERSION = 'graphique-modeles-01', TAU = Math.PI * 2;
+  function teinte(hex) { return [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)); }
+  function pixels(famille, role, palette, grain, strates, graine, n) {
+    const colors = palette.map(teinte), albedo = new Uint8Array(n * n * 4), roughness = new Uint8Array(n * n * 4), normal = new Uint8Array(n * n * 4), heights = new Float32Array(n * n), phase = (graine % 997) / 997 * TAU;
+    const m = n - 1;
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      const u = (x % m) / m, v = (y % m) / m;
+      const fine = Math.sin(TAU * u * 17 + Math.cos(TAU * v * 13) + phase) * Math.sin(TAU * v * 19 + phase);
+      const large = Math.sin(TAU * u * 2 + phase) * Math.cos(TAU * v * 3 - phase);
+      const band = Math.sin(TAU * (v * strates + .12 * Math.sin(TAU * u * 2)) + phase);
+      let mix = famille === 'roche' ? .5 + .28 * band : role === 'ecorce' ? .5 + .32 * Math.sin(TAU * u * 12 + .3 * Math.sin(TAU * v)) : .5 + .35 * large;
+      mix = Math.max(0, Math.min(1, mix + fine * grain * .12));
+      const a = colors[mix < .5 ? 0 : 1], b = colors[mix < .5 ? 1 : 2], t = mix < .5 ? mix * 2 : (mix - .5) * 2, i = (y * n + x) * 4;
+      for (let k = 0; k < 3; k++) albedo[i + k] = Math.round(a[k] + (b[k] - a[k]) * t);
+      albedo[i + 3] = roughness[i + 3] = normal[i + 3] = 255;
+      const r = Math.round(Math.max(0, Math.min(255, 215 + large * 15 + fine * grain * 15)));roughness[i] = roughness[i + 1] = roughness[i + 2] = r;
+      heights[y * n + x] = .5 + fine * grain * .09 + (famille === 'roche' ? band * .08 : large * .1);
+    }
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      const h = (dx, dy) => heights[(((y + dy) % m + m) % m) * n + ((x + dx) % m + m) % m];
+      const nx = (h(-1, 0) - h(1, 0)) * 2, ny = (h(0, -1) - h(0, 1)) * 2, length = Math.hypot(nx, ny, 1), i = (y * n + x) * 4;
+      normal[i] = Math.round((nx / length * .5 + .5) * 255);normal[i + 1] = Math.round((ny / length * .5 + .5) * 255);normal[i + 2] = Math.round((1 / length * .5 + .5) * 255);
+    }
+    return { largeur: n, hauteur: n, albedo, roughness, normal, type: 'pixels-proceduraux-originaux', repetitionMetres: famille === 'roche' ? 2 : famille === 'sol' ? 4 : 1 };
+  }
+  function fusionner(T, geometries) {
+    const gs = geometries.map(g => g.index ? g.toNonIndexed() : g), count = gs.reduce((a, g) => a + g.attributes.position.count, 0), out = new T.BufferGeometry();
+    for (const [key, size] of [['position', 3], ['normal', 3], ['uv', 2]]) { const data = new Float32Array(count * size);let at = 0;for (const g of gs) { if (g.attributes[key]) data.set(g.attributes[key].array, at * size);at += g.attributes.position.count; }out.setAttribute(key, new T.BufferAttribute(data, size)); }
+    for (const g of new Set([...geometries, ...gs])) g.dispose();return out;
+  }
+  function construire(T, plan) {
+    const p = plan.parametres, high = plan.profil === 'haut', geos = [], textures = {}, palette = plan.palette;
+    const add = (role, geometry) => geos.push({ role, geometry });
+    if (plan.famille === 'roche') {
+      const g = new T.SphereGeometry(1, high ? 24 : 12, high ? 16 : 8), a = g.attributes.position;
+      for (let i = 0; i < a.count; i++) { const x = a.getX(i), y = a.getY(i), z = a.getZ(i), d = 1 + p.grain * .1 * Math.sin(x * 7 + plan.graine) * Math.cos(z * 5) + .035 * Math.sin(y * p.strates * Math.PI);a.setXYZ(i, x * d * p.largeur / 2, (y + 1) * p.hauteur / 2, z * d * p.profondeur / 2); }
+      g.computeVertexNormals();add('roche', g);
+    } else if (plan.famille === 'sol') {
+      const g = new T.PlaneGeometry(p.largeur, p.profondeur, high ? 12 : 4, high ? 12 : 4);g.rotateX(-Math.PI / 2);const a = g.attributes.position;
+      for (let i = 0; i < a.count; i++) a.setY(i, Math.sin(a.getX(i) / p.largeur * TAU) * Math.cos(a.getZ(i) / p.profondeur * TAU) * p.grain * p.hauteur * .05);
+      g.computeVertexNormals();add('sol', g);
+    } else if (plan.famille === 'vegetation') {
+      const trunk = new T.CylinderGeometry(p.largeur * .05, p.largeur * .09, p.hauteur * .68, high ? 12 : 8, 3);trunk.translate(0, p.hauteur * .34, 0);add('ecorce', trunk);
+      const leaves = [];for (const [x, y, z, size] of [[-.13, .66, .02, .9], [.14, .7, -.02, .85], [0, .79, 0, 1]]) { const g = new T.SphereGeometry(1, high ? 16 : 10, high ? 12 : 7);g.scale(p.largeur * .34 * size, p.hauteur * .23 * size, p.profondeur * .34 * size);g.translate(x * p.largeur, y * p.hauteur, z * p.profondeur);leaves.push(g); }add('feuillage', fusionner(T, leaves));
+    } else throw new Error('famille graphique non prise en charge');
+    for (const { role } of geos) { const pal = role === 'ecorce' ? ['#382419', '#65432c', '#9a7450'] : palette;textures[role] = pixels(plan.famille, role, pal, p.grain, p.strates, plan.graine, high ? 128 : 64);const t = textures[role], m = t.repetitionMetres;t.repeat = plan.famille === 'sol' ? [p.largeur / m, p.profondeur / m] : role === 'ecorce' ? [Math.PI * p.largeur * .14 / m, p.hauteur * .68 / m] : [Math.PI * (p.largeur + p.profondeur) / (2 * m), p.hauteur / m]; }
+    const triangles = geos.reduce((s, x) => s + (x.geometry.index ? x.geometry.index.count : x.geometry.attributes.position.count) / 3, 0), octetsTextures = Object.values(textures).reduce((n, t) => n + t.albedo.byteLength + t.roughness.byteLength + t.normal.byteLength, 0);
+    return { geos, textures, mesures: { triangles, maillages: geos.length, octetsTextures }, version: VERSION };
+  }
+  function groupe(T, produit) {
+    const group = new T.Group();for (const { role, geometry } of produit.geos) { const t = produit.textures[role], maps = {};
+      for (const k of ['albedo', 'roughness', 'normal']) { const tex = new T.DataTexture(t[k], t.largeur, t.hauteur, T.RGBAFormat);tex.wrapS = tex.wrapT = T.RepeatWrapping;tex.magFilter = T.LinearFilter;tex.minFilter = T.LinearMipmapLinearFilter;tex.generateMipmaps = true;tex.repeat.set(...t.repeat);tex.colorSpace = k === 'albedo' ? T.SRGBColorSpace : T.NoColorSpace;tex.needsUpdate = true;maps[k] = tex; }
+      const mat = new T.MeshStandardMaterial({ color: '#ffffff', map: maps.albedo, roughnessMap: maps.roughness, normalMap: maps.normal, normalScale: new T.Vector2(.35, .35), roughness: 1, metalness: 0 });
+      const mesh = new T.Mesh(geometry, mat);mesh.castShadow = true;mesh.receiveShadow = true;group.add(mesh);
+    }return group;
+  }
+  function liberer(produit) { for (const { geometry } of produit.geos) geometry.dispose(); }
+  const api = { VERSION, construire, groupe, liberer };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;else root.WKGraphiqueModeles = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+</script><script>
+(function(){'use strict';const T=THREE,plans=[{"nom":"Roche stratifiée — étude compacte","famille":"roche","generateur":"roche-strates","parametres":{"largeur":4,"hauteur":3,"profondeur":3,"grain":0.45,"strates":5},"palette":["#4a4848","#8b7b68","#c5b08d"],"profil":"mobile","graine":31,"style":"atelier-original-v1"},{"nom":"Roche stratifiée — étude détaillée","famille":"roche","generateur":"roche-strates","parametres":{"largeur":7,"hauteur":3,"profondeur":3,"grain":0.45,"strates":5},"palette":["#4a4848","#8b7b68","#c5b08d"],"profil":"haut","graine":32,"style":"atelier-original-v1"},{"nom":"Sol de lisière — étude compacte","famille":"sol","generateur":"sol-lisiere","parametres":{"largeur":4,"hauteur":1,"profondeur":12,"grain":0.45,"strates":5},"palette":["#483b27","#64753b","#9ca35c"],"profil":"mobile","graine":31,"style":"atelier-original-v1"},{"nom":"Sol de lisière — étude détaillée","famille":"sol","generateur":"sol-lisiere","parametres":{"largeur":7,"hauteur":1,"profondeur":12,"grain":0.45,"strates":5},"palette":["#483b27","#64753b","#9ca35c"],"profil":"haut","graine":32,"style":"atelier-original-v1"},{"nom":"Arbre arrondi — étude compacte","famille":"vegetation","generateur":"arbre-rond","parametres":{"largeur":4,"hauteur":7,"profondeur":4,"grain":0.45,"strates":5},"palette":["#193e2b","#3f7342","#84a455"],"profil":"mobile","graine":31,"style":"atelier-original-v1"},{"nom":"Arbre arrondi — étude détaillée","famille":"vegetation","generateur":"arbre-rond","parametres":{"largeur":7,"hauteur":7,"profondeur":4,"grain":0.45,"strates":5},"palette":["#193e2b","#3f7342","#84a455"],"profil":"haut","graine":32,"style":"atelier-original-v1"}],select=document.getElementById('choix'),message=document.getElementById('message'),host=document.getElementById('vue');for(let i=0;i<plans.length;i++){const o=document.createElement('option');o.value=i;o.textContent=plans[i].nom;select.append(o)}let renderer;try{renderer=new T.WebGLRenderer({antialias:true});}catch(e){message.textContent='Le navigateur ne peut pas afficher WebGL. Essaie depuis le navigateur habituel de ton téléphone.';return}renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.outputColorSpace=T.SRGBColorSpace;renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;host.append(renderer.domElement);
+const scene=new T.Scene();scene.background=new T.Color('#eee8dd');scene.add(new T.HemisphereLight('#fff5e2','#55645e',1.7));const sun=new T.DirectionalLight('#ffffff',2.6);sun.position.set(8,15,10);sun.castShadow=true;sun.shadow.camera.left=-16;sun.shadow.camera.right=16;sun.shadow.camera.top=16;sun.shadow.camera.bottom=-16;sun.shadow.mapSize.set(1024,1024);sun.shadow.normalBias=.03;scene.add(sun);const fill=new T.DirectionalLight('#dce7ff',.8);fill.position.set(-8,5,-6);scene.add(fill);const floor=new T.Mesh(new T.PlaneGeometry(250,250),new T.MeshStandardMaterial({color:'#dfd8c9',roughness:.95}));floor.rotation.x=-Math.PI/2;floor.position.y=-.12;floor.receiveShadow=true;scene.add(floor);
+const camera=new T.PerspectiveCamera(35,1,.05,400),target=new T.Vector3();let group,theta=.65,phi=1.15,distance=12,drag;
+function liberer(){if(!group)return;const gs=new Set(),ms=new Set(),ts=new Set();group.traverse(o=>{if(o.isMesh){gs.add(o.geometry);ms.add(o.material);for(const k of ['map','normalMap','roughnessMap'])if(o.material[k])ts.add(o.material[k]);}});for(const x of gs)x.dispose();for(const x of ms)x.dispose();for(const x of ts)x.dispose();scene.remove(group)}
+function construire(){liberer();const plan=plans[Number(select.value)],produit=WKGraphiqueModeles.construire(T,plan);group=WKGraphiqueModeles.groupe(T,produit);scene.add(group);const box=new T.Box3().setFromObject(group),size=box.getSize(new T.Vector3());box.getCenter(target);distance=Math.max(size.x,size.y,size.z)*2.2;message.textContent=plan.nom+' · avis attendu';}
+select.onchange=construire;document.getElementById('face').onclick=()=>{theta=0;phi=1.2};document.getElementById('trois').onclick=()=>{theta=.65;phi=1.15};document.getElementById('zoomPlus').onclick=()=>distance*=.85;document.getElementById('zoomMoins').onclick=()=>distance*=1.15;
+renderer.domElement.onpointerdown=e=>{drag=[e.clientX,e.clientY];renderer.domElement.setPointerCapture(e.pointerId)};renderer.domElement.onpointermove=e=>{if(!drag)return;theta-=(e.clientX-drag[0])*.008;phi=Math.max(.2,Math.min(1.55,phi+(e.clientY-drag[1])*.008));drag=[e.clientX,e.clientY]};renderer.domElement.onpointerup=renderer.domElement.onpointercancel=()=>drag=null;renderer.domElement.onwheel=e=>{e.preventDefault();distance=Math.max(1,Math.min(160,distance+e.deltaY*.015))};function resize(){renderer.setSize(host.clientWidth,host.clientHeight);camera.aspect=host.clientWidth/host.clientHeight;camera.updateProjectionMatrix()}window.addEventListener('resize',resize);resize();construire();function frame(){camera.position.set(target.x+Math.sin(theta)*Math.sin(phi)*distance,target.y+Math.cos(phi)*distance,target.z+Math.cos(theta)*Math.sin(phi)*distance);camera.lookAt(target);renderer.render(scene,camera);requestAnimationFrame(frame)}requestAnimationFrame(frame);
+})();</script></html>

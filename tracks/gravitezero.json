@@ -3,7 +3,7 @@
   "id": "gravitezero",
   "name": "Anneau Gravité Zéro",
   "biome": "space",
-  "status": "non refait",
+  "status": "refonte concepteur",
   "route": {
     "closed": true,
     "nodes": [
@@ -294,16 +294,26 @@
     "tunnels": [],
     "warp": [
       {
+        "type": "plafond",
+        "from": 0.035,
+        "to": 0.118
+      },
+      {
         "type": "loop",
         "r": 17,
         "from": 0.1222,
-        "to": 0.1874
+        "to": 0.23
+      },
+      {
+        "type": "plafond",
+        "from": 0.305,
+        "to": 0.425
       },
       {
         "type": "loop",
         "r": 17,
         "from": 0.5743,
-        "to": 0.6385
+        "to": 0.681
       }
     ]
   },
@@ -434,7 +444,7 @@
     "hopLabel": "Gravité zéro !",
     "boosts": [
       [
-        0.21,
+        0.49,
         0
       ],
       [

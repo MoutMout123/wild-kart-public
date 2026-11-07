@@ -27,16 +27,19 @@ function scene(name) {
     return trace([side(bottom), ['G', 90, r[0]], side(right), ['G', 90, r[1]], side(rest / 2), ['G', 90, b], side(s), ['D', 90, b], side(t), ['D', 90, b], side(s), ['G', 90, b], side(rest / 2), ['G', 90, r[2]], side(left), ['G', 90, r[3]]]);
   }
   if (name === 'looping') return trace([side(560 - 30 - 14), ['G', 90, 14], side(260 - 14 - 30), ['G', 90, 30], side(560 - 60), ['G', 90, 30], side(260 - 60), ['G', 90, 30]]);
+  // Routes à l'envers : longue portion au plafond sur la ligne du bas, puis looping suivi d'une portion au plafond sur celle du haut.
+  if (name === 'plafond') return trace([side(900), ['G', 90, 40], side(300), ['G', 90, 40], side(900), ['G', 90, 40], side(300), ['G', 90, 40]]);
   if (name === 'plante') return trace([side(500), ['G', 180, 60], side(500), ['G', 180, 60]]);
   return null;
 }
-const SCENES = { virages: 'Virages à 90° (rayons 12, 20, 26, 32 m) et marche de quatre virages de 20 m', looping: 'Looping de 22 m suivi d’un virage à 90° de 14 m', plante: 'Ligne droite avec Croque-pétales' };
+const SCENES = { virages: 'Virages à 90° (rayons 12, 20, 26, 32 m) et marche de quatre virages de 20 m', looping: 'Looping de 22 m suivi d’un virage à 90° de 14 m', plante: 'Ligne droite avec Croque-pétales', plafond: 'Route à l’envers : portion au plafond, puis looping enchaîné avec une portion au plafond' };
 function register(K, name) {
   const id = 'bac-' + name, old = K.TRACKS.findIndex((t) => t.id === id); if (old >= 0) return old;
   const tr = scene(name); if (!tr) throw new Error('scène inconnue ' + name);
   const base = K.TRACKS.find((t) => t.id === 'piquenique') || K.TRACKS[0], theme = Object.assign({}, base.theme, { terrain: null, decor: 'prairie' });
   const def = { id, name: 'Bac à sable — ' + name, desc: SCENES[name], cup: 1, level: 1, laps: 3, width: 24, glideH: 10, theme, pts: tr.pts, boosts: [], items: [], branches: [], bac: name, marks: tr.marks };
   if (name === 'looping') { const L = tr.pts.length; void L; def.warp = [{ type: 'loop', r: 22, from: .19, to: .3 }]; }
+  if (name === 'plafond') def.warp = [{ type: 'plafond', from: .04, to: .3 }, { type: 'loop', r: 22, from: .52, to: .568 }, { type: 'plafond', side: -1, from: .59, to: .8 }];
   if (name === 'plante') { def.obstZones = 0; def.bacPlants = [.1, .2, .3, .62, .72]; }
   K.TRACKS.push(def); return K.TRACKS.length - 1;
 }

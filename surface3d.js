@@ -1,0 +1,383 @@
+/* #32.A2 / #32.B1 — Contrat de SURFACE 3D et premier palier de vraie conduite sur surface (prototype isolé, 6–7 nov. 2026).
+   Ce module ne modifie aucune des 26 cartes : il fournit
+   1. une surface de route définie par des REPÈRES continus le long de l'abscisse curviligne s : position P, tangente T, latéral L,
+      normale N (le « haut » de la chaussée). sample(s, d, h) → point monde ; project(point) → (s, d, h) ; repère en tout s ;
+      courbure normale (concave/convexe) ; construction depuis un PROFIL paramétrique (longueur, cap, tangage, roulis par segment)
+      ou depuis les échantillons d'un circuit actuel (adaptateur rétrocompatible, normale = verticale) ;
+   2. un kart 3D ATTACHÉ à la surface : vitesse le long de son cap dans le plan de la chaussée, gravité réelle projetée (elle freine
+      dans une montée, pousse sur le côté d'une paroi), adhérence d'arcade EXPLICITE (accélération de plaquage bornée : sous un seuil de
+      vitesse, ou si la courbure convexe demande plus que l'adhérence, le kart se DÉTACHE), vol libre 3D avec gravité, puis raccrochage à
+      la première surface touchée (récupération). Braquage libre sur toute la surface, bords de chaussée = butées.
+   Pas de dépendance (pas de Three.js) : utilisable sous Node (bancs) et dans le navigateur (window.WKSurface3D).
+   Limites assumées du prototype : une seule surface par profil (superpositions = #32.B3), collisions entre karts et objets non
+   traités ici (#32.C2), intégration dans les cartes et caméra du jeu = étape suivante, après avis. */
+(function (racine) {
+  'use strict';
+  const V = { add: (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]], sub: (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], mul: (a, k) => [a[0] * k, a[1] * k, a[2] * k],
+    dot: (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2], cross: (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]],
+    len: (a) => Math.hypot(a[0], a[1], a[2]), norm: (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; } };
+  // Rotation d'un vecteur v autour d'un axe unitaire a d'un angle t (Rodrigues).
+  function tourner(v, a, t) { const c = Math.cos(t), s = Math.sin(t), d = V.dot(a, v), x = V.cross(a, v); return [v[0] * c + x[0] * s + a[0] * d * (1 - c), v[1] * c + x[1] * s + a[1] * d * (1 - c), v[2] * c + x[2] * s + a[2] * d * (1 - c)]; }
+  const lisse = (u) => u * u * (3 - 2 * u), DEG = Math.PI / 180;
+
+  // ---- Surface ----------------------------------------------------------------------------------------------------------------------
+  // Profil : [{ long (m), cap (°, + = gauche), tangage (°, + = monte), roulis (°, + = penche à droite), largeur? }], pas d'échantillonnage.
+  // Les variations d'angle d'un segment sont réparties par une loi douce (dérivée nulle aux bouts) : raccords sans cassure.
+  /* #32.A3 — Validation des PARAMÈTRES d'un profil avant construction (refus clair d'une géométrie impossible). Unités : longueurs en m,
+     angles en degrés (répartis par la loi douce : rayon minimal = long / (angle en rad × 1,5)), adhérence en g. Champs inconnus refusés
+     (une faute de frappe ne doit pas être ignorée en silence). Retourne la liste des erreurs (vide = valide). */
+  const BORNES = { long: [.5, 2000], largeur: [6, 30], largeurFin: [6, 30], cap: [-720, 720], virage: [-720, 720], tangage: [-360, 360], roulis: [-360, 360], elevation: [-45, 45], looping: [6, 40], decalage: [0, 120], adherence: [0, Infinity] };
+  function validerProfil(profil, opts) {
+    const E = [], lDef = (opts && opts.largeur) || 14; if (!Array.isArray(profil) || !profil.length) return ['profil vide ou non tableau'];
+    profil.forEach((seg, i) => { const ou = 'segment ' + (i + 1) + ' : ';
+      if (!seg || typeof seg !== 'object') { E.push(ou + 'pas un objet'); return; }
+      for (const [k, v] of Object.entries(seg)) { if (k === 'aimante') { if (typeof v !== 'boolean') E.push(ou + 'aimante doit valoir vrai/faux'); continue; }
+        if (!(k in BORNES)) { E.push(ou + 'champ inconnu « ' + k + ' »'); continue; }
+        if (typeof v !== 'number' || Number.isNaN(v) || (!Number.isFinite(v) && !(k === 'adherence' && v === Infinity))) { E.push(ou + k + ' n\'est pas un nombre fini (' + v + ')'); continue; }
+        const [a, b] = BORNES[k]; if (v < a || v > b) E.push(ou + k + ' = ' + v + ' hors des bornes [' + a + ', ' + b + ']'); }
+      if (seg.looping != null) { const w = seg.largeur || lDef;
+        if (seg.long != null) E.push(ou + 'un looping n\'a pas de « long » (sa longueur découle du rayon)');
+        if (!(seg.decalage >= w)) E.push(ou + 'looping sans décalage suffisant (' + (seg.decalage || 0) + ' m < largeur ' + w + ' m) : la sortie recouperait l\'entrée'); }
+      else { if (seg.long == null) E.push(ou + '« long » manquant');
+        const rad = Math.max(...['cap', 'virage', 'tangage', 'roulis'].map((k) => Math.abs(seg[k] || 0))) * DEG;
+        if (seg.long > 0 && rad > 0) { const rmin = seg.long / (rad * 1.5); if (['cap', 'virage', 'tangage'].some((k) => Math.abs(seg[k] || 0) * DEG === rad) && rmin < 4) E.push(ou + 'courbure trop serrée (rayon minimal ' + rmin.toFixed(1) + ' m < 4 m)'); } }
+      if (seg.largeurFin != null && seg.largeur == null && !lDef) E.push(ou + 'largeurFin sans largeur'); });
+    return E;
+  }
+  function depuisProfil(profil, opts) {
+    if (!(opts && opts.valider === false)) { const E = validerProfil(profil, opts); if (E.length) throw new Error('profil refusé : ' + E.join(' ; ')); }
+    const pas = (opts && opts.pas) || .25, largeurDefaut = (opts && opts.largeur) || 14, P = [], T = [], N = [], W = [], S = [], A = [];
+    /* depart : pose initiale { p, t, n } (B3 : plusieurs surfaces placées dans le même monde) ; défaut = origine, cap +X, normale +Y */
+    const dep = (opts && opts.depart) || {}; let p = dep.p || [0, 0, 0], t = V.norm(dep.t || [1, 0, 0]), n = V.norm(dep.n || [0, 1, 0]), s = 0;
+    /* AD : adhérence propre du segment (g, route normale) ; NaN = réglage du kart (#32.B5 : risque des loopings) */
+    const AD = [], pousser = (w, a, ad) => { P.push(p); T.push(t); N.push(n); W.push(w); S.push(s); A.push(a ? 1 : 0); AD.push(ad == null ? NaN : ad); };
+    pousser(profil[0] ? (profil[0].largeur || largeurDefaut) : largeurDefaut, profil[0] && profil[0].aimante, profil[0] && profil[0].adherence);
+    for (const seg of profil) {
+      /* #32.B4 — LOOPING hélicoïdal : tour complet de rayon R dans le plan (t0, n0), décalé latéralement de « decalage » (la sortie ne
+         recoupe pas l'entrée) ; angle θ = 2π·lisse(u) → courbure nulle aux raccords (même loi douce que les autres segments) ; sortie
+         alignée sur l'entrée (t, n inchangés), position avancée du décalage. */
+      if (seg.looping) {
+        const R = seg.looping, dec = seg.decalage || 0, t0 = t, n0 = n, l0 = V.cross(n0, t0), p0 = p, w = seg.largeur || largeurDefaut;
+        const pos = (u) => { const th = 2 * Math.PI * lisse(u); return V.add(V.add(V.add(p0, V.mul(t0, R * Math.sin(th))), V.mul(n0, R * (1 - Math.cos(th)))), V.mul(l0, dec * lisse(u))); };
+        const k = Math.max(8, Math.round(2 * Math.PI * R * 1.5 / pas));
+        for (let i = 1; i <= k; i++) { const u = i / k, q = pos(u), e = 1e-4, tg = V.norm(V.sub(pos(Math.min(1, u + e)), pos(Math.max(0, u - e))));
+          const th = 2 * Math.PI * lisse(u), centre = V.add(V.add(p0, V.mul(n0, R)), V.mul(l0, dec * lisse(u))), vers = V.sub(centre, q);
+          const nn = V.norm(V.sub(vers, V.mul(tg, V.dot(vers, tg)))); s += V.len(V.sub(q, p)); p = q; t = (u < 1 ? tg : t0); n = (u < 1 ? nn : n0); void th; pousser(w, seg.aimante, seg.adherence); }
+        continue;
+      }
+      const k = Math.max(1, Math.round(seg.long / pas)), ds = seg.long / k, w0 = seg.largeur || largeurDefaut, w1 = seg.largeurFin || w0;   /* largeurFin : rétrécissement/élargissement progressif (entrée de bifurcation) */
+      for (let i = 1; i <= k; i++) {
+        const u0 = lisse((i - 1) / k), u1 = lisse(i / k), du = u1 - u0;
+        // cap autour de N (virage dans le plan de la chaussée), tangage autour de L (montée), roulis autour de T (dévers)
+        const l = V.cross(n, t);   // latéral = gauche
+        if (seg.cap) { const a = seg.cap * DEG * du; t = tourner(t, n, a); }
+        if (seg.tangage) { const a = -seg.tangage * DEG * du; const l2 = V.norm(V.cross(n, t)); t = tourner(t, l2, a); n = tourner(n, l2, a); }
+        if (seg.roulis) { const a = seg.roulis * DEG * du; n = tourner(n, t, a); }
+        // virage HORIZONTAL (autour de la verticale du monde) : sur une chaussée relevée à ~90°, tourner autour de la normale ferait monter
+        // ou descendre ; un virage sur paroi tourne autour de la verticale (le repère entier pivote, le dévers est conservé).
+        if (seg.virage) { const a = seg.virage * DEG * du; t = tourner(t, [0, 1, 0], a); n = tourner(n, [0, 1, 0], a); }
+        // élévation : la marche s'incline vers le haut autour de l'axe HORIZONTAL perpendiculaire à t (indépendant du dévers) ; un virage
+        // autour de la verticale conserve ensuite cette pente → spirale qui monte.
+        if (seg.elevation) { const ax = V.norm(V.cross(t, [0, 1, 0])), a = seg.elevation * DEG * du; t = tourner(t, ax, a); n = tourner(n, ax, a); }
+        // ré-orthonormalisation (dérive numérique)
+        t = V.norm(t); n = V.norm(V.sub(n, V.mul(t, V.dot(n, t))));
+        p = V.add(p, V.mul(t, ds)); s += ds; pousser(w0 + (w1 - w0) * u1, seg.aimante, seg.adherence); void l;
+      }
+    }
+    const surf = construire(P, T, N, W, S, A); surf.AD = AD; surf.adherenceSeg = (x) => { let lo = 0, hi = S.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (S[m] <= x) lo = m; else hi = m; } return AD[lo]; }; return surf;
+  }
+  // Adaptateur rétrocompatible : échantillons d'un circuit actuel (positions x, y, z et largeur), normale = verticale du monde.
+  function depuisEchantillons(points, largeurs) {
+    const P = [], T = [], N = [], W = [], S = []; let s = 0;
+    for (let i = 0; i < points.length; i++) { const a = points[i], b = points[Math.min(i + 1, points.length - 1)], c = points[Math.max(i - 1, 0)];
+      const t = V.norm(V.sub(b, c)), n = V.norm(V.sub([0, 1, 0], V.mul(t, t[1]))); if (i) s += V.len(V.sub(a, points[i - 1]));
+      P.push(a); T.push(t); N.push(n); W.push(largeurs ? largeurs[i] : 14); S.push(s); }
+    return construire(P, T, N, W, S);
+  }
+  function construire(P, T, N, W, S, A) {
+    const n = P.length, longueur = S[n - 1];
+    function indice(s) { s = Math.max(0, Math.min(longueur, s)); let lo = 0, hi = n - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (S[m] <= s) lo = m; else hi = m; } return [lo, hi, hi > lo ? (s - S[lo]) / (S[hi] - S[lo]) : 0]; }
+    function repere(s) { const [a, b, u] = indice(s), mix = (X) => V.add(V.mul(X[a], 1 - u), V.mul(X[b], u));
+      const t = V.norm(mix(T)), nn = mix(N), nrm = V.norm(V.sub(nn, V.mul(t, V.dot(nn, t)))), l = V.cross(nrm, t); return { p: mix(P), t, n: nrm, l, largeur: W[a] * (1 - u) + W[b] * u, s }; }
+    function sample(s, d, h) { const f = repere(s); return V.add(V.add(f.p, V.mul(f.l, d || 0)), V.mul(f.n, h || 0)); }
+    // Projection : point monde → (s, d, h) ; recherche locale autour d'une estimation (continuité du suivi), sinon recherche globale.
+    function project(q, sEstime) {
+      let best = -1, bd = Infinity; const essai = (i) => { const dd = V.len(V.sub(q, P[i])); if (dd < bd) { bd = dd; best = i; } };
+      let bordFenetre = false;
+      if (sEstime != null) { const [a] = indice(sEstime), i0 = Math.max(0, a - 80), i1 = Math.min(n, a + 80); for (let i = i0; i < i1; i++) essai(i); bordFenetre = (best === i0 && i0 > 0) || (best === i1 - 1 && i1 < n); }
+      /* fenêtre locale insuffisante (minimum sur son bord : le point a avancé au-delà) ou trop loin : recherche globale */
+      if (best < 0 || bd > 30 || bordFenetre) { const b0 = best; for (let i = 0; i < n; i += 2) essai(i); if (best !== b0) for (let i = Math.max(0, best - 2); i < Math.min(n, best + 3); i++) essai(i); }
+      let s = S[best];   // affinage : abscisse où (q - P(s)) est orthogonal à T(s) (Newton sur quelques itérations)
+      for (let it = 0; it < 6; it++) { const f = repere(s), e = V.dot(V.sub(q, f.p), f.t); s = Math.max(0, Math.min(longueur, s + e)); if (Math.abs(e) < 1e-6) break; }
+      const f = repere(s), r = V.sub(q, f.p); return { s, d: V.dot(r, f.l), h: V.dot(r, f.n), e: V.dot(r, f.t), repere: f };   /* e ≠ 0 : point au-delà d'une extrémité */
+    }
+    // Courbure normale κ = dT/ds · N : > 0 = concave (la chaussée remonte devant, comme le pied d'un mur), < 0 = convexe (une crête).
+    function courbure(s) { const e = .4, a = repere(s - e), b = repere(s + e); return V.dot(V.mul(V.sub(b.t, a.t), 1 / (2 * e)), repere(s).n); }
+    const aimante = (s) => !!(A && A[indice(s)[0]]);
+    return { longueur, n, repere, sample, project, courbure, aimante, P, T, N, W, S };
+  }
+
+  // ---- Kart attaché à la surface -----------------------------------------------------------------------------------------------------
+  // Réglages (unités SI) : g, poussée max, freinage aérodynamique, adhérence de plaquage (m/s²), vitesse minimale d'adhérence sur
+  // forte pente, vitesse de braquage.
+  // adherence : 2,6 g sur route NORMALE (une crête rapide devient un tremplin). Segments « aimante » (anti-gravité) : plaquage sans limite
+  // de courbure — à 40 m/s une crête de 12 m de rayon demande 13,5 g (mesuré le 6 nov.) — mais détachement si la vitesse manque sur forte pente. tVolMax : remise en piste au dernier point attaché après ce temps de vol.
+  const REGLAGES = { g: 9.81, poussee: 26, trainee: .012, frottement: .9, adherence: 2.6 * 9.81, vMinParoi: 9, pente: 70, braquage: 1.9, vMax: 64, tVolMax: 4, controleAir: 0 };   /* controleAir (rad/s) : braquage en vol (#32.B6 ENVOL) ; 0 = vol balistique pur (B1–B5) */
+  function creerKart(surf, opts) {
+    const R = Object.assign({}, REGLAGES, opts || {});
+    /* Traînée calée sur la vitesse maximale (7 nov.) : avec une traînée fixe de 0,012, la vitesse limite poussée/traînée valait
+       √(26 / 0,012) ≈ 46,5 m/s quelle que soit la cylindrée — 100 et 150cc n'atteignaient jamais 54 et 64 m/s (constaté par le banc ENVOL :
+       même vitesse de décollage pour les trois). La vitesse limite vaut désormais 1,05 × vMax (vMax reste la butée). Réglage explicite
+       « trainee » conservé s'il est fourni. */
+    if (!(opts && opts.trainee != null)) R.trainee = R.poussee / (R.vMax * 1.05) ** 2;
+    return { surf, R, s: (opts && opts.s) || 2, d: (opts && opts.d) || 0, h: 0, cap: 0, v: (opts && opts.v) || 0, vLat: 0, attache: true, vol: null, tVol: 0, detachements: 0, raccrochages: 0, evenements: [] };
+  }
+  function position(k) { return k.attache ? k.surf.sample(k.s, k.d, 0) : k.vol.p; }
+  // entrées : { gaz (0..1), frein (0..1), braquage (-1 gauche .. 1 droite) }
+  function pas(k, dt, e) {
+    const R = k.R, surf = k.surf, gW = [0, -R.g, 0];
+    if (k.attache) {
+      if (k.etourdi > 0) e = { braquage: 0, gaz: 0 };   /* tête-à-queue (#32.C2) : ni gaz ni braquage pendant k.etourdi */
+      const f = surf.repere(k.s), dir = V.add(V.mul(f.t, Math.cos(k.cap)), V.mul(f.l, Math.sin(k.cap)));   // direction de marche dans le plan
+      // 1. vitesse : poussée, gravité le long de la marche, traînée et frottement
+      const aG = V.dot(gW, dir);
+      k.v += (R.poussee * (e.gaz || 0) - R.poussee * 1.4 * (e.frein || 0) + aG - R.trainee * k.v * Math.abs(k.v) - R.frottement * Math.sign(k.v) * (e.gaz ? 0 : 1)) * dt;
+      k.v = Math.max(-8, Math.min(R.vMax, k.v));
+      // 2. braquage libre (cap relatif à la tangente), réduit à très basse vitesse
+      k.cap += -(e.braquage || 0) * R.braquage * Math.min(1, Math.abs(k.v) / 6) * dt;
+      // 3. gravité latérale (une paroi tire le kart vers le bas de la chaussée)
+      const aLat = V.dot(gW, f.l);
+      // 4. avance dans le repère de surface
+      /* Vitesse latérale de glissement : la gravité l'accélère ; au-dessus de vMinParoi, les pneus la freinent fortement (le kart tient sa ligne). */
+      const lent = Math.abs(k.v) < R.vMinParoi;
+      k.vLat = ((k.vLat || 0) + aLat * dt * (lent ? 1 : .15)) * Math.exp(-(lent ? .4 : 6) * dt);
+      const ds = k.v * Math.cos(k.cap) * dt, dd = k.v * Math.sin(k.cap) * dt + k.vLat * dt;
+      k.s += ds; k.d += dd;
+      // 5. bords de chaussée : butées (la vitesse latérale est perdue, le cap se redresse)
+      const demi = f.largeur / 2 - 1.1; if (Math.abs(k.d) > demi) { k.d = Math.sign(k.d) * demi; k.cap *= .5; k.vLat = 0; k.evenements.push({ t: 'bord', s: k.s }); }
+      // 6. adhérence : accélération normale demandée par la courbure convexe et part de la gravité qui décolle
+      // Manque à compenser vers la chaussée : accélération centripète d'une crête (κ < 0) + gravité qui éloigne (g·N : −g au sol, 0 sur un
+      // mur, +g au plafond). Au-delà de l'adhérence d'arcade, ou sur forte pente sans vitesse, le kart se détache.
+      const kap = surf.courbure(k.s), besoin = -kap * k.v * k.v * Math.cos(k.cap) ** 2 + V.dot(gW, f.n);
+      const raide = Math.acos(Math.max(-1, Math.min(1, V.dot(f.n, [0, 1, 0])))) / DEG;   // 0 = sol plat, 90 = mur, 180 = plafond
+      k.besoin = besoin; k.raide = raide;
+      const adSeg = surf.adherenceSeg ? surf.adherenceSeg(k.s) : NaN, adh = surf.aimante(k.s) ? Infinity : Number.isFinite(adSeg) ? adSeg * R.g : R.adherence;   /* adhérence propre du segment si déclarée */
+      // Manque de vitesse : sur route aimantée, le kart glisse en arrière plaqué (la gravité le ramène au pied du mur) ; il ne tombe qu'au-delà
+      // de la verticale (plafond, > 100°). Sur route normale, il décroche dès que la pente dépasse « pente ».
+      /* Segment à adhérence DÉCLARÉE (#32.B5) : seul le critère physique (besoin > adhérence) s'applique — sur une paroi intérieure concave, la
+         gravité plaque le kart (g·n < 0) : la règle arcade « trop lent > 70° » le faisait décrocher puis se raccrocher sans fin (oscillation
+         constatée le 7 nov. sur le grand looping risqué, 30 s sans remise). Retenue totale (Infinity) : redescend plaqué, ne tombe jamais. */
+      const tropLent = Number.isNaN(adSeg) && Math.abs(k.v) < R.vMinParoi && raide > (surf.aimante(k.s) ? 100 : R.pente);
+      if (besoin > adh || tropLent) {
+        // DÉTACHEMENT : vol libre avec la vitesse monde actuelle
+        const vW = V.mul(V.add(V.mul(f.t, Math.cos(k.cap)), V.mul(f.l, Math.sin(k.cap))), k.v);
+        k.vol = { p: surf.sample(k.s, k.d, .05), v: V.add(vW, V.mul(f.n, .5)) }; k.attache = false; k.tVol = 0; k.detachements++; k.evenements.push({ t: 'detache', s: k.s, v: k.v, raide: +raide.toFixed(1), besoin: +besoin.toFixed(1) });
+      }
+      if (k.attache && raide < 30) k.dernier = { s: k.s, d: k.d, surf };   // dernier point SÛR (pente < 30°) pour une remise en piste
+      k.depasse = 0; if (k.s >= surf.longueur) { k.depasse = k.s - surf.longueur; k.s = surf.longueur; }   /* dépassement conservé pour un enchaînement de surfaces (B3) */
+      return;
+    }
+    // Vol libre : gravité monde, puis raccrochage quand on touche la chaussée (h ≤ 0 en approchant, dans la largeur)
+    if (R.controleAir && e && e.braquage) { const a = -e.braquage * R.controleAir * dt, c = Math.cos(a), sn = Math.sin(a), v = k.vol.v; k.vol.v = [v[0] * c + v[2] * sn, v[1], -v[0] * sn + v[2] * c]; }   /* virage en vol autour de la verticale */
+    k.vol.v = V.add(k.vol.v, V.mul(gW, dt)); k.vol.p = V.add(k.vol.p, V.mul(k.vol.v, dt)); k.tVol += dt;
+    if (k.tVol > R.tVolMax) { const d0 = k.dernier || { s: k.s, d: 0 }; if (d0.surf) k.surf = d0.surf; k.s = Math.max(0, d0.s - 15); k.d = 0; k.cap = 0; k.v = 8; k.vLat = 0; k.attache = true; k.vol = null; k.remises = (k.remises || 0) + 1; k.evenements.push({ t: 'remise', s: k.s }); return; }
+    /* Raccrochage : sur la surface courante (projection locale, continuité) ou, en réseau (B3), sur la PREMIÈRE surface candidate
+       réellement touchée : point dans la largeur et dans la longueur (e ≈ 0), traversée du plan de chaussée par le dessus (h ≤ 0, mais
+       moins de 2 m sous la chaussée : on ne s'accroche pas à une route qu'on aurait « traversée » depuis le dessous), vitesse entrante. */
+    const cands = k.candidats ? k.candidats() : [surf];
+    let pr = null, cible = null;
+    /* plusieurs surfaces touchées au même pas (réceptions côte à côte, #32.B6) : la plus HAUTE (traversée en premier), puis la mieux
+       CENTRÉE (|d| rapporté à la demi-largeur) — plus de préférence implicite pour la première de la liste */
+    for (const c of cands) { const q = c.project(k.vol.p, c === surf ? k.s : null), vn = V.dot(k.vol.v, q.repere.n);
+      if (q.h <= 0 && q.h > -2 && Math.abs(q.e) < .5 && Math.abs(q.d) < q.repere.largeur / 2 + .5 && vn <= 0) { const sc = q.h * 10 - Math.abs(q.d) / (q.repere.largeur / 2); if (!pr || sc > pr.score) { pr = Object.assign(q, { score: sc }); cible = c; } } }
+    if (pr) { if (cible !== surf) { k.surf = cible; k.changements = (k.changements || 0) + 1; }
+      const f = pr.repere, vt = V.dot(k.vol.v, f.t), vl = V.dot(k.vol.v, f.l);
+      k.s = pr.s; k.d = Math.max(-f.largeur / 2 + 1.1, Math.min(f.largeur / 2 - 1.1, pr.d)); k.v = Math.hypot(vt, vl) * .8; k.cap = Math.atan2(vl, vt) * .5;
+      if (Math.abs(k.cap) > Math.PI / 2) { k.cap = 0; k.v *= .3; }
+      k.vLat = 0; k.attache = true; k.vol = null; k.raccrochages++; k.evenements.push({ t: 'raccroche', s: k.s, apres: +k.tVol.toFixed(2) });
+    }
+  }
+  // Mesures de contact : distance roue–chaussée et alignement du « haut » du kart avec la normale (1 = parfait).
+  function contact(k) { if (!k.attache) { const pr = k.surf.project(k.vol.p, k.s); return { attache: false, h: pr.h, alignement: null }; } return { attache: true, h: 0, alignement: 1, repere: k.surf.repere(k.s) }; }
+
+  // ---- Palier 32.B1 : sol → mur droit devant (≈ 88°) → plateau → mur qui redescend → sol -----------------------------------------------
+  function profilMurFrontal(o) {
+    // pied : raccord concave (sol → mur) ; crête : raccord convexe (mur → plateau), plus doux car il faut y plaquer le kart.
+    o = Object.assign({ angle: 88, pied: 8, crete: 18, mur: 26, plateau: 25, sol: 40, largeur: 14 }, o || {});
+    const arc = (deg, r) => Math.abs(deg) * DEG * r;   // longueur d'un raccord circulaire de rayon r
+    const M = { aimante: true };
+    return [{ long: o.sol }, Object.assign({ long: arc(o.angle, o.pied), tangage: o.angle }, M), Object.assign({ long: o.mur }, M), Object.assign({ long: arc(o.angle, o.crete), tangage: -o.angle }, M), Object.assign({ long: o.plateau }, M),
+      Object.assign({ long: arc(o.angle, o.crete), tangage: -o.angle }, M), Object.assign({ long: o.mur }, M), Object.assign({ long: arc(o.angle, o.pied), tangage: o.angle }, M), { long: o.sol }].map((x) => Object.assign({ largeur: o.largeur }, x));
+  }
+  // ---- Palier 32.B2 : virages sur paroi (gauche, droite, S, épingle, spirale) -----------------------------------------------------------
+  // Une paroi = chaussée relevée (roulis) ; le virage pivote autour de la verticale. Le côté du dévers suit le sens du virage (paroi
+  // à l'extérieur, comme un vélodrome) ; « S » inverse le dévers au milieu, en douceur ; « spirale » monte en tournant.
+  function profilParoi(type, o) {
+    o = Object.assign({ devers: 80, rayon: 30, entree: 30, largeur: 14, montee: 6 }, o || {}); /* montee : pente (°) de la spirale */ const M = { aimante: true }, arc = (deg) => Math.abs(deg) * DEG * o.rayon;
+    const relever = (sens, long) => Object.assign({ long: long || 22, roulis: sens * o.devers }, M), virer = (deg, extra) => Object.assign({ long: arc(deg), virage: deg }, M, extra || {});
+    const sol = (long) => ({ long: long || o.entree });
+    // roulis + = penche à droite : pour un virage à gauche (virage +), la paroi est à droite → on relève vers la gauche (roulis −)
+    const cote = (deg) => (deg > 0 ? -1 : 1);
+    let p;
+    if (type === 'gauche' || type === 'droite') { const d = type === 'gauche' ? 90 : -90; p = [sol(), relever(cote(d)), virer(d), relever(-cote(d)), sol()]; }
+    else if (type === 'epingle') p = [sol(), relever(cote(180)), virer(180), relever(-cote(180)), sol()];
+    else if (type === 's') p = [sol(), relever(cote(90)), virer(90), relever(-cote(90) * 2, 34), virer(-90), relever(cote(90), 22), sol()];
+    else if (type === 'spirale') { const e = o.montee || 0; p = [sol(), relever(cote(360)), Object.assign({ long: 12, elevation: e }, M), virer(360), Object.assign({ long: 12, elevation: -e }, M), relever(-cote(360)), sol()]; }
+    else throw new Error('type de paroi inconnu : ' + type);
+    return p.map((x) => Object.assign({ largeur: o.largeur }, x));
+  }
+  /* #32.B5 — Looping PARAMÉTRIQUE : trois tailles (rayon 10 / 14 / 20 m) × trois risques. « sur » : aimanté avec retenue totale (un kart trop
+     lent redescend plaqué) ; « moyen » : aimanté, mais décroche s'il est trop lent au-delà de 100° (règle B1) ; « risque » : route NORMALE
+     sans plaquage (adhérence 0 g : il faut v² ≥ g·R en haut, comme en physique). Décalage latéral = 1,4 × rayon (sortie dégagée). */
+  function profilLooping(taille, risque, o) {
+    o = Object.assign({ elan: 40, sortie: 60 }, o || {}); const R = { petit: 10, moyen: 14, grand: 20 }[taille] || taille;
+    const opt = { sur: { aimante: true, adherence: Infinity }, moyen: { aimante: true }, risque: { adherence: 0 } }[risque]; if (!opt) throw new Error('risque inconnu : ' + risque);
+    return [{ long: o.elan }, Object.assign({ looping: R, decalage: R * 1.4 }, opt), { long: o.sortie }];
+  }
+  // ---- #32.B3 Réseau de surfaces : superpositions, bifurcations, retour sur soi -------------------------------------------------------
+  // surfaces : { id: surface } placées dans le même monde (option depart de depuisProfil). liens : { id: [{ vers, decal }] } — à la fin
+  // de la surface id, le kart enchaîne sur « vers » ; decal = position latérale (m, + = gauche) du centre de la suivante dans la
+  // largeur de la précédente. Plusieurs liens = BIFURCATION : la branche est choisie par le côté où roule le kart (le lien dont le
+  // decal est le plus proche de d) — un bot vise ce côté avant la fourche, un humain choisit en braquant. vide : { id: true } = la
+  // route s'arrête dans le vide (fin de pont) : le kart part en vol libre et se raccroche à la première surface touchée.
+  // Sélection de surface : un kart attaché ne suit QUE sa surface (projection locale) : passer sous un pont ne le « téléporte » jamais
+  // dessus ; en vol, il se raccroche à la surface réellement traversée par le dessus. Remise en piste : dernier point sûr de SA surface.
+  function reseau(surfaces, liens, vide, opts) {
+    opts = opts || {};
+    liens = liens || {}; vide = vide || {}; const ids = Object.keys(surfaces), idDe = new Map(ids.map((i) => [surfaces[i], i]));
+    const fin = (id, decal) => { const f = surfaces[id].repere(surfaces[id].longueur); return { p: V.add(f.p, V.mul(f.l, decal || 0)), t: f.t, n: f.n }; };
+    function attacher(k) { k.candidats = () => [k.surf].concat(ids.map((i) => surfaces[i]).filter((x) => x !== k.surf)); k.reseau = true; return k; }
+    function creer(id, o) { return attacher(creerKart(surfaces[id], o)); }
+    /* #32.B4 — début de chaque surface en distance depuis le départ (graphe : plus court chemin), progression d'un kart, points de
+       passage ordonnés (un point manqué n'est pas validé : pas de raccourci par saut), cible latérale de l'IA à l'approche d'une fourche
+       selon une politique (« court » : branche menant au terminus par le plus court chemin ; « long » : l'inverse ; « alea » : tirage par kart). */
+    const debut = {}; { const file = [[opts.depart || ids[0], 0]]; while (file.length) { const [i, d] = file.shift(); if (debut[i] != null && debut[i] <= d) continue; debut[i] = d; for (const x of liens[i] || []) file.push([x.vers, d + surfaces[i].longueur]); } }
+    const resteMin = {}; const reste = (i) => { if (resteMin[i] != null) return resteMin[i]; const L = liens[i] || []; resteMin[i] = surfaces[i].longueur + (L.length ? Math.min(...L.map((x) => reste(x.vers))) : 0); return resteMin[i]; };
+    const points = (opts.points || []).map((x, n) => Object.assign({ n }, x));
+    /* progression continue : sur une surface, s est ramené à l'intervalle [début, début de la suivante] (une branche longue compte
+       comme la plus courte : pas de saut de classement à la réunion) */
+    const echelle = {}; for (const i of ids) { const L = liens[i] || []; echelle[i] = L.length ? (Math.min(...L.map((x) => debut[x.vers])) - debut[i]) / surfaces[i].longueur : 1; }
+    const progression = (k) => { const i = idDe.get(k.surf); return (debut[i] || 0) + k.s * (echelle[i] || 1); };
+    function cibleIA(k, politique) { const id = idDe.get(k.surf), L = liens[id]; if (!L || L.length < 2 || k.surf.longueur - k.s > (opts.anticipe || 45)) return 0;
+      k.choixIA = k.choixIA || {}; if (k.choixIA[id] == null) { if (politique === 'alea') k.choixIA[id] = L[Math.floor((k.graine == null ? Math.random() : k.graine) * L.length) % L.length].vers; else if (politique === 'long') k.choixIA[id] = L.reduce((a, b) => (reste(b.vers) > reste(a.vers) ? b : a)).vers; else k.choixIA[id] = L.reduce((a, b) => (reste(b.vers) < reste(a.vers) ? b : a)).vers; }
+      return L.find((x) => x.vers === k.choixIA[id]).decal; }
+    function passer(k) { k.point = k.point || 0; const pt = points[k.point]; if (pt && k.attache && idDe.get(k.surf) === pt.surface && k.s >= pt.s && k.s < pt.s + 30) { k.point++; k.evenements.push({ t: 'point', n: pt.n }); } }
+    function pasR(k, dt, e) {
+      pas(k, dt, e); passer(k); if (!k.attache || k.s < k.surf.longueur) return;
+      const id = idDe.get(k.surf), L = liens[id];
+      if (L && L.length) { let b = L[0]; for (const x of L) if (Math.abs(x.decal - k.d) < Math.abs(b.decal - k.d)) b = x;
+        const suiv = surfaces[b.vers], w = suiv.repere(0).largeur / 2 - 1.1; k.surf = suiv; k.s = k.depasse || 0; k.d = Math.max(-w, Math.min(w, k.d - (b.decal || 0)));
+        k.evenements.push({ t: 'enchaine', de: id, vers: b.vers }); return; }
+      if (vide[id]) { const f = k.surf.repere(k.surf.longueur), dir = V.add(V.mul(f.t, Math.cos(k.cap)), V.mul(f.l, Math.sin(k.cap)));
+        /* vide : { propulseur: v } (#32.B6) = tremplin propulseur : vitesse de décollage fixée (même trajectoire pour toutes les cylindrées) */
+        if (vide[id].propulseur) k.v = vide[id].propulseur;
+        k.vol = { p: k.surf.sample(k.surf.longueur, k.d, .05), v: V.mul(dir, k.v) }; k.attache = false; k.tVol = 0; k.detachements++; k.evenements.push({ t: 'vide', de: id }); }
+    }
+    return { surfaces, liens, vide, ids, id: (surf) => idDe.get(surf), fin, attacher, creer, pas: pasR, debut, reste, points, progression, cibleIA, verifier: (o) => verifier(surfaces, liens, o),
+      /* bout du réseau : surface sans suite ni vide (la course s'y termine) */ terminus: (surf) => { const i = idDe.get(surf); return !(liens[i] && liens[i].length) && !vide[i]; } };
+  }
+  /* #32.A3/B4 — Refus clair d'une géométrie impossible : deux portions de chaussée (surfaces différentes, ou même surface à plus de
+     « ecartS » m d'abscisse) ne doivent jamais s'approcher à moins de « degagement » m (kart 2,2 m + tablier + marge), sauf aux raccords
+     déclarés (fin d'une surface ↔ début de sa suivante, départs de branches sœurs, arrivées d'une réunion, sur « zone » m). Grille de
+     8 m ; échantillons tous les 1 m sur l'axe et les deux bords. Retourne la liste des conflits (vide = géométrie acceptée). */
+  function verifier(surfaces, liens, o) {
+    o = Object.assign({ degagement: 6, ecartS: 40, zone: 32, pas: 1 }, o || {}); const ids = Object.keys(surfaces), pts = [], G = new Map(), cle = (x, y, z) => x + ',' + y + ',' + z;
+    const succ = {}, pred = {}; for (const i of ids) for (const x of liens[i] || []) { (succ[i] = succ[i] || []).push(x.vers); (pred[x.vers] = pred[x.vers] || []).push(i); }
+    const soeurs = (a, b) => ids.some((i) => (succ[i] || []).includes(a) && (succ[i] || []).includes(b)), reunies = (a, b) => (succ[a] || []).some((x) => (succ[b] || []).includes(x));
+    for (const i of ids) { const S0 = surfaces[i]; for (let s = 0; s <= S0.longueur; s += o.pas) { const f = S0.repere(s), w = f.largeur / 2 - .3, nl = Math.max(2, Math.ceil(2 * w / o.pas)); for (let j = 0; j <= nl; j++) { const d = -w + 2 * w * j / nl, q = V.add(f.p, V.mul(f.l, d)), c = [Math.floor(q[0] / 8), Math.floor(q[1] / 8), Math.floor(q[2] / 8)]; const pt = { i, s, q, c, n: f.n, L: S0.longueur }; pts.push(pt); const k = cle(...c); if (!G.has(k)) G.set(k, []); G.get(k).push(pt); } } }
+    const permis = (a, b) => { if (a.i === b.i) return Math.abs(a.s - b.s) < o.ecartS; const z = o.zone;
+      if ((succ[a.i] || []).includes(b.i) && a.s > a.L - z && b.s < z) return true; if ((succ[b.i] || []).includes(a.i) && b.s > b.L - z && a.s < z) return true;
+      if (soeurs(a.i, b.i) && a.s < z && b.s < z) return true; if (reunies(a.i, b.i) && a.s > a.L - z && b.s > b.L - z) return true;
+      /* branche sœur ↔ surface qui suit la fourche (et inversement à la réunion) : même zone de raccord */
+      if ((pred[a.i] || []).some((p) => (succ[p] || []).includes(b.i))) return a.s < z && b.s < z; return false; };
+    const conflits = [], vus = new Set();
+    for (const a of pts) for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) for (const b of G.get(cle(a.c[0] + dx, a.c[1] + dy, a.c[2] + dz)) || []) {
+      /* conflit = l'autre chaussée passe DANS l'espace libre au-dessus (ou au ras) de celle-ci : même emprise en plan (écart dans le
+         plan < pas) et hauteur selon la normale < degagement. Deux chaussées côte à côte (séparées par leurs butées) restent permises. */
+      if (b === a || permis(a, b)) continue; const r0 = V.sub(b.q, a.q), h = V.dot(r0, a.n), plan = V.len(V.sub(r0, V.mul(a.n, h))), d = Math.abs(h); if (plan > o.pas * .9 || d >= o.degagement) continue;
+      const k = a.i + ':' + Math.round(a.s / 10) + '|' + b.i + ':' + Math.round(b.s / 10); if (vus.has(k)) continue; vus.add(k); vus.add(b.i + ':' + Math.round(b.s / 10) + '|' + a.i + ':' + Math.round(a.s / 10));
+      conflits.push({ a: a.i, sa: +a.s.toFixed(0), b: b.i, sb: +b.s.toFixed(0), distance: +d.toFixed(2) }); }
+    return conflits;
+  }
+  // Scènes de démonstration #32.B3 (mêmes géométries pour les bancs et la page prototype). Rampes de pont à raccords verticaux DOUX
+  // (10° sur 60 m) : 25° sur 25 m faisaient un tremplin (plus de 2,6 g à la crête), pas un pont.
+  function sceneReseau(nom, o) {
+    if (nom === 'croisement') {
+      const profilPont = [{ long: 30 }, { long: 60, tangage: 10 }, { long: 60, tangage: -10 }, { long: 40 }, { long: 60, tangage: -10 }, { long: 60, tangage: 10 }, { long: 60 }];
+      const A = depuisProfil([{ long: 260 }], { depart: { p: [-40, 0, 0] } }), tmp = depuisProfil(profilPont, { depart: { t: [0, 0, 1] } }), m = tmp.sample(170, 0, 0);
+      const B = depuisProfil(profilPont, { depart: { p: [120 - m[0], 0, -m[2]], t: [0, 0, 1] } });
+      return { surfaces: { A, B }, liens: {}, vide: {}, depart: 'B', autres: ['A'] };
+    }
+    if (nom === 'etage') {
+      const U = depuisProfil([{ long: 40 }, { long: 60, tangage: 10 }, { long: 60, tangage: -10 }, { long: 40 }]), D = depuisProfil([{ long: 460 }], { depart: { p: [150, 0, 0] } });
+      return { surfaces: { U, D }, liens: {}, vide: { U: true }, depart: 'U', autres: ['D'] };
+    }
+    if (nom === 'bifurcation') {
+      /* entrée de branche 9,4 m → 7 m : couvre toute la demi-chaussée (|d| ≤ 5,9 m) sans saut latéral à l'enchaînement */
+      const branche = (sg) => [{ long: 30, virage: 22 * sg, largeur: 9.4, largeurFin: 7 }, { long: 30, virage: -22 * sg, largeur: 7 }, { long: 40, largeur: 7 }, { long: 30, virage: -22 * sg, largeur: 7 }, { long: 30, virage: 22 * sg, largeur: 7 }];
+      const A4 = depuisProfil([{ long: 80 }]), f = A4.repere(A4.longueur), dep = (dl) => ({ p: V.add(f.p, V.mul(f.l, dl)), t: f.t, n: f.n });
+      const Bg = depuisProfil(branche(1), { depart: dep(3.5) }), Bd = depuisProfil(branche(-1), { depart: dep(-3.5) }), fg = Bg.repere(Bg.longueur);
+      const D4 = depuisProfil([{ long: 120 }], { depart: { p: V.add(fg.p, V.mul(fg.l, -3.5)), t: fg.t, n: fg.n } });
+      return { surfaces: { A4, Bg, Bd, D4 }, liens: { A4: [{ vers: 'Bg', decal: 3.5 }, { vers: 'Bd', decal: -3.5 }], Bg: [{ vers: 'D4', decal: -3.5 }], Bd: [{ vers: 'D4', decal: 3.5 }] }, vide: {}, depart: 'A4', fourche: { surface: 'A4', depuis: 40, decal: 3.5 } };
+    }
+    if (nom === 'parcours') {
+      /* #32.B4 — COMPOSITION : sol → montée courbe → plafond (chaussée retournée en hauteur) → looping décalé → vrille → descente
+         courbe → bifurcation (branche courte / longue) → réunion → arrivée. Tronçons anti-gravité « aimante » ; le reste est route normale. */
+      const M = { aimante: true }, am = (o) => Object.assign({}, o, M);
+      /* crêtes en route normale sur 60 m (7 nov.) : sur 30 m, à 64 m/s réels, la crête demandait ≈ 4,3 g et faisait décoller les 150cc */
+      const tronc = [{ long: 40 }, { long: 30, tangage: 12, virage: 18 }, { long: 40, virage: 20 }, { long: 60, tangage: -12, virage: 18 }, { long: 20 },
+        am({ long: 30, roulis: 180 }), am({ long: 30 }), am({ long: 30, roulis: -180 }), { long: 20 },
+        am({ long: 10 }), am({ looping: 14, decalage: 20 }), am({ long: 10 }), { long: 20 },
+        am({ long: 90, roulis: 360 }), { long: 20 }, { long: 60, tangage: -12, virage: -25 }, { long: 40, virage: -25 }, { long: 30, tangage: 12, virage: -20 }, { long: 40 }];
+      const A = depuisProfil(tronc), f = A.repere(A.longueur), dep = (dl) => ({ p: V.add(f.p, V.mul(f.l, dl)), t: f.t, n: f.n });
+      const courbes = (sg, a) => [{ long: 30, virage: a * sg, largeur: 9.4, largeurFin: 7 }, { long: 30, virage: -a * sg, largeur: 7 }];
+      const avance = (prof) => { const x = depuisProfil(prof); return V.dot(V.sub(x.repere(x.longueur).p, x.repere(0).p), x.repere(0).t); };   /* avancée le long de l'axe de départ */
+      /* branche : écart (+a, −a), ligne droite, retour (−a, +a) → revient à son décalage de départ ; la longue (45°) a sa ligne droite
+         ajustée pour arriver au même point que la courte (22°) */
+      const retour = (sg, a) => courbes(sg, a).map((x) => Object.assign({}, x, { virage: -x.virage, largeur: 7, largeurFin: 7 }));
+      const brG = [...courbes(1, 22), { long: 40, largeur: 7 }, ...retour(1, 22)];
+      const aG = avance(brG), aCourbesD = 2 * avance(courbes(-1, 45).map((x) => Object.assign({}, x, { largeur: 7, largeurFin: 7 })));
+      const brD = [...courbes(-1, 45), { long: aG - aCourbesD, largeur: 7 }, ...retour(-1, 45)];
+      const Bc = depuisProfil(brG, { depart: dep(3.5) }), Bl = depuisProfil(brD, { depart: dep(-3.5) }), fc = Bc.repere(Bc.longueur);
+      const D = depuisProfil([{ long: 90 }], { depart: { p: V.add(fc.p, V.mul(fc.l, -3.5)), t: fc.t, n: fc.n } });
+      return { surfaces: { A, Bc, Bl, D }, liens: { A: [{ vers: 'Bc', decal: 3.5 }, { vers: 'Bl', decal: -3.5 }], Bc: [{ vers: 'D', decal: -3.5 }], Bl: [{ vers: 'D', decal: 3.5 }] }, vide: {}, depart: 'A',
+        points: [{ surface: 'A', s: 100 }, { surface: 'A', s: 230 }, { surface: 'A', s: 360 }, { surface: 'A', s: 480 }, { surface: 'D', s: 40 }] };
+    }
+    if (nom === 'envol') { o = o || {};
+      /* #32.B6 — ENVOL : piste d'élan + tremplin (route normale, 8°) qui s'arrête dans le vide ; DEUX réceptions indépendantes côte à côte
+         (G à gauche, D à droite, 2 m plus bas, 15 m de large, 60 cm d'écart), choisies en vol (contrôle aérien 0,08 rad/s) ; ligne droite de
+         réception de 150 m, puis chaque route s'écarte de son côté et revient ; réunion sur la route commune C. Routes symétriques (équité). */
+      const A = depuisProfil([{ long: 60 }, { long: 20, tangage: 8 }, { long: 6 }]),   /* lèvre droite à 8° : pas de crête convexe (à 64 m/s, elle faisait décoller AVANT le bord, sans propulseur) */ f = A.repere(A.longueur), dn = V.norm([f.t[0], 0, f.t[2]]), gauche = V.norm(V.cross([0, 1, 0], dn));
+      const base = V.add(V.add(f.p, V.mul(dn, 10)), [0, -2, 0]), dep = (sg) => ({ p: V.add(base, V.mul(gauche, sg * 7.8)), t: dn, n: [0, 1, 0] });
+      const route = (sg) => [{ long: 150, largeur: 15 }, { long: 30, virage: 25 * sg, largeur: 15, largeurFin: 10 }, { long: 30, virage: -25 * sg, largeur: 10 }, { long: 30, largeur: 10 }, { long: 30, virage: -25 * sg, largeur: 10 }, { long: 30, virage: 25 * sg, largeur: 10, largeurFin: 15 }];
+      const G = depuisProfil(route(1), { depart: dep(1) }), D = depuisProfil(route(-1), { depart: dep(-1) }), fg = G.repere(G.longueur);
+      const C = depuisProfil([{ long: 80, largeur: 30 }], { depart: { p: V.add(fg.p, V.mul(fg.l, -7.8)), t: fg.t, n: fg.n } });
+      return { surfaces: { A, G, D, C }, liens: { G: [{ vers: 'C', decal: -7.8 }], D: [{ vers: 'C', decal: 7.8 }] }, vide: { A: o.propulseur === false ? true : { propulseur: 46 } }, depart: 'A', reglages: { controleAir: .08 } };
+    }
+    throw new Error('scène inconnue : ' + nom);
+  }
+  /* #32.C2 — OBJETS sur surfaces 3D (prototype) : pièges fixes posés en (surface, s, d) et projectiles qui roulent SUR la chaussée comme un
+     kart (mêmes repères, parois, plafonds, enchaînements de réseau, vide et vol libre avec raccrochage), durée de vie bornée. Collisions :
+     piège ↔ kart seulement sur la MÊME surface (un piège sous un pont n'atteint pas le kart qui passe dessus) ; projectile ↔ kart par
+     distance monde (vaut aussi en vol). Effet d'un coup : tête-à-queue (vitesse × 0,35, 0,8 s sans contrôle) ; une protection l'absorbe.
+     Non couvert : réplication réseau, rendu des objets dans le jeu (indisponible dans ce prototype). */
+  function objets(R) {
+    const pieges = [], projectiles = [], journal = [];
+    const toucher = (k, par) => { if (k.toucheCd > 0) return; if (k.protection) { k.protection = false; journal.push({ t: 'protege', par }); k.toucheCd = .5; return; }
+      k.v *= .35; k.etourdi = .8; k.toucheCd = .8; k.coups = (k.coups || 0) + 1; journal.push({ t: 'touche', par, s: +k.s.toFixed(1), surface: R.id(k.surf), attache: k.attache }); };
+    function poser(id, s, d, nom) { pieges.push({ surf: R.surfaces[id], s, d, nom: nom || 'flaque', actif: true }); }
+    function lancer(k, o) { o = o || {}; const p = R.creer(R.id(k.surf), { s: k.s + 2.5, d: k.d, v: Math.max(o.v || 70, Math.abs(k.v) + 15), vMax: o.v || 70 }); p.cap = k.cap; p.vie = o.vie || 6; p.lanceur = k;
+      if (!k.attache) { p.attache = false; p.vol = { p: V.add(k.vol.p, V.mul(V.norm(k.vol.v), 2.5)), v: V.mul(V.norm(k.vol.v), Math.max(o.v || 70, V.len(k.vol.v) + 15)) }; p.tVol = 0; p.surf = k.surf; }
+      projectiles.push(p); return p; }
+    function pas(karts, dt) {
+      for (const k of karts) { k.toucheCd = Math.max(0, (k.toucheCd || 0) - dt); k.etourdi = Math.max(0, (k.etourdi || 0) - dt); }
+      for (const q of pieges) if (q.actif) for (const k of karts) if (k.attache && k.surf === q.surf && Math.abs(k.s - q.s) < 1.6 && Math.abs(k.d - q.d) < 1.4) { toucher(k, q.nom); q.actif = false; }
+      for (const p of projectiles) { if (p.fini) continue; p.vie -= dt; R.pas(p, dt, { gaz: 1 }); const pp = position(p);
+        if (p.vie <= 0 || !pp.every(Number.isFinite) || (p.remises || 0) > 0) { p.fini = true; journal.push({ t: 'projectile-fin', raison: p.vie <= 0 ? 'vie' : (p.remises ? 'tombé hors chaussée' : 'invalide') }); continue; }
+        for (const k of karts) if (k !== p.lanceur && V.len(V.sub(position(k), pp)) < 1.8) { toucher(k, 'projectile'); p.fini = true; break; } }
+    }
+    return { pieges, projectiles, journal, poser, lancer, pas, toucher };
+  }
+  const API = { V, depuisProfil, validerProfil, BORNES, profilParoi, profilLooping, reseau, sceneReseau, objets, depuisEchantillons, creerKart, pas, position, contact, profilMurFrontal, REGLAGES };
+  if (typeof module !== 'undefined' && module.exports) module.exports = API; else racine.WKSurface3D = API;
+})(typeof window !== 'undefined' ? window : globalThis);

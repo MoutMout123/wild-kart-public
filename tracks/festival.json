@@ -427,8 +427,9 @@
       {
         "type": "loop",
         "r": 22,
-        "from": 0.1027,
-        "to": 0.1243
+        "from": 0.0943,
+        "to": 0.1327,
+        "allonge": "2026-11-03 : +25 échantillons de chaque côté (déviation entrée/sortie 32-36° → 0-6°)"
       }
     ]
   },
@@ -548,6 +549,11 @@
             10
           ]
         ]
+      },
+      "terrain": {
+        "h": 22,
+        "seed": 57,
+        "drop": 16
       }
     },
     "boosts": [

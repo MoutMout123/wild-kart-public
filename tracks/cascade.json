@@ -378,8 +378,9 @@
       {
         "type": "loop",
         "r": 22,
-        "from": 0.081,
-        "to": 0.116
+        "from": 0.0673,
+        "to": 0.1297,
+        "allonge": "2026-11-03 : +25 échantillons de chaque côté (déviation entrée/sortie 32-36° → 0-6°)"
       }
     ]
   },
@@ -431,6 +432,28 @@
       "open": true,
       "role": "risque",
       "boost": true
+    },
+    {
+      "from": 0.265,
+      "to": 0.505,
+      "mid": [
+        [
+          378,
+          546.8,
+          28.1
+        ],
+        [
+          428.8,
+          745.7,
+          20.8
+        ]
+      ],
+      "width": 16,
+      "side": -1,
+      "label": "ENVOL",
+      "ai": 0.45,
+      "envol": true,
+      "role": "envol"
     }
   ],
   "checkpoints": [

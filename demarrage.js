@@ -36,13 +36,18 @@ const EL={};document.querySelectorAll('[data-k]').forEach(e=>(EL[e.dataset.k]=EL
 function setD(k,d){(EL[k]||[]).forEach(e=>e.setAttribute('d',d))}
 for(const k in SRC)setD(k,SRC[k].join(''));
 
-const P0=rd.getPointAtLength(0),P0b=rd.getPointAtLength(4),PL=rd.getPointAtLength(L),PLb=rd.getPointAtLength(L-4);
+/* Points du tracé mémorisés à la demande (pas de 4, interpolation linéaire, écart < 0,05 px) : getPointAtLength sur le chemin SVG
+   coûtait plusieurs appels par image, sur le même fil que le chargement du jeu (0,8 s de calcul sur un téléphone modeste). */
+const LUT_STEP=4,LUT_N=Math.ceil(L/LUT_STEP)+1,LUT=new Float32Array(LUT_N*2),LUT_OK=new Uint8Array(LUT_N);
+function lutAt(i){if(!LUT_OK[i]){const p=rd.getPointAtLength(Math.min(L,i*LUT_STEP));LUT[2*i]=p.x;LUT[2*i+1]=p.y;LUT_OK[i]=1}return i}
+function pointAt(s){s=Math.max(0,Math.min(L,s));const f=s/LUT_STEP,i=Math.min(LUT_N-2,Math.floor(f)),u=f-i;lutAt(i);lutAt(i+1);return {x:LUT[2*i]+(LUT[2*i+2]-LUT[2*i])*u,y:LUT[2*i+1]+(LUT[2*i+3]-LUT[2*i+1])*u}}
+const P0=pointAt(0),P0b=pointAt(4),PL=pointAt(L),PLb=pointAt(L-4);
 const T0x=(P0b.x-P0.x)/4,T0y=(P0b.y-P0.y)/4,TLx=(PL.x-PLb.x)/4,TLy=(PL.y-PLb.y)/4;
 function positionOnRoad(s){
   let x,y,tx,ty;
   if(s<0){x=P0.x+s*T0x;y=P0.y+s*T0y;tx=T0x;ty=T0y}
   else if(s>L){x=PL.x+(s-L)*TLx;y=PL.y+(s-L)*TLy;tx=TLx;ty=TLy}
-  else {const a=rd.getPointAtLength(s),b=rd.getPointAtLength(Math.min(L,s+2)),c=rd.getPointAtLength(Math.max(0,s-2));
+  else {const a=pointAt(s),b=pointAt(Math.min(L,s+2)),c=pointAt(Math.max(0,s-2));
     x=a.x;y=a.y;tx=b.x-c.x;ty=b.y-c.y}
   const m=Math.hypot(tx,ty)||1;
   return {x,y,a:Math.atan2(ty/m,tx/m)*180/Math.PI};
@@ -61,11 +66,13 @@ function drawKart(sc,op,scale,spd){
 
 /* Position de la ligne d’arrivée sur le tracé */
 let SF=0,bd=1e9;
-for(let s=0;s<=L;s+=3){const p=rd.getPointAtLength(s),d=(p.x-531)**2+(p.y-690)**2;if(d<bd){bd=d;SF=s}}
+// Ligne d'arrivée : recherche grossière (pas de 24) puis affinée (pas de 2) au lieu de 740 appels au chargement.
+for(let s=0;s<=L;s+=24){const p=rd.getPointAtLength(s),d=(p.x-531)**2+(p.y-690)**2;if(d<bd){bd=d;SF=s}}
+{const c=SF;for(let s=Math.max(0,c-24);s<=Math.min(L,c+24);s+=2){const p=rd.getPointAtLength(s),d=(p.x-531)**2+(p.y-690)**2;if(d<bd){bd=d;SF=s}}}
 
 /* Boucle d’animation */
 const HW=377*KS,SC0=HW,SC1=L-HW+24;
-let clock=0,last=0,shown=0,target=0,demo=true,done=false,tD=0,fv=0,rv=-1,sPrev=0,vS=0,off=0,phI=-1,phT=0,pcT='',ready=false,loopRunning=false;
+let fin=false,clock=0,last=0,shown=0,target=0,demo=true,done=false,tD=0,fv=0,rv=-1,sPrev=0,vS=0,off=0,phI=-1,phT=0,pcT='',ready=false,loopRunning=false;
 function schedule(){if(!loopRunning){loopRunning=true;requestAnimationFrame(frame)}}
 function setMobileProgress(value){
   const n=Math.round(cl(value)*100);
@@ -84,7 +91,7 @@ function resetFinishFx(){
 }
 function restart(){
   svg.classList.remove('play','done');void svg.getBoundingClientRect();svg.classList.add('play');
-  clock=0;last=performance.now();shown=0;target=0;done=false;fv=0;rv=-1;sPrev=0;vS=0;phI=-1;pcT='';ready=false;setMobileProgress(0);
+  clock=0;last=performance.now();shown=0;target=0;done=false;fin=false;fv=0;rv=-1;sPrev=0;vS=0;phI=-1;pcT='';ready=false;setMobileProgress(0);
   ph.setAttribute('font-size',17);ph.setAttribute('fill','#9fd6ff');
   resetFinishFx();schedule();
 }
@@ -96,7 +103,7 @@ function eraseRoad(progress){
   md.setAttribute('stroke-dashoffset',(-e).toFixed(3));mb.setAttribute('stroke-dashoffset',(-e).toFixed(3));
   fl2.setAttribute('opacity',cl((SF-e)/26));
   if(progress>0&&progress<1){
-    const p=rd.getPointAtLength(e);
+    const p=pointAt(e);
     hd.setAttribute('transform',`translate(${p.x} ${p.y})`);
     hd.setAttribute('opacity',String(Math.min(1,5*progress,5*(1-progress))));
   }else hd.setAttribute('opacity',0);
@@ -162,7 +169,10 @@ function frame(now){
   }
   const go=T>1.9;
   if(demo&&!done){const x=cl((T-1.9)/7);target=cl(x+.035*Math.sin(x*20))}
-  if(go&&!done){shown+=(target-shown)*(1-Math.exp(-dt*6));if(Math.abs(target-shown)<.0015)shown=target}
+  // Avancée à vitesse continue (proportionnelle à l'écart, bornée) : l'avancement réel arrive par étapes ; une fois le jeu prêt
+  // (fin), arrivée franche en 1 s au plus pour afficher le menu sans attente inutile.
+  // l'ancienne poursuite exponentielle (6 s⁻¹) faisait filer le kart à chaque étape puis l'arrêtait, et sprinter à la fin.
+  if(go&&!done){const gap=target-shown;if(gap>0){shown=Math.min(target,shown+dt*(fin?cl(gap*3,.6,1.4):cl(gap*2.5,.08,.8)))}else shown=target;if(Math.abs(target-shown)<.0015)shown=target}
   if(!done)mb.setAttribute('stroke-dasharray',(L*shown+.01)+' '+L*2);
   setMobileProgress(shown);
   lq.setAttribute('transform','translate(0 '+(-(.08+.92*shown)*148)+')');
@@ -201,8 +211,10 @@ $('alternative').addEventListener('click',()=>setEndingMode('alt',true));
 $('re').addEventListener('click',()=>{demo=true;restart()});
 window.WildKartLoader={
   set(p){demo=false;target=cl(p>1?p/100:p);$('preview').style.display='none';schedule()},
-  finish(){demo=false;target=1;$('preview').style.display='none';schedule()},
+  finish(){demo=false;fin=true;target=1;$('preview').style.display='none';schedule()},
   restart(){restart()},
+  // Prototype C2-2 (intro en vidéo) : recale l'horloge de l'animation sur le temps de la vidéo, pour un relais sans saut.
+  horloge(t){clock=t;last=performance.now();schedule()},
   setEndingMode(mode){setEndingMode(mode)},
   setProductionMode(value=true){$('preview').style.display=value?'none':'flex';},
   ENDING_MODES,
@@ -213,4 +225,26 @@ if(new URLSearchParams(window.location.search).has('production'))$('preview').st
 $('classic').setAttribute('aria-pressed',String(endingMode==='classic'));
 $('alternative').setAttribute('aria-pressed',String(endingMode==='alt'));
 restart();
+// Prototype C2-2 (?video=1) : l'intro (2,4 s) est jouée en vidéo pré-rendue (décodée hors du fil principal : elle ne saccade pas
+// pendant le chargement du jeu), l'animation SVG continue dessous et reprend la main à la fin de la vidéo, horloge recalée
+// (relais sans saut). Fin classique inchangée. Secours : si la vidéo ne démarre pas (lecture refusée, erreur, écran en portrait),
+// on la retire et l'animation actuelle se joue seule.
+(function introVideo(){
+  const q=new URLSearchParams(location.search); if(!q.has('video')||innerWidth/innerHeight<1.5)return;
+  const DUREE=2.4,v=document.createElement('video');let fini=false;
+  v.muted=true;v.defaultMuted=true;v.playsInline=true;v.setAttribute('playsinline','');v.setAttribute('muted','');v.preload='auto';
+  v.style.cssText='position:fixed;inset:0;width:100%;height:100%;object-fit:contain;z-index:50;pointer-events:none;background:transparent';
+  for(const [src,type] of [['assets/demarrage/intro.mp4','video/mp4'],['assets/demarrage/intro.webm','video/webm']]){const e=document.createElement('source');e.src=src;e.type=type;v.appendChild(e)}
+  const retirer=()=>{if(fini)return;fini=true;v.remove();window.WK_INTRO_VIDEO={joue:false};try{parent.WK_INTRO_VIDEO=window.WK_INTRO_VIDEO}catch(e){}};
+  const relais=()=>{if(fini)return;fini=true;window.WildKartLoader.horloge(DUREE);requestAnimationFrame(()=>requestAnimationFrame(()=>v.remove()));const q=v.getVideoPlaybackQuality?v.getVideoPlaybackQuality():{};window.WK_INTRO_VIDEO={joue:true,total:q.totalVideoFrames,perdues:q.droppedVideoFrames};try{parent.WK_INTRO_VIDEO=window.WK_INTRO_VIDEO}catch(e){}};
+  v.addEventListener('ended',relais);v.addEventListener('error',retirer,true);
+  // La vidéo démarre au même instant que l'animation dessous (sinon, partie en retard, elle redessinerait le logo) ; trop tard
+  // (après 2 s) ou pas prête à 1,6 s : secours, l'animation actuelle continue seule.
+  const t0=performance.now(),ecoule=()=>(performance.now()-t0)/1e3;
+  const garde=setTimeout(()=>{if(!v.__joue)retirer()},1600);
+  v.addEventListener('canplay',()=>{if(fini||v.__lance)return;v.__lance=true;const t=ecoule();if(t>2){retirer();return}if(t>.05)try{v.currentTime=t}catch(e){}
+    const p=v.play();if(p&&p.catch)p.catch(retirer)},{once:true});
+  v.addEventListener('playing',()=>{v.__joue=true;clearTimeout(garde)});
+  document.body.appendChild(v);
+})();
 })();

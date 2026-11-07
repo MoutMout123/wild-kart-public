@@ -105,6 +105,10 @@ const BIOMES = {
   jungle: { a: ['leafy_grass', '#62b444', 1.5], b: ['forest_leaves_02', '#a8b070', 1.2], r: [GREEN_ROCK, '#c8d0c0', 1.0], moss: 1,
     trees: [['jungle', .5, ['#2f8a3a', '#3a9a3e', '#257a34', '#4aa844']], ['palm', .3, ['#4f9a3a', '#5aa840']], ['oak', .2, ['#3a8a36', '#2f7a30']]],
     bush: ['#3a9a40', '#2f8a38', '#4aa848'], fern: true, grass: ['#4fa83c', '#62b848', '#3f9832'], flowers: .08, grove: .38, trees_n: 2600, rocks_n: 80, mtn: ['#4f7a5a', '#8ab08a'], snowcap: 0 },
+  // Plage (Coup de Soleil) : sable dominant, herbe sèche en touffes, palmiers ; dérivée du biome tropical.
+  plage: { a: ['coast_sand_01', '#fff0c8', 1.35], b: ['sparse_grass', '#c8d070', 1.3], r: [WARM_ROCK, '#f0dcc0', .85], moss: 0, sandLow: 7,
+    trees: [['palm', .85, ['#4fa83a', '#5ab842', '#46a038']], ['round', .15, ['#4fa83f', '#62b848']]],
+    bush: ['#7aa04a', '#8cb058'], fern: false, grass: ['#b8c060', '#c8cc70', '#a8b454'], flowers: .05, trees_n: 380, rocks_n: 70, mtn: ['#6f9a7a', '#b0c8a8'], snowcap: 0 },
   tropic: { a: ['leafy_grass', '#7cc858', 1.45], b: ['coast_sand_01', '#fff0c8', 1.35], r: [WARM_ROCK, '#f0dcc0', .85], moss: .6, sandLow: 7,
     trees: [['palm', .7, ['#4fa83a', '#5ab842', '#46a038']], ['round', .3, ['#4fa83f', '#62b848']]],
     bush: ['#4fa83f', '#5fb84a', '#3d9535'], fern: true, grass: ['#6fc04a', '#84ce56', '#5ab03e'], flowers: .2, trees_n: 650, rocks_n: 60, mtn: ['#5f8a6a', '#a0c0a0'], snowcap: 0 },
@@ -115,9 +119,9 @@ const BIOMES = {
     trees: [['dead', 1, ['#2a2422', '#3a2a24']]],
     bush: ['#4a3a30'], grass: null, flowers: 0, keep: ['mountain'], trees_n: 380, rocks_n: 200, mtn: ['#3a3236', '#5a4444'], snowcap: 0 },
 };
-const DECOR_TO_BIOME = { haunted: 'haunted', volcano: 'volcano', prairie: 'prairie', autumn: 'autumn', provence: 'provence', alpine: 'alpine', snow: 'snow', safari: 'safari', jungle: 'jungle', tropic: 'tropic' };
+const DECOR_TO_BIOME = { beach: 'plage', festival: 'prairie', haunted: 'haunted', volcano: 'volcano', prairie: 'prairie', autumn: 'autumn', provence: 'provence', alpine: 'alpine', snow: 'snow', safari: 'safari', jungle: 'jungle', tropic: 'tropic' };
 /* Géométries historiques remplacées (étiquetées par decorGeo / buildGrass9). Les objets thématiques restent. */
-const REPLACED = new Set(['crown', 'crown2', 'trunk', 'bush', 'pine1', 'pine2', 'pine3', 'ptrunk', 'rock', 'hill', 'mountain', 'flower', 'drybush', 'grass9', 'scenicPeak', 'jungleTree', 'jungleCrown', 'safariCrown', 'safariTrunk', 'safariTuft', 'cypressCrown', 'oliveTrunk', 'jg-fern', 'jg-leaf', 'jg-kapok', 'jg-kapok2', 'jg-slim', 'jg-palm', 'jg-canopy', 'jg-mrock', 'palmFrond', 'palmSeg']);
+const REPLACED = new Set(['beachPalm', 'crown', 'crown2', 'trunk', 'bush', 'pine1', 'pine2', 'pine3', 'ptrunk', 'rock', 'hill', 'mountain', 'flower', 'drybush', 'grass9', 'scenicPeak', 'jungleTree', 'jungleCrown', 'safariCrown', 'safariTrunk', 'safariTuft', 'cypressCrown', 'oliveTrunk', 'jg-fern', 'jg-leaf', 'jg-kapok', 'jg-kapok2', 'jg-slim', 'jg-palm', 'jg-canopy', 'jg-mrock', 'palmFrond', 'palmSeg']);
 /* Parcelles de biomes sur une même carte : biome secondaire sur des portions du tour (fractions de la route principale),
    transitions fluides sur `tw` (fraction du tour). Le champ est lissé dans l'espace pour que les frontières restent continues
    loin de la piste. */
@@ -500,11 +504,12 @@ function grassMaterial(time, far) {
 }
 
 /* ---------- Placement ---------- */
-function samplerFor(W) {
+function samplerFor(W, sansEnvol = false) {
   const paths = [W.S, ...W.branches];
   // Distance horizontale conservative aux segments de toutes les routes (principale + branches).
+  // sansEnvol : ignore les portions survolées d'un envol (pas de chaussée, donc pas de bande usée sur le fond du ravin).
   const cell = 24, grid = new Map();
-  for (const P of paths) for (let i = 0; i < P.N; i++) { const k = Math.floor(P.px[i] / cell) + ',' + Math.floor(P.pz[i] / cell); let l = grid.get(k); if (!l) grid.set(k, l = []); l.push(P, i); }
+  for (const P of paths) for (let i = 0; i < P.N; i++) { if (sansEnvol && P !== W.S && P.glide && P.glide[i]) continue; const k = Math.floor(P.px[i] / cell) + ',' + Math.floor(P.pz[i] / cell); let l = grid.get(k); if (!l) grid.set(k, l = []); l.push(P, i); }
   return (x, z, reach = 80) => {
     const cx = Math.floor(x / cell), cz = Math.floor(z / cell), rc = Math.ceil(reach / cell); let best = Infinity, wall = W.wallD;
     for (let a = -rc; a <= rc; a++) for (let b = -rc; b <= rc; b++) { const l = grid.get((cx + a) + ',' + (cz + b)); if (!l) continue;
@@ -566,9 +571,11 @@ function instancedMesh(geo, mat, n, color, shadow) {
 }
 
 /* ---------- Construction d'un circuit ---------- */
-function build(W, quality, renderer) {
+// Construction par étapes (yield entre les étapes) : au démarrage du jeu, exécutée par tranches pour garder l'animation fluide.
+function build(W, quality, renderer) { const g = buildSteps(W, quality, renderer); for (;;) { const r = g.next(); if (r.done) return r.value; } }
+function* buildSteps(W, quality, renderer) {
   if (!handles(W)) return null;
-  mobile = quality === 'low'; anisotropy = Math.min(8, renderer && renderer.capabilities ? renderer.capabilities.getMaxAnisotropy() : 4);
+  mobile = quality === 'low' || !!(root.matchMedia && root.matchMedia('(pointer:coarse)').matches); // 512 px sur écran tactile (Claude 2, ticket #27 : démarrage Samsung) anisotropy = Math.min(8, renderer && renderer.capabilities ? renderer.capabilities.getMaxAnisotropy() : 4);
   const biomeId = DECOR_TO_BIOME[W.th.decor], B = BIOMES[biomeId], q = quality === 'low' ? .4 : quality === 'medium' ? .75 : 1, R = rng(((W.th.terrain.seed || 17) * 7919 + W.def.id.length * 131) >>> 0);
   const group = new T.Group(); group.name = 'Kit Nature — ' + biomeId; group.userData.wkNature = true; W.scene.add(group);
   const low = quality === 'low', time = { value: 0 }, state = { low, group, biome: biomeId, time, pops: [], grassCells: [], hidden: [], stats: {} };
@@ -581,16 +588,21 @@ function build(W, quality, renderer) {
   const dist = samplerFor(W), wallD = W.wallD, bb = W.bb, half = bb.ext + 520, cx = bb.cx, cz = bb.cz;
   const inTerrain = (x, z, m = 8) => Math.abs(x - cx) < half - m && Math.abs(z - cz) < half - m;
   // Parcelles de biomes : champ de zone lissé (0 = biome principal, 1 = biome secondaire) et tirage pondéré par objet.
-  const Z = ZONES[W.def.id], B2 = Z && BIOMES[Z.biome], zf = B2 ? zoneField(W, Z, half) : () => 0;
+  const Z = ZONES[W.def.id], B2 = Z && BIOMES[Z.biome], zf0 = B2 ? zoneField(W, Z, half) : () => 0;
+  // Cartes à massif (specials.massifs) : la parcelle de vallée ne monte pas sur les sommets (fondu entre +50 et +100 m au-dessus de
+  // la route la plus basse) ; sans massif, comportement inchangé.
+  let yLow = Infinity; if (W.def.massifs && W.def.massifs.length) for (let i = 0; i < W.S.N; i += 4) yLow = Math.min(yLow, W.S.py[i]);
+  const zf = isFinite(yLow) && W.hAt ? (x, z) => { const v = zf0(x, z); if (!v) return v; const y = W.hAt(x, z); return v * (1 - clamp((y - yLow - 50) / 50, 0, 1)); } : zf0;
   const biomeAt = (x, z) => (B2 && R() < zf(x, z) ? [B2, Z.biome] : [B, biomeId]);
   let wAvg = 0; if (B2) { for (let i = 0; i < W.S.N; i++) wAvg += spanWeight(i / W.S.N, Z.spans); wAvg /= W.S.N; }
   state.zone = Z ? { biome: Z.biome, name: Z.name, spans: Z.spans, share: +wAvg.toFixed(2), field: zf } : null;
   const occupied = occupancy(W, state.hidden);
   const blocked = (x, z, r = 2) => (W.waterX != null && x > W.waterX - 10) || (W.inPond && W.inPond(x, z)) || (W.noDecor && W.noDecor.some(n => (n.x - x) ** 2 + (n.z - z) ** 2 < n.r * n.r)) || occupied(x, z, r);
+  yield;
   // 2. Terrain : nouveau matériau + distance à la route par sommet (bande usée, occlusion au pied des murs).
   if (W.terrain) {
     const g = W.terrain.geometry, p = g.attributes.position, road = new Float32Array(p.count);
-    for (let i = 0; i < p.count; i++) road[i] = clamp(dist(p.getX(i), p.getZ(i), 40) - wallD, 0, 60);
+    const distSol = samplerFor(W, true); for (let i = 0; i < p.count; i++) road[i] = clamp(distSol(p.getX(i), p.getZ(i), 40) - wallD, 0, 60);
     g.setAttribute('wkRoad', new T.BufferAttribute(road, 1)); zoneAttribute(g, zf);
     const hi = B.high ? (W.terrainMin || 0) + (W.th.terrain.h || 60) * .75 : 1e5, low = B.sandLow != null ? (W.terrainMin || 0) + B.sandLow : -1e5;
     const old = W.terrain.material; W.terrain.material = terrainMaterial(B, { B2, patch: B.patch, hiLevel: hi, lowLevel: low, rockSlope: biomeId === 'snow' ? .38 : .3 });
@@ -603,6 +615,7 @@ function build(W, quality, renderer) {
     let used = false; W.scene.traverse((o) => { if (o.isMesh && olds.has(o.material)) { o.material = sm; used = true; if (B2) zoneAttribute(o.geometry, zf); } });
     if (used) { for (const m of olds) { W.roles.delete(m); if (m.map && !m.map.userData.wkShared) m.map.dispose(); m.dispose(); } W.roles.set(sm, 'shoulder'); } else sm.dispose();
   }
+  yield;
   // 3. Montagnes d'horizon : anneau continu, même shader que le sol, brouillard atténué (perspective aérienne).
   {
     // Rayon intérieur au-delà du point de route le plus éloigné du centre (la boîte englobante ne suffit pas aux circuits étirés).
@@ -630,6 +643,7 @@ function build(W, quality, renderer) {
     const mesh = new T.Mesh(g, mat); mesh.name = 'Montagnes d\'horizon'; mesh.receiveShadow = false; group.add(mesh); state.mountains = mesh;
     W.farNeed = reach + R1 + 150; // depuis le point de route le plus éloigné, le bord opposé de la couronne doit rester dans le champ
   }
+  yield;
   // 4. Arbres : bosquets denses et clairières (bruit de répartition), espèces pondérées par biome.
   const trees = new Map(); // espèce → items
   const pick = (list) => { let x = R() * list.reduce((s, e) => s + e[1], 0); for (const e of list) { x -= e[1]; if (x <= 0) return e; } return list[0]; };
@@ -667,6 +681,7 @@ function build(W, quality, renderer) {
       meshes.push(instancedMesh(L.leaf, leafFor(!!T0.snow), n, true, shadow)); meshes.forEach(m => { m.name = 'Nature ' + key; group.add(m); }); return { meshes }; });
     state.pops.push(new Population(key, lods, T0.items, (key.startsWith('shrub') ? 70 : 140) * (low ? .6 : 1), (key.startsWith('shrub') ? 260 : 1500) * (low ? .45 : 1), shadow));
   }
+  yield;
   // 5. Rochers : quatre silhouettes, ancrés (enfoncés de 25 %) et orientés au hasard, hors des zones roulables.
   const rocks = rockSet(), rockItems = new Map(), rmats = {}, rockCount = () => [...rockItems.values()].reduce((s, l) => s + l.length, 0);
   for (let k = 0, n = Math.round(lerp(B.rocks_n, B2 ? B2.rocks_n : B.rocks_n, wAvg) * q); k < n * 30 && rockCount() < n; k++) {
@@ -680,6 +695,7 @@ function build(W, quality, renderer) {
   }
   for (const [rk, list] of rockItems) { const [bz, v] = rk.split(':'), pair = rocks[+v], lods = pair.map(g => ({ meshes: [instancedMesh(g, rmats[bz], list.length, false, shadow)] })); lods.forEach(L => L.meshes.forEach(m => { m.name = 'Nature rocher ' + rk; group.add(m); }));
     state.pops.push(new Population('rock' + rk, lods, list, low ? 50 : 90, low ? 600 : 1500, shadow)); }
+  yield;
   // 6. Herbe et fleurs : cellules spatiales statiques (culling par cellule), disparition progressive avant 95 m.
   let grassN = 0;
   if (B.grass || (B2 && B2.grass)) {
@@ -703,6 +719,7 @@ function build(W, quality, renderer) {
     }
   }
   state.stats = { biome: biomeId, trees: treeCount, rocks: rockCount(), grass: grassN, zone: state.zone ? state.zone.name + ' (' + state.zone.biome + ', ' + Math.round(state.zone.share * 100) + ' % du tour)' : null, grassCells: state.grassCells.length, hiddenLegacy: state.hidden.length, populations: state.pops.length };
+  yield;
   // 7. Mise à jour par image : temps du vent, culling et LOD des populations.
   const prev = W.scene.onBeforeRender;
   W.scene.onBeforeRender = function (renderer2, scene, camera, ...rest) {
@@ -752,5 +769,5 @@ function audit(W, extra = []) {
   return out;
 }
 function stats(W) { const st = W && W.nature; if (!st) return null; return Object.assign({}, st.stats, { visible: st.pops.map(p => [p.name, p.visible]) }); }
-root.WKNature = { handles, build, update, stats, audit, ready: () => Promise.all(pending), errors, BIOMES, species, rockGeometry };
+root.WKNature = { handles, build, buildSteps, update, stats, audit, ready: () => Promise.all(pending), errors, BIOMES, species, rockGeometry, texture };   // texture : partagé avec decors.js (même cache, mêmes profils PC/mobile)
 })(window);

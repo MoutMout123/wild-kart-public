@@ -194,36 +194,44 @@ function pilotState(W) {
 function pilotTunnel(W, P, ranges) {
   const state = pilotState(W), snow = W.def.pilot === 'alpine', group = new T.Group(), radius = (P.wallD || W.wallD) + 3, height = snow ? 16 : 12;
   W.scene.add(group); group.name = 'Tunnel traversant — coque et montagne';
+  // Dans un massif (specials.massifs) : la coque extérieure couvre juste la découpe des bouches ; la roche du relief fait le reste.
+  const EX = W.massifTunnel ? Math.max(radius + 6, W.massifTunnel.lat) : radius + 23, EY = W.massifTunnel ? Math.max(height + 6, W.massifTunnel.haut) : height + 38;
   const innerMat = W.def.production ? window.WKScenery.material('#d7a677', true) : material(snow ? 'rock' : 'sandstone', snow ? '#9babb7' : '#c19a72', false), outerMat = W.def.production ? window.WKScenery.material('#ca915c', true) : material(snow ? 'rock' : 'sandstone', snow ? '#bac6cf' : '#ba8158', false);
   innerMat.side = outerMat.side = T.DoubleSide; innerMat.userData.wkSurface = 'rock'; outerMat.userData.wkSurface = 'rock';
+  // Autre chaussée sous la roche (branche qui part près du portail : ENVOL de la Glissade) : pas de coque à moins de 5,5 m au-dessus
+  // d'elle (avant : roche à 2,9 m au-dessus de la voie, contrôleur du concepteur et capture joueur).
+  const autres = (W.branches || []).filter((B) => B !== P), surAutre = (x, y, z) => { for (const B of autres) for (let j = 0; j < B.N; j += 2) { const dx = x - B.px[j], dz = z - B.pz[j]; if (dx * dx + dz * dz > (B.hw + 6) ** 2) continue; const lat = Math.abs(dx * B.rx[j] + dz * B.rz[j]), h = y - B.py[j]; if (lat < B.hw + 2.5 && h > -2 && h < 5.5) return true; } return false; };
+  const quad = (p, idx, q, n) => { const c = [0, 1, 2].map((d) => (p[q * 3 + d] + p[n * 3 + d] + p[(q + 1) * 3 + d] + p[(n + 1) * 3 + d]) / 4); if (!surAutre(c[0], c[1], c[2])) idx.push(q, n, q + 1, q + 1, n, n + 1); };
   for (const [rawA, rawB] of ranges) {
     const a = Math.ceil(rawA), b = Math.floor(rawB); if (b - a < 4) continue;
     const rows = []; for (let k = a; k < b; k += 3) rows.push(k); rows.push(b);
     const make = outer => {
-      const p = [], uv = [], idx = [], colors = [], sides = 24;
+      const p = [], uv = [], idx = [], colors = [], sides = 24, pend = [];
       for (let row = 0; row < rows.length; row++) {
         const k = rows[row], i = k % P.N;
         for (let j = 0; j <= sides; j++) {
           const t = j / sides * Math.PI, erode = outer ? 1 + .07 * Math.sin(k * .17 + j * 1.1) : 1;
-          const lat = Math.cos(t) * (outer ? radius + 23 : radius), rise = Math.sin(t) * (outer ? height + 38 : height) * erode;
+          const lat = Math.cos(t) * (outer ? EX : radius), rise = Math.sin(t) * (outer ? EY : height) * erode;
           p.push(P.px[i] + P.rx[i] * lat, P.py[i] + .06 + rise - (outer ? 1.5 : 0), P.pz[i] + P.rz[i] * lat);
           uv.push(j / sides * radius / 3, (k - a) * P.seg / 8);
           const shade = outer ? .72 + .28 * Math.sin(t) : .65 + .35 * Math.sin(t); colors.push(shade, shade, shade);
-          if (row && j < sides) { const q = (row - 1) * (sides + 1) + j, n = row * (sides + 1) + j; idx.push(q, n, q + 1, q + 1, n, n + 1); }
+          if (row && j < sides) { const q = (row - 1) * (sides + 1) + j, n = row * (sides + 1) + j; pend.push([q, n]); }
         }
       }
+      for (const [q, n] of pend) quad(p, idx, q, n);
       const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(p, 3)); g.setAttribute('uv', new T.Float32BufferAttribute(uv, 2)); g.setAttribute('color', new T.Float32BufferAttribute(colors, 3)); g.setIndex(idx); g.computeVertexNormals();
       const m = outer ? outerMat : innerMat; m.vertexColors = true; const mesh = new T.Mesh(g, m); group.add(mesh); return mesh;
     };
     const inside = make(false); make(true);
     // Anneaux de roche entre coque et montagne : le centre de l'entrée reste entièrement ouvert.
     for (const k of [a, b]) {
-      const i = k % P.N, p = [], uv = [], idx = [];
+      const i = k % P.N, p = [], uv = [], idx = [], ring = [];
       for (let j = 0; j <= 24; j++) {
         const theta = j / 24 * Math.PI;
-        for (const outer of [false, true]) { const lat = Math.cos(theta) * (radius + (outer ? 23 : 0)), y = Math.sin(theta) * (height + (outer ? 38 : 0)) * (outer ? 1 + .07 * Math.sin(k * .17 + j * 1.1) : 1) - (outer ? 1.5 : 0); p.push(P.px[i] + P.rx[i] * lat, P.py[i] + .06 + y, P.pz[i] + P.rz[i] * lat); uv.push(lat / 8, y / 8); }
-        if (j < 24) { const q = j * 2; idx.push(q, q + 1, q + 2, q + 1, q + 3, q + 2); }
+        for (const outer of [false, true]) { const lat = Math.cos(theta) * (outer ? EX : radius), y = Math.sin(theta) * (outer ? EY : height) * (outer ? 1 + .07 * Math.sin(k * .17 + j * 1.1) : 1) - (outer ? 1.5 : 0); p.push(P.px[i] + P.rx[i] * lat, P.py[i] + .06 + y, P.pz[i] + P.rz[i] * lat); uv.push(lat / 8, y / 8); }
+        if (j < 24) { const q = j * 2; ring.push(q); }
       }
+      for (const q of ring) { const c = [0, 1, 2].map((d) => (p[q * 3 + d] + p[(q + 1) * 3 + d] + p[(q + 2) * 3 + d] + p[(q + 3) * 3 + d]) / 4); if (!surAutre(c[0], c[1], c[2])) idx.push(q, q + 1, q + 2, q + 1, q + 3, q + 2); }
       const geo = new T.BufferGeometry(); geo.setAttribute('position', new T.Float32BufferAttribute(p, 3)); geo.setAttribute('uv', new T.Float32BufferAttribute(uv, 2)); geo.setAttribute('color', new T.Float32BufferAttribute(new Float32Array(p.length).fill(1), 3)); geo.setIndex(idx); geo.computeVertexNormals(); group.add(new T.Mesh(geo, innerMat));
     }
     const volume = { P, a, b, radius, height, group, inside }; (W.tunnelVolumes || (W.tunnelVolumes = [])).push(volume); state.tunnels.push(volume); state.stats.tunnels++;
@@ -247,10 +255,15 @@ function pilotWorld(W) {
   W.scene.add(state.enhancedOnly); state.enhancedOnly.name = 'Paysages du pilote';
   // Des falaises continues qui bordent les portions roulables, avec talus et strates, hors du gabarit.
   const cliffMat = material(alpine ? 'rock' : 'sandstone', '#ffffff', false); cliffMat.side = T.DoubleSide; cliffMat.vertexColors = true;
-  const ranges = alpine ? [[.19, .4, -1], [.62, .72, 1]] : [[.28, .46, -1], [.77, .9, 1]];
+  // Avec un massif réel (specials.massifs), plus de rideaux de falaise plaqués : le relief porte les parois.
+  const ranges = W.def.massifs && W.def.massifs.length ? [] : alpine ? [[.19, .4, -1], [.62, .72, 1]] : [[.28, .46, -1], [.77, .9, 1]];
   for (const [from, to, side] of ranges) {
     const p = [], uv = [], idx = [], colors = [], cols = 7, color = new T.Color(), dark = new T.Color(alpine ? '#718596' : '#9e6245'), light = new T.Color(alpine ? '#edf4f7' : '#dbab71'); let rows = 0;
+    // Vue dégagée sur les embranchements : pas de rideau du même côté dans les 140 m avant une bouche ni le long de la branche
+    // (la POUDREUSE de la Glissade partait derrière la falaise de droite : raccourci masqué signalé sur téléphone).
+    const hides = (i) => W.branches.some((B) => { if (!B.map || (B.def.side || 1) !== side) return false; const a = B.map[0], b = B.map[B.N - 1], ahead = ((a - i) % S.N + S.N) % S.N, inside = ((i - a) % S.N + S.N) % S.N <= ((b - a) % S.N + S.N) % S.N; return ahead <= 70 || inside; });
     for (let i = Math.floor(S.N * from); i <= Math.floor(S.N * to); i += 3) {
+      if (hides(i)) { rows = 0; continue; }
       const footD = W.wallD + 24, fx = S.px[i] + S.rx[i] * side * footD, fz = S.pz[i] + S.rz[i] * side * footD;
       if (!safeSpot(W, fx, fz, 4)) { rows = 0; continue; }
       if (Array.from({ length: cols }, (_, c) => { const d = side * (footD + (c / (cols - 1)) ** 2 * 75); return !safeSpot(W, S.px[i] + S.rx[i] * d, S.pz[i] + S.rz[i] * d, 4); }).some(Boolean)) { rows = 0; continue; }
@@ -585,5 +598,5 @@ function dispose(W, shared, cached, materials, texs) {
   }
   W.gfx = null;
 }
-window.WKGraphics = { tile, decorGeometry, jungleGeometry, tunnelStyle, tunnel, gapScenery, canyonFormation, pilotWorld, prepare, applyMode, setBudget, dispose, stats: () => ({ textures: textures.size, geometries: geometries.size }) };
+window.WKGraphics = { tile, material, decorGeometry, jungleGeometry, tunnelStyle, tunnel, gapScenery, canyonFormation, pilotWorld, prepare, applyMode, setBudget, dispose, stats: () => ({ textures: textures.size, geometries: geometries.size }) };
 })();
