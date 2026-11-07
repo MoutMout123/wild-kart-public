@@ -769,5 +769,5 @@ function audit(W, extra = []) {
   return out;
 }
 function stats(W) { const st = W && W.nature; if (!st) return null; return Object.assign({}, st.stats, { visible: st.pops.map(p => [p.name, p.visible]) }); }
-root.WKNature = { handles, build, buildSteps, update, stats, audit, ready: () => Promise.all(pending), errors, BIOMES, species, rockGeometry };
+root.WKNature = { handles, build, buildSteps, update, stats, audit, ready: () => Promise.all(pending), errors, BIOMES, species, rockGeometry, texture };   // texture : partagé avec decors.js (même cache, mêmes profils PC/mobile)
 })(window);

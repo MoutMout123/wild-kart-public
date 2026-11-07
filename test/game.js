@@ -1195,6 +1195,7 @@ function* buildWorldSteps(ti) {
   { let a = Infinity, b = -Infinity, e = Infinity, f = -Infinity; const acc = (P) => { for (let i = 0; i < P.N; i++) { a = Math.min(a, P.px[i]); b = Math.max(b, P.px[i]); e = Math.min(e, P.pz[i]); f = Math.max(f, P.pz[i]); } }; acc(S); W.branches.forEach(acc);
     W.bb = { cx: (a + b) / 2, cz: (e + f) / 2, ext: Math.max(b - a, f - e) / 2 }; }
   W.nearAll = nearAllFn(W);
+  temoinLieu(W); if (grandeCascadeActive(W)) W.lieux = grandeCascadeLieux;   // #37 Grande Cascade : relief des lieux posé d'abord
   if (th.terrain) buildTerrain(W, W.bb.ext, W.bb.cx, W.bb.cz);
   yield* drainPixelJobs(); yield 0.25;
   CUR_HAT = W.hAt || null;
@@ -1238,14 +1239,19 @@ function* buildWorldSteps(ti) {
     const d = sgn * wallD;
     const nwS = (i) => !!(S.nowall && (S.nowall[i] & (sgn < 0 ? 1 : 2)));
     const sk = (i) => gap(i) || openAt(i, sgn) || nwS(i) || wBlk(S, i, sgn) || warpIn(i); (W.skirtSkip = W.skirtSkip || {})[sgn] = sk; const skW = (i) => gapR(i) || openAt(i, sgn) || nwS(i) || wBlk(S, i, sgn) || wBlk(S, i + 1, sgn);
-    scene.add(new T.Mesh(bandGeo(S, [{ o: d, y: .06 }, { o: d, y: 1.12 }], { vScale: 8, skip: skW, collision: realWalls(def) }), wallMat));
-    scene.add(new T.Mesh(tubeAlong(S, d, 1.2, .14, 8, 2, (i) => S.glide[i] || S.glide[(i + 2) % S.N] || openAt(i, sgn) || openAt(i + 2, sgn) || nwS(i) || nwS((i + 2) % S.N) || wBlk(S, i, sgn) || wBlk(S, i + 2, sgn)), railMat));
+    /* #37 Grande Cascade P1-b : au droit du bassin, le muret VISIBLE et son rail laissent place à un parapet de pierre à claire-voie (decors.js) ;
+       la barrière physique reste la même : un muret invisible de même géométrie porte la collision (procédé de la limite de vol). */
+    const p1b = grandeCascadeActive(W) ? gcParapetAt(W, sgn) : null;
+    scene.add(new T.Mesh(bandGeo(S, [{ o: d, y: .06 }, { o: d, y: 1.12 }], { vScale: 8, skip: p1b ? (i) => skW(i) || p1b(i) : skW, collision: realWalls(def) }), wallMat));
+    if (p1b) { const inv = new T.Mesh(bandGeo(S, [{ o: d, y: .06 }, { o: d, y: 1.12 }], { vScale: 8, skip: (i) => skW(i) || !p1b(i), collision: realWalls(def) }), wallMat); inv.visible = false; inv.name = 'Muret du bassin (collision ; parapet visible)'; scene.add(inv); W.p1bMuret = inv; }
+    scene.add(new T.Mesh(tubeAlong(S, d, 1.2, .14, 8, 2, (i) => S.glide[i] || S.glide[(i + 2) % S.N] || openAt(i, sgn) || openAt(i + 2, sgn) || nwS(i) || nwS((i + 2) % S.N) || wBlk(S, i, sgn) || wBlk(S, i + 2, sgn) || (p1b && (p1b(i) || p1b((i + 2) % S.N)))), railMat));
     if (S.nowall) scene.add(new T.Mesh(bandGeo(S, sgn > 0 ? [{ o: hw + curbW, y: .085 }, { o: hw + curbW, y: -2.4 }] : [{ o: -hw - curbW, y: -2.4 }, { o: -hw - curbW, y: .085 }], { vScale: 10, skip: (i) => !nwS(i) || !nwS((i + 1) % S.N) }), skirtMat));
     if (S.ag) {
       const glow = new T.Mesh(bandGeo(S, [{ o: d, y: 1.12 }, { o: d, y: def.production ? 1.28 : 2.6 }], { vScale: 8, skip: (i) => !S.ag[i] || !S.ag[(i + 1) % S.N] || gapR(i) }), new T.MeshBasicMaterial({ color: '#5ff2ff', transparent: true, opacity: def.production ? .9 : .22, side: T.DoubleSide, depthWrite: false }));
       glow.name = 'Signal lumineux anti-gravité'; scene.add(glow);
     }
-    if (th.terrain) scene.add(new T.Mesh(sgn > 0 ? bandGeo(S, [{ o: d, y: .06 }, { o: d + 7, y: -5 }], { world: true, skip: sk }) : bandGeo(S, [{ o: d - 7, y: -5 }, { o: d, y: .06 }], { world: true, skip: sk }), shoulderMat));
+    if (th.terrain) { const skT = p1b ? (i) => sk(i) || (p1b(i) && p1b((i + 1) % S.N)) : sk;   // P1-b : pas de talus devant le bassin (ses gradins descendent au sol)
+      scene.add(new T.Mesh(sgn > 0 ? bandGeo(S, [{ o: d, y: .06 }, { o: d + 7, y: -5 }], { world: true, skip: skT }) : bandGeo(S, [{ o: d - 7, y: -5 }, { o: d, y: .06 }], { world: true, skip: skT }), shoulderMat)); }
     else scene.add(new T.Mesh(bandGeo(S, [th.skirtDepth ? { o: d, y: -th.skirtDepth } : { o: d, y: th.groundY != null ? th.groundY : -1, abs: true }, { o: d, y: .06 }], { vScale: 10, skip: sk }), skirtMat));
   }
 
@@ -2070,7 +2076,10 @@ function buildJungle(W, ext, cx, cz, scatter, ring, q) {
   W.jgMarks = { arches: [], pyramid: null, falls: [] }; W.jgCount = Object.fromEntries(Object.entries(P).map(([k, v]) => [k, v.length]));
   // arches de la cité perdue au-dessus de la route (2), sur des portions droites hors saut / embranchement / virage relevé
   { const stone = stdMat('#8f927c', .9, 0), dark = stdMat('#6e715e', .9, 0), moss = stdMat('#3f7a34', .95, 0); const used = [];
-    for (let i = 0; i < N && used.length < 2; i += 5) { if (zoneOf(i) !== 'ruines' || S.glide[i] || (S.wz && S.wz[i]) || nearBranchWin(W, i, 14) || used.some((u) => Math.abs(u - i) < N * .07)) continue;
+    /* #37 Grande Cascade P5 : aucune arche dans l'approche de la cascade (de 240 m avant à 30 m après) ; l'arche se décale au prochain
+       emplacement valide (avant : poutre et pilier masquaient la chute à 150–200 m). WK_GC_AVANT = témoin. */
+    const approche = (i) => { if (!W.temoin || window.WK_GC_AVANT) return false; let k = (i - W.temoin.c) % N; if (k > N / 2) k -= N; if (k < -N / 2) k += N; return k >= -120 && k <= 15; };
+    for (let i = 0; i < N && used.length < 2; i += 5) { if (zoneOf(i) !== 'ruines' || approche(i) || S.glide[i] || (S.wz && S.wz[i]) || nearBranchWin(W, i, 14) || used.some((u) => Math.abs(u - i) < N * .07)) continue;
       let c = 0; for (let o = -10; o <= 10; o++) c += Math.abs(S.curv[(i + o + N) % N]); if (c > .25) continue; used.push(i);
       const g = new T.Group(); g.position.set(S.px[i], S.py[i], S.pz[i]); g.rotation.y = S.hd[i]; const span = wallD + 2.2;
       for (const s of [-1, 1]) { const p = new T.Mesh(rbox(3.4, 13, 3.4, .3), stone); p.position.set(s * span, 6.5, 0); g.add(p); const b = new T.Mesh(new T.BoxGeometry(4.2, 1.2, 4.2), dark); b.position.set(s * span, .6, 0); g.add(b); }
@@ -4995,6 +5004,14 @@ function buildTerrain(W, ext, cx, cz) {
     h = Math.max(h, tr.min != null ? tr.min : -60); H[q] = h; if (h < minH) minH = h;
   }
   if (W.def.production) W.terrainStats = { resolution: segs, ...window.WKProduction.lowerTerrain(H, R1) };
+  /* #37 Grande Cascade — relief des LIEUX posé avant le maillage : la grille (~12 m) est trop lâche pour un lit de rivière ; les cellules
+     touchées sont retirées et remplacées par une pièce fine (~1,7 m) qui suit EXACTEMENT le terrain sur leur frontière (creusement nul au
+     bord des zones), plus le lit, les berges et la mare creusés. W.hAt rend la même hauteur (placement, Nature, mesures). */
+  const hBrut = (x, z) => { const fx = (x - x0) / step, fz = (z - z0) / step; if (fx < 0 || fz < 0 || fx >= segs || fz >= segs) return minH; const ix = Math.floor(fx), iz = Math.floor(fz), tx = fx - ix, tz = fz - iz, q = iz * R1 + ix;
+    const a = H[q], b = H[q + 1], d = H[q + R1], e = H[q + R1 + 1]; return tx + tz <= 1 ? a + (b - a) * tx + (d - a) * tz : e + (d - e) * (1 - tx) + (b - e) * (1 - tz); };
+  const LX = W.lieux ? W.lieux(W, hBrut) : null, trou = LX ? new Uint8Array(segs * segs) : null; let nTrou = 0;
+  if (LX) for (const Z of LX.zones) { const i0 = Math.max(0, Math.floor((Z.x - Z.r - x0) / step)), i1 = Math.min(segs - 1, Math.floor((Z.x + Z.r - x0) / step)), j0 = Math.max(0, Math.floor((Z.z - Z.r - z0) / step)), j1 = Math.min(segs - 1, Math.floor((Z.z + Z.r - z0) / step));
+    for (let iz = j0; iz <= j1; iz++) for (let ix = i0; ix <= i1; ix++) { const cx0 = x0 + ix * step, cz0 = z0 + iz * step, dx = Math.max(cx0 - Z.x, 0, Z.x - cx0 - step), dz = Math.max(cz0 - Z.z, 0, Z.z - cz0 - step); if (dx * dx + dz * dz < Z.r * Z.r && !trou[iz * segs + ix]) { trou[iz * segs + ix] = 1; nTrou++; } } }
   W.terrainGrid = { H, x0, z0, step, segs }; // hauteur du sol réel (dessous des routes surélevées)
   const pos = new Float32Array(R1 * R1 * 3), uv = new Float32Array(R1 * R1 * 2), idx = new Uint32Array(segs * segs * 6); let ii = 0;
   let col = null; if (tr.colors) col = new Float32Array(R1 * R1 * 3); const c = new T.Color(), c2 = new T.Color();
@@ -5005,6 +5022,7 @@ function buildTerrain(W, ext, cx, cz) {
     if (ix < segs && iz < segs) { const a = q, b = q + 1, d = q + R1, e = d + 1;
       // Massifs : pas de triangle à la bouche d'un tunnel (bande découpée à l'intérieur de la coque, qui la couvre).
       const bad = cls && ((tri) => tri.some((v) => cls[v] === 2));
+      if (trou && trou[iz * segs + ix]) continue;   // cellule remplacée par la pièce de relief des lieux
       if (!bad || !bad([a, d, b])) { idx[ii++] = a; idx[ii++] = d; idx[ii++] = b; } if (!bad || !bad([b, d, e])) { idx[ii++] = b; idx[ii++] = d; idx[ii++] = e; } }
   }
   const g = new T.BufferGeometry(); g.setAttribute('position', new T.BufferAttribute(pos, 3)); g.setAttribute('uv', new T.BufferAttribute(uv, 2)); if (col) g.setAttribute('color', new T.BufferAttribute(col, 3));
@@ -5019,10 +5037,24 @@ function buildTerrain(W, ext, cx, cz) {
   const tex = groundTex(th.ground); const mat = W.def.production ? window.WKScenery.groundMaterial() : gfxDetail(new T.MeshLambertMaterial({ map: tex, vertexColors: !!col }), 'ground');
   if (tr.caustics) { const ct = canvasTex(256, 256, (x, w) => { x.fillStyle = '#000'; x.fillRect(0, 0, w, w); x.strokeStyle = 'rgba(160,240,255,.55)'; x.lineWidth = 3; for (let i = 0; i < 26; i++) { x.beginPath(); const px = Math.random() * w, py = Math.random() * w, rx = rand(14, 40), ry = rand(10, 30), ro = rand(0, 3); for (const ox of [-w, 0, w]) for (const oy of [-w, 0, w]) { x.moveTo(px + ox + rx, py + oy); x.ellipse(px + ox, py + oy, rx, ry, ro, 0, TAU); } x.stroke(); } }); ct.repeat.set(.5, .5); mat.emissiveMap = ct; mat.emissive = new T.Color('#5fd8ff'); mat.emissiveIntensity = .5; W.caustic = ct; }
   const mesh = new T.Mesh(g, mat); mesh.receiveShadow = true; scene.add(mesh); W.terrain = mesh;
+  if (LX && nTrou) { const m = Math.max(2, Math.round(step / 1.7)), f = step / m, F1 = segs * m + 1, map = new Map(), P = [], U = [], Cc = [], I = [], cb = new T.Color(LX.couleurLit || '#7d6a4a'), tmp = new T.Color();
+    const sommet = (gx, gz) => { const k = gz * F1 + gx; let v = map.get(k); if (v !== undefined) return v; const x = x0 + gx * f, z = z0 + gz * f, cr = LX.creuse(x, z), ix = Math.min(segs - 1, Math.floor(gx / m)), iz = Math.min(segs - 1, Math.floor(gz / m)), tx = gx / m - ix, tz = gz / m - iz, q = iz * R1 + ix;
+      const v3 = [0, 0, 0]; for (let k3 = 0; k3 < 3; k3++) { const a = col[q * 3 + k3], b = col[(q + 1) * 3 + k3], d = col[(q + R1) * 3 + k3], e = col[(q + R1 + 1) * 3 + k3]; v3[k3] = (a * (1 - tx) + b * tx) * (1 - tz) + (d * (1 - tx) + e * tx) * tz; } tmp.setRGB(v3[0], v3[1], v3[2]);
+      tmp.lerp(cb, smoothstep(.05, .7, -cr) * .75); v = P.length / 3; P.push(x, hBrut(x, z) + cr, z); U.push(x / 40, -z / 40); Cc.push(tmp.r, tmp.g, tmp.b); map.set(k, v); return v; };
+    for (let iz = 0; iz < segs; iz++) for (let ix = 0; ix < segs; ix++) { if (!trou[iz * segs + ix]) continue;
+      for (let b2 = 0; b2 < m; b2++) for (let a2 = 0; a2 < m; a2++) { const gx = ix * m + a2, gz = iz * m + b2, A = sommet(gx, gz), B = sommet(gx + 1, gz), D2 = sommet(gx, gz + 1), E = sommet(gx + 1, gz + 1); I.push(A, D2, B, B, D2, E); } }
+    const pg = new T.BufferGeometry(); pg.setAttribute('position', new T.Float32BufferAttribute(P, 3)); pg.setAttribute('uv', new T.Float32BufferAttribute(U, 2)); pg.setAttribute('color', new T.Float32BufferAttribute(Cc, 3)); pg.setIndex(I); pg.computeVertexNormals();
+    const piece = new T.Mesh(pg, mat); piece.receiveShadow = true; piece.name = 'Relief des lieux'; scene.add(piece); W.terrainPiece = piece; W.lieuxStats = { cellules: nTrou, sousPas: +f.toFixed(2), triangles: I.length / 3 }; }
   W.hAt = (x, z) => { const fx = (x - x0) / step, fz = (z - z0) / step; if (fx < 0 || fz < 0 || fx >= segs || fz >= segs) return minH; const ix = Math.floor(fx), iz = Math.floor(fz), tx = fx - ix, tz = fz - iz, q = iz * R1 + ix;
     const a = H[q], b = H[q + 1], d = H[q + R1], e = H[q + R1 + 1];
     // Même diagonale et même interpolation affine que les deux triangles du terrain rendu.
     return tx + tz <= 1 ? a + (b - a) * tx + (d - a) * tz : e + (d - e) * (1 - tx) + (b - e) * (1 - tz); };
+  if (LX) { const h0 = W.hAt, mP = W.terrainPiece ? Math.max(2, Math.round(step / 1.7)) : 1, fP = step / mP, hv = (gx, gz) => { const x = x0 + gx * fP, z = z0 + gz * fP; return hBrut(x, z) + LX.creuse(x, z); };
+    // Dans une cellule remplacée : interpolation des sommets de la pièce fine (même diagonale que ses triangles) = surface rendue.
+    W.hAt = (x, z) => { const fx = (x - x0) / step, fz = (z - z0) / step; if (fx < 0 || fz < 0 || fx >= segs || fz >= segs || !trou[Math.floor(fz) * segs + Math.floor(fx)]) return h0(x, z);
+      const gxf = (x - x0) / fP, gzf = (z - z0) / fP, gx = Math.floor(gxf), gz = Math.floor(gzf), tx = gxf - gx, tz = gzf - gz, a = hv(gx, gz), b = hv(gx + 1, gz), d = hv(gx, gz + 1);
+      return tx + tz <= 1 ? a + (b - a) * tx + (d - a) * tz : (() => { const e = hv(gx + 1, gz + 1); return e + (d - e) * (1 - tx) + (b - e) * (1 - tz); })(); };
+    W.lieuxRelief = LX; }   // hauteur du relief des lieux : exactement la surface rendue de la pièce fine
   W.terrainMin = minH;
 }
 
@@ -5838,22 +5870,150 @@ function addTick(W, f) { (W.tick = W.tick || []).push(f); }
    annoncés qui jaillissent sur la moitié de la route côté falaise (ralentissent sans faire tourner, l'autre moitié reste libre,
    les bots les évitent). Tracé, largeur, physique de la route : inchangés. Tout est hors de l'enveloppe roulable sauf les geysers
    (obstacles du système existant, actifs seulement si les obstacles sont activés). */
-function temoinPlan(W) {
+/* ================= #37 Grande Cascade (construction TEST, accord #35 §5 ter) =================
+   Choix de conception du propriétaire : le RELIEF et les LIEUX d'abord (lit et berges de la rivière, mare, vallon du lagon), puis le tracé
+   existant raccordé au paysage. Base : P1 (bassin aménagé) et P5 (cascade dégagée) de 009bf73 ; décors par les recettes WKDecors
+   (decors.js, format convenu). WK_GC_AVANT (ou __decorsAvant) rétablit l'ancien témoin pour les comparaisons. Route, largeur, collisions
+   et physique inchangées : tout est hors de l'enveloppe roulable, l'eau passe sous la route par un ponceau décoratif. */
+/* Variante du bassin P1 (CHOIX ouvert, voir docs/maquettes/grande-cascade/riviere-lagon/CHOIX.md) : 'b' (par défaut) placement de 009bf73,
+   eau à 1 m sous la chaussée, parapet à claire-voie ; 'c' eau à 0,3 m, bassin décalé derrière la barrière (mesuré : pas plus visible). */
+const gcP1 = () => (window.WK_GC_P1 === 'c' ? 'c' : 'b');
+function gcBassin(W, route0) { const v = gcP1(), pR = 9; return v === 'b' ? { v, pR, lat: W.hw + 14.8, eauY: route0 - 1, top: route0 - .25 } : { v, pR, lat: W.wallD + pR + 3.85, eauY: route0 - .3, top: route0 + .32 }; }
+// Portions du bord où le muret visible cède la place à un parapet de pierre (même collision, muret invisible) : au droit du bassin
+// (côté falaise) et au droit du ponceau (deux côtés) ; k = écart en échantillons au centre du témoin.
+const GC_PARAPETS = [{ cote: 1, de: -10, a: 10, nom: 'bassin' }, { cote: 0, de: -16, a: -8, nom: 'ponceau' }];
+function gcParapetAt(W, sgn) { const N = W.S.N, c = W.temoin.c, Z = GC_PARAPETS.filter((z) => z.cote === 0 || (z.cote === 1) === (sgn === W.temoin.side)); if (!Z.length) return null;
+  return (i) => { let k = (i - c) % N; if (k > N / 2) k -= N; if (k < -N / 2) k += N; return Z.some((z) => k >= z.de && k < z.a); }; }
+function grandeCascadeActive(W) { return !!(window.WKDecors && !window.WK_GC_AVANT && !window.__decorsAvant && W.temoin && W.def && W.def.id === 'cascade' && !window.__temoinSur); }
+// Repère de la scène : s (m) le long de la route depuis le centre du témoin, b (m) latéral, positif côté falaise.
+function gcCadre(W) { const S = W.S, N = S.N, c = W.temoin.c, sd = W.temoin.side, seg = S.seg || 2, at = (i) => ((i % N) + N) % N;
+  return (s, b) => { const f = c + s / seg, i0 = Math.floor(f), t = f - i0, a = at(i0), d = at(i0 + 1), rx = lerp(S.rx[a], S.rx[d], t), rz = lerp(S.rz[a], S.rz[d], t);
+    return { x: lerp(S.px[a], S.px[d], t) + rx * sd * b, z: lerp(S.pz[a], S.pz[d], t) + rz * sd * b, y: lerp(S.py[a], S.py[d], t), ox: rx * sd, oz: rz * sd }; }; }
+/* Lieux (appelé par buildTerrain avant le maillage, sur le relief brut) : bassin P1 de 009bf73, rivière A (de l'exutoire du bassin, sous
+   la route par un ponceau, puis le long du remblai d'en face vers le point bas relevé par descente de pente) et mare. Renvoie le creusement
+   (lit, berges, mare ; nul hors des zones) et les zones à affiner. Les niveaux d'eau ne remontent jamais dans le sens de l'écoulement. */
+function grandeCascadeLieux(W, hBrut) {
+  const hw = W.hw, wallD = W.wallD, cadre = gcCadre(W), route0 = cadre(0, 0).y, BS = gcBassin(W, route0), lat = BS.lat, pR = BS.pR, eauY = BS.eauY, sP = -24;
+  const amont = [[-12.6, lat - 1], [-16.5, lat - 3.4], [-20, wallD + 3.2], [-22.6, wallD + 1.3]], sous = [[sP, 0]], aval = [[-25.4, -(wallD + 1.3)], [-29, -(wallD + 5)], [-40, -(wallD + 8)], [-62, -(wallD + 9.5)], [-92, -(wallD + 10.4)], [-122, -(wallD + 11.4)], [-146, -(wallD + 13.4)], [-158, -(wallD + 15.5)]];
+  const mare = { s: -168, b: -(wallD + 18.5), r: 9 };
+  // échantillonnage (Catmull-Rom) puis niveaux : déversoir sur 9 m depuis le bassin, ensuite toujours sous le terrain naturel
+  const ctl = amont.concat(sous, aval), pts = [];
+  for (let i = 0; i < ctl.length - 1; i++) { const p0 = ctl[Math.max(0, i - 1)], p1 = ctl[i], p2 = ctl[i + 1], p3 = ctl[Math.min(ctl.length - 1, i + 2)], m = Math.max(1, Math.round(Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) / 2));
+    for (let k = 0; k < m; k++) { const t = k / m, t2 = t * t, t3 = t2 * t, f = (a, b, c, d) => .5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3); pts.push([f(p0[0], p1[0], p2[0], p3[0]), f(p0[1], p1[1], p2[1], p3[1])]); } }
+  pts.push(ctl[ctl.length - 1].slice());
+  let h = eauY, len = 0; const chemin = []; let cible = null;
+  for (let i = 0; i < pts.length; i++) { const [s, b] = pts[i], P = cadre(s, b); if (i) len += Math.hypot(s - pts[i - 1][0], b - pts[i - 1][1]); const sousRoute = Math.abs(b) < wallD + .6, nat = hBrut(P.x, P.z) - .35;
+    if (len < 9) { if (cible == null) { let L2 = 0; for (let k = 1; k < pts.length && L2 < 9; k++) { L2 += Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]); cible = hBrut(cadre(...pts[k]).x, cadre(...pts[k]).z) - .35; } } h = lerp(eauY, Math.min(eauY, cible), smoothstep(0, 9, len)); }
+    else if (!sousRoute) h = Math.min(h, nat); chemin.push({ s, b, x: P.x, z: P.z, h, l: len < 9 ? 3.6 : sousRoute ? 3.2 : Math.min(6, 4 + len * .02), sousRoute }); }
+  const lvMare = chemin[chemin.length - 1].h, M0 = cadre(mare.s, mare.b);
+  // creusement : lit en berceau sous l'eau, berges en pente douce jusqu'au terrain ; mare en cuvette. Toujours un abaissement (≤ 0).
+  const segsR = []; for (let i = 0; i < chemin.length - 1; i++) segsR.push([chemin[i], chemin[i + 1]]);
+  const creuse = (x, z) => { let dh = 0; const base = hBrut(x, z);
+    { let best = Infinity, hh = 0, w = 3; for (const [A, B] of segsR) { const dx = B.x - A.x, dz = B.z - A.z, L = dx * dx + dz * dz || 1, t = clamp(((x - A.x) * dx + (z - A.z) * dz) / L, 0, 1), d = Math.hypot(x - A.x - t * dx, z - A.z - t * dz); if (d < best) { best = d; hh = lerp(A.h, B.h, t); w = lerp(A.l, B.l, t) / 2; } }
+      if (best < w + 4.5) { const cib = best < w ? hh - .45 - .6 * (1 - (best / w) ** 2) : lerp(hh + .25, base, smoothstep(0, 1, (best - w) / 4.5)); dh = Math.min(dh, cib - base); } }
+    { const d = Math.hypot(x - M0.x, z - M0.z); if (d < mare.r + 4.5) { const cib = d < mare.r ? lvMare - .4 - 1.3 * (1 - (d / mare.r) ** 2) : lerp(lvMare + .25, base, smoothstep(0, 1, (d - mare.r) / 4.5)); dh = Math.min(dh, cib - base); } }
+    return dh; };
+  const zones = []; for (let i = 0; i < chemin.length; i += 2) zones.push({ x: chemin[i].x, z: chemin[i].z, r: chemin[i].l / 2 + 5 }); zones.push({ x: M0.x, z: M0.z, r: mare.r + 5.5 });
+  // ponceau : une tête de chaque côté du remblai, au droit du passage, tournée vers l'extérieur ; ouverture à hauteur d'eau
+  const tetes = [1, -1].map((sg) => { const p = chemin.reduce((a, q) => (Math.sign(q.b) === sg && !q.sousRoute && Math.abs(Math.abs(q.b) - (wallD + 1.3)) < Math.abs(Math.abs(a.b) - (wallD + 1.3)) ? q : a), chemin.find((q) => Math.sign(q.b) === sg && !q.sousRoute));
+    const P = cadre(p.s, sg * (wallD + 1.5)), base = p.h - .4; return { x: P.x, y: base, z: P.z, nx: P.ox * sg, nz: P.oz * sg, hauteur: Math.max(2.6, P.y - .35 - base), largeur: 9 }; });
+  W.gc = { cadre, lat, pR, eauY, top: BS.top, p1: BS.v, route0, chemin, mare: Object.assign({ x: M0.x, z: M0.z, niveau: lvMare }, mare), ponceau: { s: sP, tetes }, longueur: Math.round(len), denivele: +(eauY - lvMare).toFixed(2) };
+  return { creuse, zones, couleurLit: '#7a6a4c' };
+}
+/* Scène de la Grande Cascade posée par les recettes WKDecors sur les lieux (relief déjà creusé par buildTerrain). */
+function grandeCascadeBuild(W) {
+  const D = window.WKDecors, S = W.S, N = S.N, hw = W.hw, wallD = W.wallD, sd = W.temoin.side, c = W.temoin.c, scene = W.scene, low = SAVE.quality === 'low', q = low ? 'low' : 'high', at = (i) => ((i % N) + N) % N;
+  const gH = (x, z, d) => (W.hAt ? W.hAt(x, z) : d), sol = (x, z) => gH(x, z, S.py[c] - 3), G = W.gc || Object.assign({ cadre: gcCadre(W), route0: S.py[c], chemin: [], mare: null, ponceau: null }, gcBassin(W, S.py[c]));
+  const cadre = G.cadre, poses = [], pose = (nom, r) => { scene.add(r.groupe); if (r.maj) addTick(W, (dt, now) => r.maj(dt, now)); W.noDecor = W.noDecor || []; for (const e of r.emprise) W.noDecor.push(e); poses.push({ nom, cout: r.cout, infos: r.infos || null }); return r; };
+  // ---- P2 paroi en masses, avec la fente de la cascade (P5, ouverte vers l'approche) ; __temoinRecul : défaut injecté par les bancs
+  const pied = window.__temoinRecul != null ? (s) => hw + window.__temoinRecul + 2.5 * Math.exp(-((s / 30) ** 2)) : (s) => G.lat + G.pR + .2 + 2.5 * Math.exp(-((s / 30) ** 2)), FENTE = { s0: 3, demi: 9, prof: 4.5 };   // pied juste derrière l'anneau du bassin
+  const PAROI = pose('paroi', D.paroiMasses(T, { cadre, sol, pied, longueur: 88, hauteur: 40, fente: FENTE, qualite: q, graine: 1, lod: { centre: cadre(0, G.lat), distance: 95 } }));
+  const sf = PAROI.infos.sommetFente;
+  // ---- P1 bassin aménagé (009bf73) : anneau de pierre en gradins, ouvert vers la chute (lobe d'eau sous le rideau) et au déversoir
+  const pc = [cadre(0, G.lat).x, cadre(0, G.lat).z], pR = G.pR, eauY = G.eauY, yr = G.route0, top = G.top, dirMonde = (s, b) => { const A = cadre(s, b); return Math.atan2(A.x - pc[0], A.z - pc[1]); };
+  let solMin = Infinity; for (let a = 0; a < TAU; a += .3) solMin = Math.min(solMin, gH(pc[0] + Math.cos(a) * (pR + 3.4), pc[1] + Math.sin(a) * (pR + 3.4), yr - 3));
+  const pro = [[pR - .6, eauY - 1.4], [pR, eauY - .2], [pR, eauY + .22], [pR + .9, eauY + .22], [pR + .9, eauY + .48], [pR + 1.8, eauY + .48], [pR + 1.8, top], [pR + 3.2, top], [pR + 3.35, top - .15], [pR + 3.35, solMin - 1.2]];
+  const ouvertures = [[dirMonde(0, G.lat + 20), 1.15], [dirMonde(-20, G.lat), .34]].sort((a, b) => a[0] - b[0]);   // vers la chute ; déversoir vers la rivière (amont)
+  const stoneM = (Graphics && Graphics.material ? Graphics.material('rock', '#9a8f7e') : lam('#8a7f70')).clone(); stoneM.vertexColors = true; stoneM.color = new T.Color('#ffffff'); stoneM.side = T.DoubleSide; stoneM.userData.wkProduction = true;
+  const arcs = []; for (let k = 0; k < ouvertures.length; k++) { const [a0, w0] = ouvertures[k], [a1, w1] = ouvertures[(k + 1) % ouvertures.length]; let deb = a0 + w0 / 2, fin = a1 - w1 / 2; if (fin <= deb) fin += TAU; arcs.push([deb, fin - deb]); }
+  const bassin = new T.Group(); for (const [phi, len] of arcs) { const lg = new T.LatheGeometry(pro.map(([r, y]) => new T.Vector2(r, y)), Math.max(8, Math.round(48 * len / TAU)), phi, len); lg.computeVertexNormals();
+    const P0 = lg.attributes.position, col = new Float32Array(P0.count * 3), cA = new T.Color('#b9a68a'), cB = new T.Color('#8f7f6a'), cc = new T.Color();
+    for (let k = 0; k < P0.count; k++) { const y = P0.getY(k), a = Math.atan2(P0.getZ(k), P0.getX(k)); cc.copy(cB).lerp(cA, smoothstep(eauY, top, y)).multiplyScalar(.9 + .1 * Math.sin(a * 23) * Math.sin(y * 9)); col.set([cc.r, cc.g, cc.b], k * 3); }
+    lg.setAttribute('color', new T.Float32BufferAttribute(col, 3)); const m = new T.Mesh(lg, stoneM); m.position.set(pc[0], 0, pc[1]); m.castShadow = m.receiveShadow = true; bassin.add(m); }
+  scene.add(bassin); W.noDecor.push({ x: pc[0], z: pc[1], r: pR + 4.5 });
+  // eau du bassin : cercle + lobe qui entre dans la fente jusque sous le rideau
+  const dirC = dirMonde(0, G.lat + 20), cont = []; for (let k = 0; k < (low ? 28 : 48); k++) { const th = k / (low ? 28 : 48) * TAU, d = Math.atan2(Math.sin(th - dirC), Math.cos(th - dirC)), r = pR - .05 + (pied(FENTE.s0) + FENTE.prof - 1 - G.lat - pR) * Math.pow(Math.max(0, Math.cos(d)), 8);
+    cont.push([pc[0] + Math.sin(th) * r, pc[1] + Math.cos(th) * r]); }
+  const EAU = pose('bassin', D.eauProfondeur(T, { contour: cont, centre: pc, niveau: eauY, sol, qualite: q, profondeur: 2.4 }));
+  // ---- P5 cascade logée dans la fente, rideau tourné vers l'approche ; elle tombe dans le lobe du bassin
+  const CASC = pose('cascade', D.cascadeLogee(T, { cadre, s0: FENTE.s0, b: sf.b, angle: .45, yHaut: sf.y, yBas: eauY, largeur: 20, qualite: q }));
+  if (W.parts) { const sp = CASC.infos.pied; addTick(W, () => { if (camera.position.distanceToSquared(new T.Vector3(sp.x, sp.y, sp.z)) < 160 * 160) for (let k = 0; k < (low ? 1 : 3); k++) W.parts.emit(sp.x + rand(-4, 4), sp.y, sp.z + rand(-4, 4), rand(-2, 2), rand(3, 9), rand(-2, 2), pick(['#ffffff', '#e9fbff', '#cdeffc']), .9, 0); }); }
+  // ---- P1-b : parapet de pierre à claire-voie à la place visuelle du muret, le long du bassin (le muret invisible garde la collision)
+  if (W.p1bMuret) for (const Z of GC_PARAPETS) for (const sg of Z.cote === 1 ? [sd] : [-1, 1]) { const pts = []; for (let k = Z.de; k <= Z.a; k++) { const i = at(c + k); pts.push({ x: S.px[i] + S.rx[i] * sg * wallD, y: S.py[i], z: S.pz[i] + S.rz[i] * sg * wallD }); } pose('parapet-' + Z.nom, D.parapet(T, { points: pts })); }
+  // ---- rivière, ponceau et mare (lit et berges déjà dans le relief)
+  let RIV = null; if (G.chemin.length) { RIV = pose('riviere', D.riviere(T, { chemin: G.chemin.filter((p) => !p.sousRoute), sol, qualite: q }));
+    pose('ponceau', D.ponceau(T, { tetes: G.ponceau.tetes, rayon: 1.6 }));
+    const M = G.mare, cm = []; for (let k = 0; k < (low ? 18 : 30); k++) { const a = k / (low ? 18 : 30) * TAU, r = M.r * (1 + .1 * Math.sin(a * 3.1) + .06 * Math.sin(a * 7.3)); cm.push([M.x + Math.sin(a) * r, M.z + Math.cos(a) * r]); }
+    pose('mare', D.eauProfondeur(T, { contour: cm, centre: [M.x, M.z], niveau: M.niveau, sol, qualite: q, profondeur: 1.6 })); }
+  // ---- lagon L1 : plan d'eau à −3 m dans le vallon survolé par le planeur (berge naturelle : le terrain plus haut cache l'eau)
+  let LAG = null; if (G.chemin.length && (W.def.glide || []).length) { const [a, b] = W.def.glide[0], im = at(Math.floor((a + b) / 2 * N)); let best = Infinity, cx = S.px[im], cz = S.pz[im];
+    for (let gx = -140; gx <= 140; gx += 10) for (let gz = -140; gz <= 140; gz += 10) { const x = S.px[im] + gx, z = S.pz[im] + gz, h = gH(x, z, 0); if (h < best) { best = h; cx = x; cz = z; } }
+    LAG = pose('lagon', D.lagon(T, { centre: [cx, cz], rayon: 125, niveau: -3, sol, qualite: q })); W.lagon = Object.assign({ centre: [+cx.toFixed(1), +cz.toFixed(1)], fond: +best.toFixed(1) }, LAG.infos); }
+  // la Nature ne plante ni dans l'eau ni dans le lit : même test que l'étang de planeur (option de carte)
+  if (!W.inPond) { const LX = W.lieuxRelief, lagNiv = LAG ? -3 : -Infinity; W.inPond = (x, z) => gH(x, z, 0) < lagNiv + .2 || (LX ? LX.creuse(x, z) < -.08 : false); }
+  // ---- P3 végétation au pied de la chute, P4 lisière en groupes en face (hors du lit), sous-étage
+  const presRiv = (x, z) => G.chemin.some((p) => Math.hypot(p.x - x, p.z - z) < p.l / 2 + 5.5) || (G.mare && Math.hypot(G.mare.x - x, G.mare.z - z) < G.mare.r + 6);
+  const arbres = [], bus = []; let rs = 6203; const rt = () => ((rs = (Math.imul(rs, 1664525) + 1013904223) >>> 0) / 4294967296);
+  const planter = (s, b, v) => { if (b > 0) b = Math.min(b, pied(s) - 4.5); const P = cadre(s, b); if (presRiv(P.x, P.z) || Math.hypot(P.x - pc[0], P.z - pc[1]) < pR + 5 || Math.abs(b) < wallD + 3) return; arbres.push({ x: P.x, y: gH(P.x, P.z, yr - 3) - .15, z: P.z, ry: rt() * TAU, s: .85 + rt() * .35, v }); };
+  for (const [s, db] of [[-24, 2], [-30, 5], [-19, 8], [21, 0], [26, 4], [22, 8]]) planter(s, G.lat + db, rt() < .5 ? 0 : 1);
+  for (const [s0, n] of [[-76, 3], [-42, 4], [6, 3], [44, 4], [78, 3]]) for (let k = 0; k < n; k++) { const s = s0 + (k - n / 2) * 5.5 + (rt() - .5) * 2, b = s < -18 ? -(hw + 30 + rt() * 5) : -(hw + 13 + rt() * 4 + (k % 2) * 3.5); planter(s, b, 2); }
+  for (const a of arbres) for (let k = 0; k < (a.v < 2 ? 3 : 2); k++) { const x = a.x + (rt() - .5) * 8, z = a.z + (rt() - .5) * 8; if (presRiv(x, z) || Math.hypot(x - pc[0], z - pc[1]) < pR + 5) continue; bus.push({ x, y: gH(x, z, yr - 3) - .1, z, ry: rt() * TAU, s: .7 + rt() * .7 }); }
+  const VEG = pose('vegetation', D.feuillusPlaques(T, { arbres, buissons: bus, qualite: q, lod: { centre: cadre(0, G.lat), distance: 95 } }));
+  // ---- pont de corde et tour (repère conservé) : du point haut du plateau, en aval, à une tour de l'autre côté
+  const sp = PAROI.infos.plateau.filter((p) => p.s > 24 && p.s < 46).sort((a, b) => b.H - a.H)[0], jb = at(c + Math.round(sp.s / (S.seg || 2))), A = new T.Vector3(sp.x, sp.y - .9, sp.z), ob = -(hw + 26), Bx = S.px[jb] + S.rx[jb] * sd * ob, Bz = S.pz[jb] + S.rz[jb] * sd * ob;
+  const Bg = gH(Bx, Bz, S.py[jb]), Btop = Math.max(Bg + 6, A.y), B = new T.Vector3(Bx, Btop, Bz), wood = lam('#7a5232'); wood.userData.wkProduction = true;
+  if (A.y - S.py[jb] > 22) { const tower = new T.Mesh(new T.CylinderGeometry(.6, .8, Btop - Bg + 1, 8), wood); tower.position.set(Bx, (Btop + Bg) / 2, Bz); scene.add(tower);
+    const planks = []; const n = Math.round(A.distanceTo(B) / 1.1); for (let k = 0; k <= n; k++) { const u = k / n, p = A.clone().lerp(B, u); p.y -= Math.sin(u * Math.PI) * 4.5; planks.push({ x: p.x, y: p.y, z: p.z, r: Math.atan2(B.x - A.x, B.z - A.z), s: 1, sx: 2.6, sy: .18, sz: .7 }); }
+    instanced(scene, [{ geo: new T.BoxGeometry(1, 1, 1), mat: wood, colors: ['#7a5232', '#8a6040', '#6a4628'] }], planks);
+    for (const off of [-1.3, 1.3]) { const pts = []; const perp = new T.Vector3(B.z - A.z, 0, -(B.x - A.x)).normalize().multiplyScalar(off); for (let k = 0; k <= 24; k++) { const u = k / 24, p = A.clone().lerp(B, u).add(perp); p.y += 1 - Math.sin(u * Math.PI) * 4.5; pts.push(p); }
+      scene.add(new T.Mesh(new T.TubeGeometry(new T.CatmullRomCurve3(pts), 40, .07, 5), lam('#d8c08a'))); } }
+  // ---- lumière du témoin (proposition du 3 nov., conservée)
+  if (scene.fog) { scene.fog.color.set('#cfe9e6'); scene.fog.near *= 1.35; scene.fog.far *= 1.4; }
+  if (W.sky && W.sky.material.uniforms) { W.sky.material.uniforms.top.value.set('#2f8fd0'); W.sky.material.uniforms.bottom.value.set('#e2f4ee'); }
+  if (renderer && renderer.setClearColor) renderer.setClearColor('#cfe9e6');
+  // ---- repères et mesures (recette decor-grande-cascade, scripts de mesure) : jamais déclarées, vérifiées par les bancs
+  W.temoin.chute = CASC.groupe.children.filter((o) => o.userData.wkDecorsRole === 'cascade'); W.temoin.bassin = EAU.groupe.children.find((o) => o.userData.wkDecorsRole === 'eau'); W.temoin.pc = pc; W.temoin.pR = pR;
+  W.temoin.stats = { recettes: poses.map((p) => p.nom), appels: poses.reduce((a, p) => a + p.cout.appels, 0), triangles: poses.reduce((a, p) => a + p.cout.triangles, 0), cote: sd };
+  W.decors = { version: 'grande-cascade-1', poses, arbres: VEG.infos, riviere: RIV ? { longueur: G.longueur, denivele: G.denivele, ponceau: G.ponceau.s } : null, lagon: W.lagon || null, lieux: W.lieuxStats || null };
+  { let cMax = 0; for (let o = -60; o <= 60; o++) cMax = Math.max(cMax, Math.abs(S.curv[at(c + o)]));
+    const bouche = Math.min(1e9, ...W.branches.flatMap((Br) => [Br.i0, Br.i1].map((m) => Math.min(Math.abs(c - m), N - Math.abs(c - m))))), jets = (W.obst || []).filter((o) => o.style === 'eau');
+    W.temoin.mesures = { courbureMax: +cMax.toFixed(4), distanceBouche: bouche, rocheHorsRoute: +(PAROI.infos.rocheMin - hw).toFixed(1), pontHauteur: A.y - S.py[jb] > 22 ? +(A.y - 4.5 - S.py[jb]).toFixed(1) : 99,
+      bassinHorsRoute: +(G.lat - pR - 1.4 - hw).toFixed(1), geysers: jets.length, geysersUnCote: jets.every((o) => Math.sign(o.lat) === sd) ? 1 : 0, moitieLibre: jets.length ? +Math.min(...jets.map((o) => Math.abs(o.lat) - o.r)).toFixed(2) : 99 }; }
+}
+/* Localisation de la scène (droite S8), faite AVANT le terrain : le relief des lieux (Grande Cascade) en dépend. */
+function temoinLieu(W) {
+  if (W.temoin || W.temoinRefus) return W.temoin;
   // Carte de la scène : Cascades dans le jeu ; __temoinSur (bancs du concepteur seulement) tente la même recette sur une autre carte.
-  const cible = window.__temoinSur || 'cascade'; if (!W.def || W.def.id !== cible || W.def.production || window.__noTemoin) return;   // __noTemoin : captures « avant » des bancs
-  if (W.th && (W.th.floating || W.th.noGround)) { W.temoinRefus = 'carte sans sol (routes suspendues) : une falaise y flotterait'; return; }
+  const cible = window.__temoinSur || 'cascade'; if (!W.def || W.def.id !== cible || W.def.production || window.__noTemoin) return null;   // __noTemoin : captures « avant » des bancs
+  if (W.th && (W.th.floating || W.th.noGround)) { W.temoinRefus = 'carte sans sol (routes suspendues) : une falaise y flotterait'; return null; }
   const S = W.S, N = S.N, hw = W.hw, bad = (i) => { const j = ((i % N) + N) % N; return (S.wz && S.wz[j]) || (S.glide && S.glide[j]) || (S.tun && S.tun[j]) || Math.abs(S.curv[j]) > .006; };
   const mouth = (i) => W.branches.some((B) => [B.i0, B.i1].some((m) => Math.min(Math.abs(i - m), N - Math.abs(i - m)) < 30));
   let best = -1, bs = 1e9;
   for (let c = Math.floor(N * .5); c < Math.floor(N * .78); c += 2) { let ok = true, sc = 0; for (let o = -60; o <= 60 && ok; o += 3) { if (bad(c + o) || mouth(c + o)) ok = false; sc += Math.abs(S.curv[((c + o) % N + N) % N]); } if (ok && sc < bs) { bs = sc; best = c; } }
-  if (best < 0) { W.temoinRefus = 'aucune droite de 240 m sans section spéciale, tunnel ni bouche à moins de 60 m (courbure ≤ 0,006)'; return; }
+  if (best < 0) { W.temoinRefus = 'aucune droite de 240 m sans section spéciale, tunnel ni bouche à moins de 60 m (courbure ≤ 0,006)'; return null; }
   // Côté : celui sans branche voisine (la falaise ne doit masquer aucune bouche ni raccourci).
   const side = W.branches.some((B) => B.side < 0 && Math.min(Math.abs(best - B.i0), Math.abs(best - B.i1)) < 120) ? 1 : -1;
-  W.temoin = { c: best, side, L: 70 }; const at3 = (i) => ((i % N) + N) % N;
+  W.temoin = { c: best, side, L: 70 }; return W.temoin;
+}
+function temoinPlan(W) {
+  if (!temoinLieu(W)) return; const S = W.S, N = S.N, hw = W.hw, best = W.temoin.c, side = W.temoin.side, at3 = (i) => ((i % N) + N) % N;
   if (W.obst && RACE_OPTS.obst) for (let q = 0; q < 3; q++) { const i = at3(best - 9 + q * 9), lat = side * hw * .48; W.obst.push({ kind: 'jet', style: 'eau', P: S, i, lat, r: 2.4, per: 5.2, ph: q * 1.15, x: S.px[i] + S.rx[i] * lat, z: S.pz[i] + S.rz[i] * lat, y: S.py[i], down: false }); }
 }
 function temoinBuild(W) {
-  const T0 = W.temoin; if (!T0) return; const S = W.S, N = S.N, hw = W.hw, sd = T0.side, c = T0.c, L = T0.L, scene = W.scene, low = SAVE.quality === 'low';
+  const T0 = W.temoin; if (!T0) return;
+  // #37 : recettes WKDecors (decors.js) ; sinon témoin historique ci-dessous (WK_GC_AVANT, __decorsAvant)
+  if (window.WKDecors && !window.WK_GC_AVANT && !window.__decorsAvant) return grandeCascadeBuild(W);
+  const S = W.S, N = S.N, hw = W.hw, sd = T0.side, c = T0.c, L = T0.L, scene = W.scene, low = SAVE.quality === 'low';
   const at = (i) => ((i % N) + N) % N, gH = (x, z, d) => (W.hAt ? W.hAt(x, z) : d), hash = (a, b) => { const v = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return v - Math.floor(v); };
   const rockM = Graphics && Graphics.material ? Graphics.material('rock', '#9a8f7e') : lam('#8a7f70'); rockM.userData.wkProduction = true;
   // --- massif : sections transversales (avant → plateau → pente arrière), hauteur fondue aux extrémités, anse plus profonde au centre
@@ -5881,17 +6041,33 @@ function temoinBuild(W) {
   const streak = canvasTex(64, 256, (x, w, h) => { const gr = x.createLinearGradient(0, 0, w, 0); gr.addColorStop(0, 'rgba(190,235,255,0)'); gr.addColorStop(.2, 'rgba(210,245,255,.85)'); gr.addColorStop(.8, 'rgba(210,245,255,.85)'); gr.addColorStop(1, 'rgba(190,235,255,0)'); x.fillStyle = gr; x.fillRect(0, 0, w, h);
     for (let q = 0; q < 140; q++) { x.fillStyle = 'rgba(255,255,255,' + (.25 + Math.random() * .6).toFixed(2) + ')'; x.fillRect(4 + Math.random() * (w - 8), Math.random() * h, 1 + Math.random() * 2.5, 10 + Math.random() * 40); } });
   streak.wrapS = streak.wrapT = T.RepeatWrapping; streak.repeat.set(1, Math.max(2, Math.round(Hm / 14)));
-  const layers = []; for (const [wd, sp, op, dz] of low ? [[18, 1.5, .9, 0]] : [[18, 1.5, .85, 0], [12, 2.3, .6, -.6], [7, 3.1, .5, -1.1]]) { const t = streak.clone(); t.needsUpdate = true; t.repeat.copy(streak.repeat);
+  const layers = []; for (const [wd, sp, op, dz] of window.WK_GC_AVANT ? (low ? [[18, 1.5, .9, 0]] : [[18, 1.5, .85, 0], [12, 2.3, .6, -.6], [7, 3.1, .5, -1.1]]) : low ? [[24, 1.5, .95, 0]] : [[24, 1.5, .9, 0], [16, 2.3, .65, -.6], [9, 3.1, .55, -1.1]])   /* P5 : chute élargie (18 → 24 m) pour se lire de loin */ { const t = streak.clone(); t.needsUpdate = true; t.repeat.copy(streak.repeat);
     const pg = new T.PlaneGeometry(wd, Hm + 2, 1, 10); const pa = pg.attributes.position; for (let q = 0; q < pa.count; q++) { const y = pa.getY(q), v = (y + (Hm + 2) / 2) / (Hm + 2); pa.setZ(q, -2.2 * (1 - v) ** 2); } pg.computeVertexNormals();
     const wm = new T.MeshBasicMaterial({ map: t, transparent: true, opacity: op, depthWrite: false, side: T.DoubleSide, color: '#e9fbff' }); wm.userData.wkProduction = true;
-    const wf = new T.Mesh(pg, wm); wf.position.set(wx - mid.ox * dz, mid.g + Hm / 2 + .5, wz - mid.oz * dz); wf.rotation.y = ang + Math.PI; scene.add(wf); layers.push({ t, sp }); }
+    const wf = new T.Mesh(pg, wm); wf.position.set(wx - mid.ox * dz, mid.g + Hm / 2 + .5, wz - mid.oz * dz); wf.rotation.y = ang + Math.PI; scene.add(wf); layers.push({ t, sp, m: wf }); }
   // --- bassin : rebord de pierre et eau animée (surélevé : le terrain n'est pas modifié)
-  const pR = 7, pc = [mid.bx - mid.ox * (pR + 1), mid.bz - mid.oz * (pR + 1)]; let pg0 = Infinity; for (let a = 0; a < TAU; a += .5) pg0 = Math.min(pg0, gH(pc[0] + Math.cos(a) * pR, pc[1] + Math.sin(a) * pR, mid.g));
-  const rim = new T.Mesh(new T.TorusGeometry(pR, 1, 10, 40), rockM); rim.rotation.x = Math.PI / 2; rim.scale.set(1, 1, 1.4); rim.position.set(pc[0], pg0 + .6, pc[1]); scene.add(rim);
+  /* #37 Grande Cascade P1 (construction TEST, accord du 7 nov.) : bassin AMÉNAGÉ — r 9 m, rapproché (eau à 5,8 m du bord de chaussée,
+     berge de pierre derrière le rail), eau à 1 m sous la chaussée (avant : r 7 m, 2,5 m sous la route, invisible depuis la course : 0 % de
+     l'écran mesuré), gradins de pierre de l'eau au couronnement, paroi extérieure jusqu'au sol (terrain ~3 m plus bas : remblai).
+     Décor seul : aucune collision, route et physique inchangées. WK_GC_AVANT = témoin (ancien bassin). */
+  const GC1 = !window.WK_GC_AVANT; let pR, pc, pg0;
+  if (!GC1) { pR = 7; pc = [mid.bx - mid.ox * (pR + 1), mid.bz - mid.oz * (pR + 1)]; pg0 = Infinity; for (let a = 0; a < TAU; a += .5) pg0 = Math.min(pg0, gH(pc[0] + Math.cos(a) * pR, pc[1] + Math.sin(a) * pR, mid.g));
+    const rim = new T.Mesh(new T.TorusGeometry(pR, 1, 10, 40), rockM); rim.rotation.x = Math.PI / 2; rim.scale.set(1, 1, 1.4); rim.position.set(pc[0], pg0 + .6, pc[1]); scene.add(rim); }
+  else { pR = 9; const jc = at(c), lat = hw + 14.8, yr = S.py[jc], eauY = yr - 1; pc = [S.px[jc] + S.rx[jc] * sd * lat, S.pz[jc] + S.rz[jc] * sd * lat]; pg0 = eauY - 1.1;
+    let sol = Infinity; for (let a = 0; a < TAU; a += .3) sol = Math.min(sol, gH(pc[0] + Math.cos(a) * (pR + 3.4), pc[1] + Math.sin(a) * (pR + 3.4), yr - 3));
+    const top = yr - .25, pro = [[pR - .6, eauY - 1.4], [pR, eauY - .2], [pR, eauY + .22], [pR + .9, eauY + .22], [pR + .9, eauY + .48], [pR + 1.8, eauY + .48], [pR + 1.8, top], [pR + 3.2, top], [pR + 3.35, top - .15], [pR + 3.35, sol - 1.2]];
+    const lg = new T.LatheGeometry(pro.map(([r, y]) => new T.Vector2(r, y)), 64); lg.computeVertexNormals();
+    { const P0 = lg.attributes.position, col = new Float32Array(P0.count * 3), cA = new T.Color('#b9a68a'), cB = new T.Color('#8f7f6a'), cc = new T.Color();   /* pierres en assises : clair au couronnement, plus sombre vers l'eau */
+      for (let q = 0; q < P0.count; q++) { const y = P0.getY(q), a = Math.atan2(P0.getZ(q), P0.getX(q)); cc.copy(cB).lerp(cA, smoothstep(eauY, top, y)).multiplyScalar(.9 + .1 * Math.sin(a * 23) * Math.sin(y * 9)); col.set([cc.r, cc.g, cc.b], q * 3); }
+      lg.setAttribute('color', new T.Float32BufferAttribute(col, 3)); }
+    const stoneM = rockM.clone(); stoneM.vertexColors = true; stoneM.color = new T.Color('#ffffff'); stoneM.side = T.DoubleSide; stoneM.userData.wkProduction = true;
+    const bord = new T.Mesh(lg, stoneM); bord.position.set(pc[0], 0, pc[1]); bord.castShadow = bord.receiveShadow = true; scene.add(bord);
+    W.noDecor = W.noDecor || []; W.noDecor.push({ x: pc[0], z: pc[1], r: pR + 4.5 });
+    W.temoin.p1 = { eauSousRoute: +(yr - eauY).toFixed(2), bordEauRoute: +(lat - pR - hw).toFixed(2), couronnementRoute: +(lat - pR - 3.35 - hw).toFixed(2), paroiExterieure: +(top - sol).toFixed(2) }; }
   const rip = canvasTex(128, 128, (x, w, h) => { x.fillStyle = '#3aa6c8'; x.fillRect(0, 0, w, h); for (let q = 0; q < 60; q++) { x.strokeStyle = 'rgba(220,250,255,' + (.15 + Math.random() * .35).toFixed(2) + ')'; x.lineWidth = 1 + Math.random() * 2; x.beginPath(); x.ellipse(Math.random() * w, Math.random() * h, 6 + Math.random() * 18, 2 + Math.random() * 5, 0, 0, TAU); x.stroke(); } });
   rip.wrapS = rip.wrapT = T.RepeatWrapping; rip.repeat.set(2, 2);
   const pm = new T.MeshStandardMaterial({ map: rip, color: '#7fd6ef', roughness: .08, metalness: .1, transparent: true, opacity: .9, emissive: '#1d6f8f', emissiveIntensity: .25 }); pm.userData.wkProduction = true;
-  const pool = new T.Mesh(new T.CircleGeometry(pR - .2, 40), pm); pool.rotation.x = -Math.PI / 2; pool.position.set(pc[0], pg0 + 1.1, pc[1]); scene.add(pool);
+  const pool = new T.Mesh(new T.CircleGeometry(GC1 ? pR + .05 : pR - .2, GC1 ? 56 : 40), pm); pool.rotation.x = -Math.PI / 2; pool.position.set(pc[0], pg0 + 1.1, pc[1]); scene.add(pool);
   // --- écume et brume
   const foamM = lam('#ffffff', { transparent: true, opacity: .85 }); foamM.userData.wkProduction = true; const foam = []; for (let q = 0; q < 18; q++) { const a = hash(q, 9) * TAU, r = hash(q, 4) * 3.5; foam.push({ x: pc[0] + mid.ox * 3 + Math.cos(a) * r, y: pg0 + 1.2, z: pc[1] + mid.oz * 3 + Math.sin(a) * r, s: .6 + hash(q, 2) * 1.2 }); }
   instanced(scene, [{ geo: new T.IcosahedronGeometry(1, 1), mat: foamM }], foam);
@@ -5925,6 +6101,7 @@ function temoinBuild(W) {
   if (W.sky && W.sky.material.uniforms) { W.sky.material.uniforms.top.value.set('#2f8fd0'); W.sky.material.uniforms.bottom.value.set('#e2f4ee'); }
   if (renderer && renderer.setClearColor) renderer.setClearColor('#cfe9e6');
   W.temoin.stats = { sections: secs.length, triangles: idx.length / 3, hauteur: Hc, cote: sd };
+  W.temoin.chute = layers.map((l) => l.m); W.temoin.bassin = pool; W.temoin.pc = pc; W.temoin.pR = pR;   /* repères des mesures de visibilité (scripts/grande-cascade-mesures.cjs) ; aucun effet sur le rendu */
   // Mesures de la recette « decor-grande-cascade » (vérifiées par scripts/concepteur-decor.cjs, jamais déclarées) :
   { let dMin = Infinity; for (let k = -L; k <= L; k++) { const s0 = secs[k + L], j = at(c + k); for (const [a] of s0.pts) { const lat = (s0.bx + s0.ox * a - S.px[j]) * S.rx[j] * sd + (s0.bz + s0.oz * a - S.pz[j]) * S.rz[j] * sd; dMin = Math.min(dMin, lat - hw); } }
     let cMax = 0; for (let o = -60; o <= 60; o++) cMax = Math.max(cMax, Math.abs(S.curv[at(c + o)]));

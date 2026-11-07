@@ -1,4 +1,4 @@
-WILD KART — VERSION TEST test-87c29dc
+WILD KART — VERSION TEST test-ea1e190
 Adresse : https://moutmout123.github.io/wild-kart-public/test/
-Export de refonte-26-audit-production (87c29dc6d0851d281024acb9e483e7b375d8726d).
+Export de HEAD (ea1e190e14f0745706e0307e8f329cd0f5e45bc5).
 Séparée du jeu officiel : service worker et cache propres (portée test/), stockage local préfixé « wktest: », mise à jour limitée à test/.

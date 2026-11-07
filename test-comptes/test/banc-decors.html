@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Banc décors 1 — prototype</title>
+<!-- Banc décors 1 (#35 §5 ter, docs/art/decors/TEMOIN-PROPOSE.md) : page AUTONOME qui pose les recettes de decors.js (WKDecors) sur un lieu
+     synthétique (route droite de 24 m, relief posé d'abord : lit de rivière, creux du lagon), sans aucun fichier de carte. Sert aux bancs
+     tests/banc-decors*.cjs (déterminisme, emprise, coût) et aux comparaisons de qualité haute / basse. Aucune carte du jeu n'est modifiée. -->
+<style>
+html,body{margin:0;height:100%;background:#cfe9e6;color:#fff;font-family:system-ui,sans-serif;overflow:hidden}
+#hud{position:fixed;left:8px;top:8px;background:#0009;border-radius:10px;padding:6px 9px;font-size:12px;line-height:1.45;z-index:2;max-width:46vw}
+#barre{position:fixed;right:8px;top:8px;display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end;max-width:52vw;z-index:2}
+button{font:inherit;font-size:12px;font-weight:700;border:2px solid #fff;background:#0007;color:#fff;border-radius:9px;padding:5px 8px}button.on{background:#f5c518;color:#141230;border-color:#f5c518}
+#etiquette{position:fixed;left:50%;bottom:8px;transform:translateX(-50%);font-size:11px;opacity:.8;z-index:2;text-align:center;background:#0006;border-radius:8px;padding:3px 8px}
+</style></head><body>
+<div id="hud"></div>
+<div id="barre"><button id="b-q">Qualité : haute</button><button data-v="approche-150">150 m</button><button data-v="approche-60" class="on">60 m</button><button data-v="passant">En passant</button><button data-v="cascade-15">Cascade 15 m</button><button data-v="arbre-10">Arbre 10 m</button><button data-v="ponceau">Ponceau</button><button data-v="lagon">Lagon</button><button data-v="large">Vue large</button></div>
+<div id="etiquette">PROTOTYPE — Banc décors 1 : recettes WKDecors sur un lieu synthétique · non intégré aux circuits</div>
+<script src="three.min.js"></script>
+<script src="nature.js"></script>
+<script src="decors.js"></script>
+<script>
+(function () {
+  'use strict';
+  const T = window.THREE, D = window.WKDecors, TAU = Math.PI * 2;
+  const R = new T.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }); R.setPixelRatio(Math.min(2, devicePixelRatio)); R.setSize(innerWidth, innerHeight); R.shadowMap.enabled = true; R.outputColorSpace = T.SRGBColorSpace; document.body.appendChild(R.domElement);
+  const cam = new T.PerspectiveCamera(62, innerWidth / innerHeight, .1, 4000); let sc = null, maj = [], resultats = {}, qualite = 'high', vue = 'approche-60';
+  /* ---- Lieu synthétique : la route suit l'axe z (x = 0), la falaise est côté x > 0. Le RELIEF est posé d'abord (pente douce vers les z
+     négatifs, lit de rivière creusé, creux du lagon), puis la route y est raccordée par un remblai plat de 1,2 m. ---- */
+  const HW = 12, WALLD = 19.1, ROUTE = (z) => 17 + z * .02;
+  const riv = []; for (let s = -14; s >= -150; s -= 2) { const b = s > -40 ? 34 - (s + 14) * -.36 : s > -96 ? 24.4 : s > -104 ? 24.4 - (s + 96) * -6.1 : -24.4; riv.push([b, s]); }
+  const LAGON = { x: -70, z: 150, r: 46 };
+  const distRiv = (x, z) => { let m = Infinity, k = 0; for (let i = 0; i < riv.length - 1; i++) { const [ax, az] = riv[i], [bx, bz] = riv[i + 1], dx = bx - ax, dz = bz - az, L = dx * dx + dz * dz, t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / L)), d = Math.hypot(x - ax - t * dx, z - az - t * dz); if (d < m) { m = d; k = i + t; } } return [m, k]; };
+  const naturel = (x, z) => 14 + z * .02 - 3 + .6 * Math.sin(x * .05) * Math.cos(z * .04) - 18 * Math.max(0, 1 - Math.hypot(x - LAGON.x, z - LAGON.z) / LAGON.r) ** 1.5;
+  const lit = (x, z) => { const [d, k] = distRiv(x, z), w = 3.2, prof = 1.1; if (d > w + 4.5) return 0; return -(d < w ? prof * (1 - (d / w) ** 2) + .35 : .35 * (1 - (d - w) / 4.5)); };
+  const sol = (x, z) => { let h = naturel(x, z) + lit(x, z); const d = Math.abs(x); if (d < WALLD + 4) h = Math.min(h, ROUTE(z) - 1.2) + 0 * d; else if (d < WALLD + 30) { const t = (d - WALLD - 4) / 26, base = ROUTE(z) - 1.2; h = base + (h - base) * t * t * (3 - 2 * t); if (lit(x, z) < 0) h = Math.min(h, naturel(x, z) + lit(x, z)); } return h; };
+  const cadre = (s, b) => ({ x: b, y: ROUTE(s), z: s, ox: 1, oz: 0 });
+  function construire(q, graine) {
+    qualite = q; if (sc) sc.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+    sc = new T.Scene(); sc.background = new T.Color('#9fd4ef'); sc.fog = new T.Fog('#cfe9e6', 180, 900); maj = []; resultats = {};
+    sc.add(new T.HemisphereLight('#ffffff', '#4a6a3a', 1.3)); const so = new T.DirectionalLight('#fff4dd', 2.4); so.position.set(-60, 90, -40); so.castShadow = true; so.shadow.mapSize.set(2048, 2048); Object.assign(so.shadow.camera, { left: -160, right: 160, top: 160, bottom: -160, far: 400 }); sc.add(so);
+    // terrain (relief d'abord), route et murets
+    const n = q === 'low' ? 120 : 220, E = 440, g = new T.PlaneGeometry(E, E, n, n); g.rotateX(-Math.PI / 2); const P = g.attributes.position, col = new Float32Array(P.count * 3), cH = new T.Color('#6aa64a'), cS = new T.Color('#b8a378'), cc = new T.Color();
+    for (let k = 0; k < P.count; k++) { const x = P.getX(k), z = P.getZ(k), h = sol(x, z); P.setY(k, h); const l = lit(x, z); cc.copy(cH).lerp(cS, Math.min(1, -l * 1.6)); col.set([cc.r, cc.g, cc.b], k * 3); }
+    g.setAttribute('color', new T.BufferAttribute(col, 3)); g.computeVertexNormals(); const terr = new T.Mesh(g, new T.MeshLambertMaterial({ vertexColors: true })); terr.receiveShadow = true; sc.add(terr);
+    const rg = new T.PlaneGeometry(2 * HW, E, 1, 60); rg.rotateX(-Math.PI / 2); const rp = rg.attributes.position; for (let k = 0; k < rp.count; k++) rp.setY(k, ROUTE(rp.getZ(k)) + .05); rg.computeVertexNormals(); const route = new T.Mesh(rg, new T.MeshLambertMaterial({ color: '#4a4c52' })); route.receiveShadow = true; sc.add(route);
+    for (const sx of [-1, 1]) { const wg = new T.BoxGeometry(.6, 1.06, E), w = new T.Mesh(wg, new T.MeshLambertMaterial({ color: '#2fbf8a' })); w.position.set(sx * WALLD, ROUTE(0) + .53, 0); sc.add(w); }
+    // recettes
+    const pose = (nom, r) => { resultats[nom] = { emprise: r.emprise, cout: r.cout, infos: r.infos || null }; sc.add(r.groupe); if (r.maj) maj.push(r.maj); return r; };
+    const pied = (s) => HW + 22 + 8 * Math.exp(-((s / 34) ** 2)), PAROI = pose('paroiMasses', D.paroiMasses(T, { cadre, sol, pied, longueur: 88, hauteur: 40, fente: { s0: 3, demi: 9, prof: 7.5 }, qualite: q, graine: graine || 1, lod: { centre: { x: 30, y: 17, z: 0 }, distance: 95 } }));
+    const sf = PAROI.infos.sommetFente, niveau = ROUTE(0) - 1;
+    pose('cascadeLogee', D.cascadeLogee(T, { cadre, s0: 3, b: sf.b, angle: .5, yHaut: sf.y, yBas: niveau, largeur: 17, qualite: q }));
+    const cont = []; for (let k = 0; k < (q === 'low' ? 28 : 48); k++) { const th = k / (q === 'low' ? 28 : 48) * TAU, e = 1 / Math.sqrt((Math.cos(th) / 11) ** 2 + (Math.sin(th) / 14) ** 2) + 7 * Math.max(0, Math.cos(th)) ** 3; cont.push([34.1 + Math.cos(th) * e, Math.sin(th) * e]); }
+    pose('eauProfondeur', D.eauProfondeur(T, { contour: cont, centre: [34.1, 0], niveau, sol, qualite: q }));
+    let h = niveau; const ch = riv.map(([b, s], i) => { const nat = sol(b, s) + .45; h = i < 4 ? niveau - (niveau - nat) * i / 4 : Math.min(h, nat); return { x: b, z: s, h, l: 6 }; }).filter((p) => Math.abs(p.x) > WALLD + 1.2);
+    pose('riviere', D.riviere(T, { chemin: ch, sol, qualite: q }));
+    const zs = -100, hb = h - .4; pose('ponceau', D.ponceau(T, { tetes: [1, -1].map((sg) => ({ x: sg * (WALLD + 1.2), y: hb, z: zs, nx: sg, nz: 0, hauteur: ROUTE(zs) - .4 - hb, largeur: 10 })) }));
+    pose('lagon', D.lagon(T, { centre: [LAGON.x, LAGON.z], rayon: LAGON.r + 6, niveau: 5, sol, qualite: q }));
+    const arbres = [], bus = []; let r = (graine || 1) * 977; const rnd = () => ((r = (Math.imul(r, 1664525) + 1013904223) >>> 0) / 4294967296);
+    for (const [s, b] of [[-28, 33], [-33, 37], [-24, 40], [22, 30], [27, 35]]) arbres.push({ x: b, y: sol(b, s) - .15, z: s, ry: rnd() * TAU, s: .9 + rnd() * .3, v: rnd() < .5 ? 0 : 1 });
+    for (const s0 of [-70, -35, 5, 45, 80]) for (let k = 0; k < 3; k++) { const s = s0 + (k - 1) * 5.5, b = -(HW + 14 + rnd() * 5); arbres.push({ x: b, y: sol(b, s) - .15, z: s, ry: rnd() * TAU, s: .9 + rnd() * .3, v: 2 }); }
+    for (const a of arbres) for (let k = 0; k < 2; k++) { const x = a.x + (rnd() - .5) * 7, z = a.z + (rnd() - .5) * 7; if (Math.abs(x) > WALLD + 2) bus.push({ x, y: sol(x, z) - .1, z, ry: rnd() * TAU, s: .7 + rnd() * .6 }); }
+    pose('feuillusPlaques', D.feuillusPlaques(T, { arbres, buissons: bus, qualite: q, lod: { centre: { x: 0, y: 17, z: 0 }, distance: 95 } }));
+    placer(vue); return resume(); }
+  const VUES = { 'approche-150': [[-2, 20.5, -150], [6, 19, -100]], 'approche-60': [[-2, 20.5, -60], [6, 19, -10]], passant: [[-2, 20.5, -12], [2, 19, 30]], 'cascade-15': [[28, 18.6, -6], [40, 26, 4]], 'arbre-10': [[22, 18.6, -18], [33, 22, -28]],
+    ponceau: [[-36, 12, -86], [-20, 11, -100]], lagon: [[-10, 34, 90], [-70, 4, 150]], large: [[-120, 70, -150], [30, 15, 0]] };
+  function placer(v) { vue = v; const [p, l] = VUES[v]; cam.position.set(...p); cam.lookAt(...l); document.querySelectorAll('#barre [data-v]').forEach((b) => b.classList.toggle('on', b.dataset.v === v)); }
+  function resume() { const o = {}; for (const k in resultats) o[k] = resultats[k].cout; return { qualite, cout: o }; }
+  function hud() { const r = resume(); document.getElementById('hud').innerHTML = '<b>Banc décors 1</b> · ' + (qualite === 'low' ? 'basse' : 'haute') + '<br>' + Object.entries(r.cout).map(([k, c]) => k + ' : ' + c.appels + ' appels, ' + (c.triangles / 1000).toFixed(1) + ' k tri').join('<br>') + '<br>' + R.info.render.calls + ' appels à l\'écran'; }
+  let t0 = performance.now(), tAnim = 0; function boucle() { requestAnimationFrame(boucle); const n = performance.now(), dt = Math.min(.05, (n - t0) / 1000); t0 = n; tAnim += dt; for (const f of maj) f(dt, tAnim); R.render(sc, cam); if ((tAnim * 4 | 0) % 4 === 0) hud(); }
+  document.getElementById('b-q').onclick = (e) => { construire(qualite === 'high' ? 'low' : 'high'); e.target.textContent = 'Qualité : ' + (qualite === 'low' ? 'basse' : 'haute'); };
+  document.querySelectorAll('#barre [data-v]').forEach((b) => (b.onclick = () => placer(b.dataset.v)));
+  addEventListener('resize', () => { R.setSize(innerWidth, innerHeight); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); });
+  // Interface des bancs (tests/banc-decors.cjs) : construire, placer une vue, relire coûts et emprises, rendre une image.
+  window.__banc = { construire, placer, resultats: () => resultats, rendre: () => { R.render(sc, cam); return { appels: R.info.render.calls, triangles: R.info.render.triangles }; }, scene: () => sc, WALLD, HW };
+  construire('high', 1); boucle();
+})();
+</script>
+</body></html>

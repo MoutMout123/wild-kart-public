@@ -11,9 +11,10 @@
   // Client d'essai des comptes (test-comptes-…) : l'exception de publication ne couvre que l'essai des comptes ; le prototype G2,
   // présenté avant toute diffusion, n'y est pas activé.
   if (/^test-comptes-/.test(String(window.WK_TEST || ''))) return;
-  const { SAVE, store, statsFor, BODIES, WHEELS, GLIDERS, PILOTS, ACCS, FINISHES, DECOS, TRAILS, COLORS, SKINS, lockInfo, GS, refreshGarageKart, show, launchPrepared, UI, TRACKS, toast, AudioSys, ownedColors } = K;
-  const VERSION = 1, NB_MONTAGES = 3;
-  const CLES = ['body', 'wheels', 'glider', 'pilot', 'color', 'helmet', 'skin', 'acc', 'finish', 'deco', 'trail'];
+  const kartMesh = K.kartMesh, THREE = window.THREE;
+  const { SAVE, store, statsFor, BODIES, WHEELS, GLIDERS, ENGINES, PILOTS, ACCS, FINISHES, DECOS, TRAILS, COLORS, SKINS, lockInfo, GS, refreshGarageKart, show, launchPrepared, UI, TRACKS, toast, AudioSys, ownedColors } = K;
+  const VERSION = 1, NB_MONTAGES = 3, MAX_MONTAGES = 8;
+  const CLES = ['body', 'wheels', 'glider', 'engine', 'pilot', 'color', 'helmet', 'skin', 'acc', 'finish', 'deco', 'trail'];
   const NOMS_STATS = [['speed', 'Vitesse'], ['accel', 'Accélération'], ['handling', 'Maniabilité'], ['weight', 'Poids'], ['off', 'Tout-terrain'], ['air', 'Planeur']];
   // Familles : l'étiquette « conduite » est CALCULÉE (une pièce de la famille change réellement statsFor) ; sinon « apparence ».
   // Constat du 6 nov. : les 12 planeurs ont le même effet (choix de conception du jeu) → Planeur = Apparence.
@@ -28,11 +29,11 @@
     { id: 'deco', nom: 'Déco', type: 'apparence', table: () => DECOS },
     { id: 'acc', nom: 'Accessoire', type: 'apparence', table: () => ACCS },
     { id: 'trail', nom: 'Turbo', type: 'apparence', table: () => TRAILS },
-    { id: 'moteur', nom: 'Moteur & suspension', type: 'bientot', aide: 'à développer : « Conduite » seulement si l\'effet est démontré' },
+    { id: 'engine', nom: 'Moteur & suspension', type: 'auto', table: () => ENGINES, nb: () => Object.keys(ENGINES).length },   /* #34.G (7 nov.) : effet réel par statsFor */
     { id: 'pieces', nom: 'Ailes, aileron, échappements', type: 'bientot', aide: 'pièces indépendantes à séparer (raccords G0 prêts)' }
   ];
-  for (const f of FAMILLES) if (f.type === 'auto') { const base = { body: 'equilibre', wheels: 'standard', glider: 'classique' }, ref = JSON.stringify(statsFor(base.body, base.wheels, base.glider));
-    f.type = Object.keys(f.table()).some((v) => { const c = Object.assign({}, base, { [f.id]: v }); return JSON.stringify(statsFor(c.body, c.wheels, c.glider)) !== ref; }) ? 'conduite' : 'apparence'; }
+  for (const f of FAMILLES) if (f.type === 'auto') { const base = { body: 'equilibre', wheels: 'standard', glider: 'classique', engine: 'standard' }, ref = JSON.stringify(statsFor(base.body, base.wheels, base.glider, base.engine));
+    f.type = Object.keys(f.table()).some((v) => { const c = Object.assign({}, base, { [f.id]: v }); return JSON.stringify(statsFor(c.body, c.wheels, c.glider, c.engine)) !== ref; }) ? 'conduite' : 'apparence'; }
   const $a = (s) => document.querySelector(s), esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const equipe = () => { const o = {}; for (const k of CLES) o[k] = SAVE[k]; return o; };
   // Validation d'une configuration (montage relu, brouillon restauré) : uniquement des clés et des valeurs connues.
@@ -46,7 +47,7 @@
   // État persistant : { v, montages: [ {nom, cfg} | null ] (≥ 3, extensible), brouillon: {cfg, slot, histo, redo, depart}, famille }
   function etat() {
     let A = SAVE.atelier; if (!A || A.v !== VERSION || !Array.isArray(A.montages)) A = { v: VERSION, montages: [], brouillon: null, famille: 'body' };
-    A.montages = A.montages.slice(0, 20).map((m) => (m && typeof m === 'object' && valide(m.cfg) ? { nom: String(m.nom || 'Montage').slice(0, 16), cfg: valide(m.cfg) } : null));
+    A.montages = A.montages.slice(0, MAX_MONTAGES).map((m) => (m && typeof m === 'object' && valide(m.cfg) ? { nom: String(m.nom || 'Montage').slice(0, 16), cfg: valide(m.cfg) } : null));
     while (A.montages.length < NB_MONTAGES) A.montages.push(null);
     if (!A.brouillon || !valide(A.brouillon.cfg)) A.brouillon = null; else { A.brouillon.cfg = valide(A.brouillon.cfg); A.brouillon.histo = (A.brouillon.histo || []).map(valide).filter(Boolean).slice(-30); A.brouillon.redo = (A.brouillon.redo || []).map(valide).filter(Boolean).slice(-30); A.brouillon.depart = valide(A.brouillon.depart) || A.brouillon.cfg; }
     if (!FAMILLES.some((f) => f.id === A.famille && f.type !== 'bientot')) A.famille = 'body';
@@ -61,7 +62,7 @@
   function annuler() { const B = brouillon(); if (!B.histo.length) return; B.redo.push(Object.assign({}, B.cfg)); B.cfg = B.histo.pop(); sauver(); apercu(); rendre(); }
   function retablir() { const B = brouillon(); if (!B.redo.length) return; B.histo.push(Object.assign({}, B.cfg)); B.cfg = B.redo.pop(); sauver(); apercu(); rendre(); }
   function pieceAvant() { const B = brouillon(), f = etat().famille; appliquer(f, B.depart[f]); }
-  const st = (c) => statsFor(c.body, c.wheels, c.glider);
+  const st = (c) => statsFor(c.body, c.wheels, c.glider, c.engine);
   function barres(a, n) { return NOMS_STATS.map(([k, nom]) => { const va = a[k], vn = n[k], d = Math.round((vn - va) * 100), lo = Math.min(va, vn), hi = Math.max(va, vn);
     return '<div class="atl-barre"><span>' + nom + '</span><div class="atl-jauge"><i class="a" style="width:' + (lo * 100).toFixed(1) + '%"></i><i class="n' + (d < 0 ? ' m' : '') + '" style="left:' + (lo * 100).toFixed(1) + '%;width:' + ((hi - lo) * 100).toFixed(1) + '%"></i></div><b class="' + (d > 0 ? 'p' : d < 0 ? 'm' : 'z') + '">' + (d > 0 ? '+' : '') + d + '</b></div>'; }).join(''); }
   function seul(v) { return NOMS_STATS.map(([k, nom]) => '<div class="atl-barre"><span>' + nom + '</span><div class="atl-jauge"><i class="n" style="left:0;width:' + (v[k] * 100).toFixed(1) + '%"></i></div><b class="z">' + Math.round(v[k] * 100) + '</b></div>').join(''); }
@@ -79,11 +80,51 @@
     return launchPrepared(c.i, SAVE.cc);
   }
   function enregistrer(slot, nom) { const A = etat(), B = brouillon(); A.montages[slot] = { nom: String(nom || ('Montage ' + (slot + 1))).slice(0, 16), cfg: Object.assign({}, B.cfg) }; B.slot = slot; B.depart = Object.assign({}, B.cfg); sauver(); rendre(); try { toast('Montage « ' + A.montages[slot].nom + ' » enregistré.', 2200); } catch (e) { /* rien */ } }
+  function renommer(i, nom) { const A = etat(), m = A.montages[i]; ATL.renomme = null; nom = String(nom || '').replace(/\s+/g, ' ').trim().slice(0, 16);
+    if (m && nom) { m.nom = nom; sauver(); } rendre(); }
+  function ajouter() { const A = etat(); if (A.montages.length >= MAX_MONTAGES) return; A.montages.push(null); sauver(); rendre(); }
+  function supprimer(i) { const A = etat(), B = brouillon(); if (i >= NB_MONTAGES) A.montages.splice(i, 1); else A.montages[i] = null;
+    if (B.slot === i) B.slot = -1; else if (B.slot > i && i >= NB_MONTAGES) B.slot--; if (ATL.comparer === i) ATL.comparer = null; sauver(); rendre(); }
   function equiper() { const B = brouillon(); for (const k of CLES) SAVE[k] = B.cfg[k]; B.depart = Object.assign({}, B.cfg); sauver(); ATL.confirmer = false; apercu(); rendre(); try { toast('Kart équipé pour les courses.', 2200); } catch (e) { /* rien */ } }
   function chargerMontage(slot) { const m = etat().montages[slot]; if (!m) return; const B = brouillon(); B.histo.push(Object.assign({}, B.cfg)); B.cfg = Object.assign({}, m.cfg); B.slot = slot; B.depart = Object.assign({}, m.cfg); B.redo = []; sauver(); apercu(); rendre(); }
   function vue(v) { ATL.vue = v; const ang = { '3/4': -.6, 'Avant': 0, 'Profil': Math.PI / 2, 'Arrière': Math.PI }[v]; if (typeof GS !== 'undefined') { GS.rot = ang; GS.vit = 0; GS.touche = performance.now() + 864e5; } rendre(); }   // vue fixée jusqu'au prochain geste
+  // ---- Vignettes rendues des pièces (#34.G2) -------------------------------------------------------------------------------------
+  // Le kart du BROUILLON équipé de la pièce, rendu par le moteur du jeu dans une cible hors écran (pas de second contexte WebGL),
+  // une vignette à la fois (file d'attente, une par image), seulement pour la famille affichée ; cache en mémoire (pas de stockage).
+  // Familles sans image utile (couleurs, turbo, planeur replié) : nom seul.
+  const VIGN = { cache: new Map(), file: [], enCours: false, rt: null, scene: null, W: 168, H: 112 };
+  const AVEC_VIGNETTE = new Set(['body', 'wheels', 'pilot', 'acc', 'finish', 'deco']);
+  const cleVign = (fam, id, cfg) => fam + '|' + id + '|' + CLES.filter((k) => k !== fam).map((k) => cfg[k]).join(',');
+  function sceneVign() { if (VIGN.scene) return VIGN.scene; const sc = new THREE.Scene(); sc.background = new THREE.Color('#2a2560');
+    sc.add(new THREE.HemisphereLight('#ffffff', '#2a2560', 1.7)); const d = new THREE.DirectionalLight('#fff3e0', 2.6); d.position.set(5, 8, 6); sc.add(d);
+    const r = new THREE.DirectionalLight('#7c4dff', 1.2); r.position.set(-6, 3, -5); sc.add(r); VIGN.scene = sc; return sc; }
+  function rendreVign(fam, id, cfg) {
+    const R = K.renderer, sc = sceneVign(), k = kartMesh(Object.assign({}, cfg, { [fam]: id })), W = VIGN.W, H = VIGN.H;
+    if (k.rig && K.heroAnimate) K.heroAnimate(k.rig, { spin: 0, boost: 0, finished: false, place: 0, drift: 0, air: false }, 0, 1, performance.now() / 1000);
+    if (k.glider) k.glider.visible = false; sc.add(k.g); k.g.rotation.y = -.65;
+    const proche = fam === 'pilot' || fam === 'acc', roue = fam === 'wheels', cam = new THREE.PerspectiveCamera(proche ? 26 : 30, W / H, .1, 60);
+    if (proche) { cam.position.set(1.6, 3.0, 2.9); cam.lookAt(0, 1.75, 0); } else if (roue) { cam.position.set(2.6, 1.05, 2.5); cam.lookAt(1.0, .45, 1.05); } else { cam.position.set(3.7, 2.3, 4.4); cam.lookAt(0, .75, 0); }
+    if (!VIGN.rt) { VIGN.rt = new THREE.WebGLRenderTarget(W, H); if (THREE.SRGBColorSpace) VIGN.rt.texture.colorSpace = THREE.SRGBColorSpace; }   /* sRGB : sans cela, les couleurs lues restaient linéaires (vignettes sombres) */ const avant = R.getRenderTarget();
+    R.setRenderTarget(VIGN.rt); R.render(sc, cam); const px = new Uint8Array(W * H * 4); R.readRenderTargetPixels(VIGN.rt, 0, 0, W, H, px); R.setRenderTarget(avant);
+    sc.remove(k.g); k.g.traverse((o) => { if (o.geometry && !(o.geometry.userData && o.geometry.userData.keep)) o.geometry.dispose(); });
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H; const c2 = cv.getContext('2d'), im = c2.createImageData(W, H);
+    for (let y = 0; y < H; y++) im.data.set(px.subarray((H - 1 - y) * W * 4, (H - y) * W * 4), y * W * 4);   // l'image lue est retournée
+    c2.putImageData(im, 0, 0); return cv.toDataURL('image/jpeg', .82);
+  }
+  function demanderVignettes(fam) {
+    if (!AVEC_VIGNETTE.has(fam) || !kartMesh || !THREE) return; const F = FAMILLES.find((f) => f.id === fam), cfg = brouillon().cfg;
+    VIGN.file = Object.keys(F.table()).map((id) => ({ fam, id, cle: cleVign(fam, id, cfg), cfg: Object.assign({}, cfg) })).filter((x) => !VIGN.cache.has(x.cle));
+    if (!VIGN.enCours) suivanteVign();
+  }
+  function suivanteVign() {
+    const x = VIGN.file.shift(); if (!x || !ATL.ouvert) { VIGN.enCours = false; return; } VIGN.enCours = true;
+    requestAnimationFrame(() => { let url = ''; try { url = rendreVign(x.fam, x.id, x.cfg); } catch (e) { url = ''; }
+      if (url) { VIGN.cache.set(x.cle, url); if (VIGN.cache.size > 160) VIGN.cache.delete(VIGN.cache.keys().next().value);
+        const img = document.querySelector('#atl img[data-vign="' + x.cle.replace(/"/g, '') + '"]'); if (img) { img.src = url; img.classList.add('ok'); } }
+      setTimeout(suivanteVign, 30); });
+  }
   function rendre() {
-    const P = $a('#atl'); if (!P) return; if (!ATL.ouvert) { P.hidden = true; return; } P.hidden = false;
+    const P = $a('#atl'), gb = $a('#g-atelier'); if (gb) gb.hidden = ATL.ouvert; if (!P) return; if (!ATL.ouvert) { P.hidden = true; return; } P.hidden = false;
     const A = etat(), B = brouillon(), F = FAMILLES.find((f) => f.id === A.famille), cfg = B.cfg;
     let h = '<div class="atl-haut"><button class="atl-b ghost" id="atl-fermer"><span>← Choix rapide</span></button><b>Créer mon kart</b><span class="atl-mont">' + (B.slot >= 0 && A.montages[B.slot] ? 'Montage « ' + esc(A.montages[B.slot].nom) + ' »' : 'Brouillon') + (modifie() ? ' · modifié' : '') + '</span></div>';
     h += '<div class="atl-outils"><button class="atl-b" id="atl-undo"' + (B.histo.length ? '' : ' disabled') + '><span>↶ Annuler</span></button><button class="atl-b" id="atl-redo"' + (B.redo.length ? '' : ' disabled') + '><span>↷ Rétablir</span></button><button class="atl-b" id="atl-avant"><span>⟲ Pièce d\'avant</span></button>' +
@@ -91,11 +132,11 @@
     if (ATL.messageEssai) h += '<p class="atl-essai">' + esc(ATL.messageEssai) + '</p>';
     if (ATL.quitter) h += '<div class="atl-alerte"><p>Tu as des changements non enregistrés.</p><button class="atl-b" id="atl-q-garder"><span>Garder le brouillon</span></button><button class="atl-b ghost" id="atl-q-jeter"><span>Jeter</span></button><button class="atl-b red" id="atl-q-annuler"><span>Rester</span></button></div>';
     h += '<div class="atl-fams">' + FAMILLES.map((f) => '<button class="atl-fam' + (f.id === A.famille ? ' on' : '') + (f.type === 'bientot' ? ' off' : '') + '" data-fam="' + f.id + '"' + (f.type === 'bientot' ? ' aria-disabled="true"' : '') + '><b>' + esc(f.nom) + '</b>' + etiquette(f.type) + '</button>').join('') + '</div>';
-    h += '<p class="atl-legende"><b>Conduite</b> : change le vrai calcul de conduite. <b>Apparence</b> : ne change que le look.</p>';
+    h += '<p class="atl-legende"><b>Conduite</b> : change le vrai calcul de conduite. <b>Apparence</b> : ne change que le look.</p>'; if (A.famille === 'engine') h += '<p class="atl-aide"><strong>Réglages de conduite</strong> : pas encore de pièce visible sur le kart (moteurs et suspensions personnalisables séparément : à venir).</p>';   /* #34.G : famille non terminée */
     // Pièces de la famille
     h += '<div class="atl-pieces">';
     if (F.couleurs) h += F.couleurs().map((c) => '<button class="atl-coul' + (cfg[F.id] === c ? ' on' : '') + '" data-val="' + c + '" style="background:' + c + '" aria-label="Couleur ' + c + '"></button>').join('');
-    else for (const id of Object.keys(F.table())) { const lk = typeof lockInfo === 'function' ? lockInfo(F.id, id) : null; h += '<button class="atl-piece' + (cfg[F.id] === id ? ' on' : '') + (ATL.choix === id ? ' vise' : '') + (lk ? ' lock' : '') + '" data-val="' + esc(id) + '"' + (lk ? ' data-lock="' + esc(lk) + '"' : '') + '>' + esc(nomPiece(F, id)) + (lk ? ' 🔒' : '') + '</button>'; }
+    else for (const id of Object.keys(F.table())) { const lk = typeof lockInfo === 'function' ? lockInfo(F.id, id) : null; { const cv = AVEC_VIGNETTE.has(F.id) ? cleVign(F.id, id, cfg) : '', url = cv && VIGN.cache.get(cv); h += '<button class="atl-piece' + (cv ? ' img' : '') + (cfg[F.id] === id ? ' on' : '') + (ATL.choix === id ? ' vise' : '') + (lk ? ' lock' : '') + '" data-val="' + esc(id) + '"' + (lk ? ' data-lock="' + esc(lk) + '"' : '') + '>' + (cv ? '<img alt="" data-vign="' + esc(cv.replace(/"/g, '')) + '"' + (url ? ' class="ok" src="' + url + '"' : '') + '>' : '') + '<span>' + esc(nomPiece(F, id)) + (lk ? ' 🔒' : '') + '</span></button>'; } }
     h += '</div>';
     // Comparateur : pièce visée → vrais deltas statsFor ; famille « Apparence » : dit clairement qu'il n'y a pas d'effet.
     if (F.type === 'conduite') { const cand = ATL.choix && ATL.choix !== cfg[F.id] ? Object.assign({}, cfg, { [F.id]: ATL.choix }) : null, a = st(cfg);
@@ -105,9 +146,16 @@
     // Essai, montages, équipement
     const ce = circuitEssai(cfg);
     h += '<div class="atl-actions"><button class="atl-b" id="atl-essai"><span>Essayer 1 tour (' + esc(ce.nom) + ')</span></button>' + (ATL.confirmer ? '<button class="atl-b red" id="atl-equiper-ok"><span>Confirmer : équiper</span></button><button class="atl-b ghost" id="atl-equiper-non"><span>Non</span></button>' : '<button class="atl-b red" id="atl-equiper"><span>Équiper pour les courses</span></button>') + '</div>';
-    h += '<h4>Montages (' + A.montages.length + ')</h4><div class="atl-slots">' + A.montages.map((m, i) => '<div class="atl-slot' + (B.slot === i ? ' on' : '') + '"><b>' + (m ? esc(m.nom) : 'Vide') + '</b><small>' + (m ? esc(nomPiece(FAMILLES[0], m.cfg.body)) + ' · ' + esc(nomPiece(FAMILLES[1], m.cfg.wheels)) : '—') + '</small><button class="atl-b" data-save="' + i + '"><span>Enregistrer ici</span></button>' + (m ? '<button class="atl-b ghost" data-load="' + i + '"><span>Ouvrir</span></button><button class="atl-b ghost" data-cmp="' + i + '"><span>Comparer</span></button>' : '') + '</div>').join('') + '</div>';
+    // Montages : 3 par défaut, jusqu'à MAX_MONTAGES (ajout, nommage, suppression). Un nom saisi est affiché comme texte, jamais comme code.
+    h += '<h4>Montages (' + A.montages.length + ')</h4><div class="atl-slots">' + A.montages.map((m, i) => '<div class="atl-slot' + (B.slot === i ? ' on' : '') + '">' +
+      (ATL.renomme === i ? '<input id="atl-nom" maxlength="16" value="' + esc(m ? m.nom : 'Montage ' + (i + 1)) + '" aria-label="Nom du montage"><button class="atl-b red" data-nom-ok="' + i + '"><span>OK</span></button>'
+        : '<b>' + (m ? esc(m.nom) : 'Vide') + '</b>') +
+      '<small>' + (m ? esc(nomPiece(FAMILLES[0], m.cfg.body)) + ' · ' + esc(nomPiece(FAMILLES[1], m.cfg.wheels)) : '—') + '</small><button class="atl-b" data-save="' + i + '"><span>Enregistrer ici</span></button>' +
+      (m ? '<button class="atl-b ghost" data-load="' + i + '"><span>Ouvrir</span></button><button class="atl-b ghost" data-cmp="' + i + '"><span>Comparer</span></button><button class="atl-b ghost" data-renom="' + i + '"><span>Renommer</span></button>' : '') +
+      (m || i >= NB_MONTAGES ? '<button class="atl-b ghost" data-suppr="' + i + '"><span>' + (i >= NB_MONTAGES ? 'Retirer' : 'Vider') + '</span></button>' : '') + '</div>').join('') + '</div>' +
+      (A.montages.length < MAX_MONTAGES ? '<div class="atl-actions"><button class="atl-b" id="atl-ajout"><span>+ Ajouter un montage</span></button></div>' : '<p class="atl-note">' + MAX_MONTAGES + ' montages au plus.</p>');
     if (ATL.comparer != null && A.montages[ATL.comparer]) { const m = A.montages[ATL.comparer]; h += '<h4>Brouillon → « ' + esc(m.nom) + ' »</h4><div class="atl-cmp" id="atl-cmp2">' + barres(st(cfg), st(m.cfg)) + '</div>'; }
-    P.innerHTML = h;
+    P.innerHTML = h; demanderVignettes(F.id);
     // Événements
     const on = (sel, fn) => { const e = P.querySelector(sel); if (e) e.onclick = fn; };
     on('#atl-fermer', () => { if (modifie()) { ATL.quitter = true; rendre(); } else fermer(); });
@@ -121,6 +169,11 @@
       if (F.type === 'conduite') { ATL.choix = e.dataset.val; rendre(); } else appliquer(F.id, e.dataset.val); }));
     P.querySelectorAll('[data-save]').forEach((e) => (e.onclick = () => { const i = +e.dataset.save, m = etat().montages[i]; enregistrer(i, m ? m.nom : 'Montage ' + (i + 1)); }));
     P.querySelectorAll('[data-load]').forEach((e) => (e.onclick = () => chargerMontage(+e.dataset.load)));
+    P.querySelectorAll('[data-renom]').forEach((e) => (e.onclick = () => { ATL.renomme = +e.dataset.renom; rendre(); const x = P.querySelector('#atl-nom'); if (x) { x.focus(); x.select(); } }));
+    P.querySelectorAll('[data-nom-ok]').forEach((e) => (e.onclick = () => { const i = +e.dataset.nomOk, x = P.querySelector('#atl-nom'); renommer(i, x ? x.value : ''); }));
+    { const x = P.querySelector('#atl-nom'); if (x) x.onkeydown = (ev) => { if (ev.key === 'Enter') renommer(ATL.renomme, x.value); if (ev.key === 'Escape') { ATL.renomme = null; rendre(); } }; }
+    P.querySelectorAll('[data-suppr]').forEach((e) => (e.onclick = () => supprimer(+e.dataset.suppr)));
+    on('#atl-ajout', ajouter);
     P.querySelectorAll('[data-cmp]').forEach((e) => (e.onclick = () => { ATL.comparer = ATL.comparer === +e.dataset.cmp ? null : +e.dataset.cmp; rendre(); }));
   }
   // Le panneau du choix rapide est rendu INVISIBLE (pas retiré) : le retirer faisait remonter la mise en page et glisser la scène
@@ -144,12 +197,13 @@
       '.atl-t{display:inline-block;font-style:normal;font-size:10px;font-weight:800;border-radius:6px;padding:1px 5px;margin-left:6px}.atl-t.c{background:#dff3e8;color:#1d6b43}.atl-t.a{background:#ecebf7;color:#4a4870}.atl-t.b{background:#fff1c2;color:#7a5b00}' +
       '.atl-legende,.atl-note,.atl-essai{font-size:12px;opacity:.85;margin:6px 0}.atl-essai{background:#fff1c2;color:#4a3a00;border-radius:8px;padding:6px;opacity:1}.atl-alerte{background:#ffe1df;color:#5a1010;border-radius:10px;padding:8px;margin:6px 0}' +
       '.atl-pieces{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}.atl-piece{border:2px solid currentColor;border-radius:10px;padding:5px 9px;background:transparent;color:inherit;font:inherit;font-weight:700;cursor:pointer}.atl-piece.on{background:#1b1740;color:#f5c518}.atl-piece.vise{outline:3px solid #2fa66a}.atl-piece.lock{opacity:.45}' +
+      '.atl-piece.img{display:flex;flex-direction:column;align-items:center;padding:4px;width:96px}.atl-piece img{width:88px;height:59px;border-radius:7px;background:#3a347a;object-fit:cover;opacity:.35}.atl-piece img.ok{opacity:1}.atl-piece.img span{font-size:12px;margin-top:3px;text-align:center}' +
       '.atl-coul{width:30px;height:30px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 2px #1b1740;cursor:pointer}.atl-coul.on{box-shadow:0 0 0 3px #f5c518}' +
       '.atl-barre{display:grid;grid-template-columns:96px 1fr 40px;gap:6px;align-items:center;font-size:12px;margin:2px 0}.atl-jauge{height:9px;background:#e6e4f2;border-radius:6px;position:relative;overflow:hidden}.atl-jauge i{position:absolute;top:0;bottom:0}.atl-jauge .a{left:0;background:#9a97c0}.atl-jauge .n{background:#2fa66a}.atl-jauge .n.m{background:#d9534f}' +
       '.atl-barre b{text-align:right}.atl-barre b.p{color:#2fa66a}.atl-barre b.m{color:#d9534f}.atl-barre b.z{opacity:.6}#atl h4{margin:10px 0 4px;font-size:13px}' +
       '.atl-slots{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.atl-slot{border:2px solid currentColor;border-radius:10px;padding:6px;font-size:12px;display:flex;flex-direction:column;gap:4px}.atl-slot.on{outline:3px solid #f5c518}.atl-slot small{opacity:.75}';
     st.textContent += '.atl-b{border:2px solid #1b1740;border-radius:9px;padding:4px 8px;background:#fff;color:#1b1740;font:inherit;font-size:12px;font-weight:800;cursor:pointer;line-height:1.2}.atl-b[disabled]{opacity:.4;cursor:default}.atl-b.red{background:#f5c518}.atl-b.ghost{background:transparent}.atl-b.on{background:#1b1740;color:#f5c518}' +
-      '.atl-slot .atl-b{width:100%}#g-atelier{font-size:13px}@media (orientation:landscape){#g-atelier{position:absolute;left:14px;bottom:14px;z-index:2;margin:0}}' +
+      '.atl-slot .atl-b{width:100%}#atl-nom{width:100%;font:inherit;font-size:13px;padding:3px 5px;border:2px solid #1b1740;border-radius:7px}#g-atelier{font-size:13px}@media (orientation:landscape){#g-atelier{position:absolute;left:14px;bottom:14px;z-index:2;margin:0}}' +
       '';
     document.head.appendChild(st);
     const P = document.createElement('div'); P.id = 'atl'; P.className = 'panel'; P.hidden = true; g.appendChild(P);
@@ -158,5 +212,5 @@
   // En quittant le garage, l'aperçu du brouillon est retiré (le garage rapide et la course montrent le kart équipé).
   document.addEventListener('click', (e) => { const t = e.target.closest && e.target.closest('#s-garage [data-go]'); if (t && ATL.ouvert) { ATL.ouvert = false; window.WK_APERCU = null; rapide(true); rendre(); } }, true);
   installer();
-  window.WKAtelier = { ouvrir, fermer, etat, brouillon, appliquer, annuler, retablir, pieceAvant, essayer, enregistrer, equiper, chargerMontage, vue, valide, FAMILLES, CLES, ATL, circuitEssai };
+  window.WKAtelier = { VIGN, renommer, ajouter, supprimer, MAX_MONTAGES, ouvrir, fermer, etat, brouillon, appliquer, annuler, retablir, pieceAvant, essayer, enregistrer, equiper, chargerMontage, vue, valide, FAMILLES, CLES, ATL, circuitEssai };
 })();
