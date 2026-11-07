@@ -54,7 +54,12 @@
     } else if (cfg.pilot === 'casquette') {
       // Cheveux à volumes distincts et surpiqûres de la casquette.
       if (!R.visage2) for (let i = -2; i <= 2; i++) ball(head, mats.dark, .045, .065, .035, i * .08, .05, -.27);   /* #36.E3 : remplacées par la lisière de cheveux */
-      if (R.visage2) { for (const s of [-1, 1]) segment(head, contrast, [s * .1, .3, .1], [s * .15, .2, .2], .006); panel(head, contrast, .085, .05, .01, 0, .235, .245, -.75); }   /* sur la calotte relevée */
+      if (R.visage2) { for (const s of [-1, 1]) segment(head, contrast, [s * .1, .3, .1], [s * .15, .2, .2], .006); if (window.WK_Q1_AVANT) panel(head, contrast, .085, .05, .01, 0, .235, .245, -.75);
+        else { /* #36.Q1 : écusson rond à bord roulé et étoile couleur carrosserie (avant : rectangle blanc plat sans motif) */
+          const d = new T.CylinderGeometry(.046, .046, .012, 28); d.rotateX(Math.PI / 2); add(head, contrast, move(d, 0, .235, .245, -.75));
+          const b = new T.TorusGeometry(.046, .007, 8, 32); add(head, contrast, move(b, 0, .235, .245, -.75));
+          const e = new T.Shape(); for (let i = 0; i < 10; i++) { const a = Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? .013 : .03; (i ? e.lineTo : e.moveTo).call(e, Math.cos(a) * r, Math.sin(a) * r); }
+          const eg = new T.ExtrudeGeometry(e, { depth: .004, bevelEnabled: false }); eg.translate(0, 0, .006); add(head, mats.paint, move(eg, 0, .235, .245, -.75)); } }   /* sur la calotte relevée */
       else { for (const s of [-1, 1]) segment(head, contrast, [s * .12, .26, .1], [s * .15, .12, .27], .008); panel(head, contrast, .09, .055, .012, 0, .11, .3); }
     } else if (cfg.pilot === 'capuche') {
       for (const s of [-1, 1]) { if (R.visage2) { const c = new T.CatmullRomCurve3([new T.Vector3(s * .1, .24, .2), new T.Vector3(s * .125, .16, .245), new T.Vector3(s * .135, .06, .262), new T.Vector3(s * .13, -.03, .265)]); add(torso, contrast, new T.TubeGeometry(c, 16, .009, 6, false)); ball(torso, mats.metal, .013, .024, .013, s * .13, -.05, .265); }   /* cordon souple + embout */

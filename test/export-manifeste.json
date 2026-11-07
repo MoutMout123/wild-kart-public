@@ -1,14 +1,14 @@
 {
- "version": "test-23cc656",
- "commit": "23cc65649bad9385fb308a49a8dc9df5eb5622e9",
+ "version": "test-87c29dc",
+ "commit": "87c29dc6d0851d281024acb9e483e7b375d8726d",
  "fichiers": {
   "atelier-graphique.html": "91edba3ff6c2eefc6d407de76a4052c8864b0a1e729b241f48b3d038cb76df55",
   "equilibre-prototype.js": "744ad4e0698fed7a3c74ea15a3acff13b1798ef2560656b8a03c1caf8c9b97da",
   "carrosseries-prototype.js": "d286f09706fe7305ff7ecc932a9cc525b551252d3764614a3c56771a96f1e71c",
-  "pilotes-prototype.js": "75932310339ab5c974968a812270b22c1d581a6710cd7aa1b2aba496f6ac4cd2",
-  "index.html": "38b099e12dd5efc324b763b342802a36e50e222511fc543630358f9fb3c87672",
-  "boot.js": "9fb3d26d5a6af716d574a96bed1e7acb490d56dde9dc5cb13fb5f4150a3f92b0",
-  "game.js": "5bdb871fb1f1b9da0b447878140033bfb2e8df91defea409f64a70f60a13e07c",
+  "pilotes-prototype.js": "150baa7553e1b83707ad49dd7f6d49b1b86d55e67d58231d547d76421cdd8536",
+  "index.html": "80e5806dccc80751ef85c53e3120c3b2b7c35d9b54ad790b4c1cca5ea53e8cb8",
+  "boot.js": "655e46d9a3a555de8e4438c05b7926b1cf39ec14886fd5bcca74ad93c7cd03cf",
+  "game.js": "4c0f6293f3a32a3aea6539c68302b5612980c4db8061ee26ca65017ee16e708e",
   "atelier.js": "9e811b8dbfe97890f2faf5ac6831bdcc0fa74147ec7b8bc0f00c521d1eda88e1",
   "surface3d.js": "76d0f05a36f534a52ebd174867f1b9ba3a273e234a18f7a503c1be7d5fc6f8be",
   "palier-mur.html": "c0dc178845270d533d0de3dab71569d0426e801aa5c51de4f03c24998c4450d8",
@@ -20,7 +20,7 @@
   "nature.js": "3d4978c4546b76165fc3f6f90a712b0db9ab7221c7c309e7dacee6c53579ffea",
   "vivant.js": "2dbeae5675fa2b69f652c30f52b6385f955557630feed72e16234d1fe6554033",
   "bac-a-sable.js": "6a49204e05080f8c9d7922752c6f88e61959ff4a6c47acc481186720c1ca2620",
-  "demarrage.html": "1f21c81587c042089294621543dd6bea3fd281d1fa08c2041cba257fb0a8ca0d",
+  "demarrage.html": "7a2ba79f8feff689a65470dad345bc64bdef24dc2a25ae4951d707cdd41064de",
   "demarrage.js": "3443e20136cad9de1381167eec626dab85835f4930ff705c2f488e93cf166963",
   "studio-core.js": "d26d7cc99937f85c2a1b270b5c91c8faaadd94de288ac3d7f0dee6de0e016ed1",
   "studio3d.js": "d211facf4893027212493af739e667f86cdc539a87f702a6ac0acc5130180c15",
@@ -259,12 +259,12 @@
   "tracks/tirebouchon.json": "76e8f713d9f14c21a0c3f2a5e881dd13e2dfe87ec97fd71c2dc6c2119a807840",
   "tracks/tonton.json": "2cca5284ddfddd1de57680462b6f114585ee2240c923460c0346adba74fdaea6",
   "tracks/trainfou.json": "fe6466fa99af33b5bb029922db2c414ea4b513f84dced61e123f1554955c95de",
-  "wk-test.js": "344a49c6e63c02d3b08354b6e5380ecbc50020acedf18272ad5b8f008597ac66",
-  "prototypes-test.js": "26056c816e7aed1254168237fb861c45e6078d071bc461d8650308b74f5992b2",
+  "wk-test.js": "60ef6c61d289ea24e0083f0a109c39d1a0a092bdb0afeae7f3e6c637211c72e6",
+  "prototypes-test.js": "5edd80ae221f899c5117ba8962abbcfc814ce761f7f326be90c8a4bdfbd5cd25",
   "assets/apercus/prototype-orig-spec-3-long-difficile.jpg": "83ab8cbfff259f085ac2208847fdbe4f3426593c0c9e9ea5de409da13baf7055",
-  "sw.js": "3e8f94f57f94856da548d74e22153ec8b24742ea806a0fcbe595b6579ad1cc2a",
+  "sw.js": "5f0f1fcd132281d9b0c3321ceb169513a27ced135a235ceaf55427d768c3a094",
   "manifest.webmanifest": "431dee22703211320cad19a23418d932e75e4446d50e5bee479e10ac510d2ea3",
-  "version.json": "bcd7e531072984ca5cc14e19028b6813b9a383ce8db18afd4da85c2b5fb4ff18",
-  "LISEZMOI-TEST.txt": "9d2201e509dece15b98798a9890a4c18561655ad75aa946c39d20ffb914f46a8"
+  "version.json": "bfc4f2b2103082c3471b08a0dc88bf393c2fa6c68ec462044fc8077d49b5e362",
+  "LISEZMOI-TEST.txt": "b349bdb8bd600e15705067e77f8740234603fe362ae2e9ed405ed748b28121dd"
  }
 }

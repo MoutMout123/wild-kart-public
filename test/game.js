@@ -2276,6 +2276,23 @@ function tireGeo(R, w, knobby, style) {
 // modélisé ; on voyait la caisse à travers cet anneau vide (contour irrégulier). Une collerette rejoint maintenant le talon, juste à
 // l'intérieur du flanc. Branches, voile et moyeu inchangés.
 function rimLevre(r0, w, s) { return [[r0 * .97, s * w * .34], [r0 * 1.0, s * w * .4], [r0 * 1.035, s * (w / 2 - .022)]]; }
+/* #36.Q1 — Jante Standard en deux tons (avant : fond et branches dans le même métal clair, lecture pâle et plate en gros plan) : fond de
+   jante gris acier sombre (couleurs de sommets selon le rayon), lèvre claire ; branches séparées en métal clair ; moyeu traversant
+   remplacé par deux enjoliveurs bombés (il se lisait comme une tache jaune étirée à travers les branches). WK_Q1_AVANT = témoin. */
+function jante2Geo(R, w) {
+  const r0 = R * .6, paroi = (sg) => [.55, .72, .8, .88].map((f) => [r0 * (.62 + .415 * f), sg * (w * .22 + (w / 2 - .022 - w * .22) * f)]);   /* points intermédiaires SUR le segment d'origine (forme inchangée) : transition de teinte nette */
+  const pts = [[.001, w * .34], [r0 * .28, w * .36], [r0 * .62, w * .22], ...paroi(1), ...rimLevre(r0, w, 1).reverse(), ...rimLevre(r0, w, -1), ...paroi(-1).reverse(), [r0 * .62, -w * .22], [r0 * .28, -w * .36], [.001, -w * .34]].map((p) => new T.Vector2(p[0], p[1]));
+  const g = new T.LatheGeometry(pts, 28); g.rotateZ(Math.PI / 2); const P = g.attributes.position, C = new Float32Array(P.count * 3);
+  for (let i = 0; i < P.count; i++) { const rr = Math.hypot(P.getY(i), P.getZ(i)) / r0, t = clamp((rr - .95) / .05, 0, 1), c = [.05 + .77 * t, .056 + .78 * t, .07 + .8 * t];   /* fond sombre jusqu'à la lèvre (couleurs de sommets en espace linéaire) */ C.set(c, i * 3); }
+  g.setAttribute('color', new T.BufferAttribute(C, 3));
+  const sp = []; for (const sx of [-1, 1]) for (let k = 0; k < 5; k++) { const a = k / 5 * TAU, c = new T.CapsuleGeometry(r0 * .1, r0 * .55, 2, 6); c.scale(1.6, 1, 1); c.translate(0, r0 * .5, 0); c.applyMatrix4(trs(sx * w * .3, 0, 0, a, 0, 0)); sp.push(c); }
+  const caps = [-1, 1].map((sx) => { const d = new T.SphereGeometry(R * .15, 24, 12, 0, TAU, 0, Math.PI / 2); d.scale(1, .55, 1); d.rotateZ(-sx * Math.PI / 2); d.translate(sx * w * .35, 0, 0);
+    const b = new T.CylinderGeometry(R * .15, R * .16, w * .06, 24); b.rotateZ(Math.PI / 2); b.translate(sx * w * .33, 0, 0); return mergeGeos([d, b]); });
+  /* une seule géométrie jante + branches (couleurs de sommets : branches claires) : 4 appels de rendu de moins par kart */
+  const a = g.toNonIndexed(), b = mergeGeos(sp), na = a.attributes.position.count, nb = b.attributes.position.count, m = new T.BufferGeometry(), cat = (k, n) => { const A = a.attributes[k].array, B = b.attributes[k] ? b.attributes[k].array : new Float32Array(nb * n).fill(.86), o = new Float32Array(A.length + B.length); o.set(A); o.set(B, A.length); return new T.BufferAttribute(o, n); };
+  m.setAttribute('position', cat('position', 3)); m.setAttribute('normal', cat('normal', 3)); m.setAttribute('uv', cat('uv', 2)); m.setAttribute('color', cat('color', 3));
+  return { rim: m, cap: mergeGeos(caps) };
+}
 function rimGeo(R, w) {
   const r0 = R * .6, pts = [[.001, w * .34], [r0 * .28, w * .36], [r0 * .62, w * .22], ...rimLevre(r0, w, 1).reverse(), ...rimLevre(r0, w, -1), [r0 * .62, -w * .22], [r0 * .28, -w * .36], [.001, -w * .34]].map((p) => new T.Vector2(p[0], p[1]));
   const g = new T.LatheGeometry(pts, 28); g.rotateZ(Math.PI / 2);
@@ -2703,7 +2720,7 @@ function kartMesh(cfgIn) {
   for (const k in geo.merged) { if (k.startsWith('h:')) { if (rig) { const m = new T.Mesh(geo.merged[k], mats[k.slice(2)]); m.position.set(0, -1.7, .3); rig.head.add(m); } continue; } tilt.add(new T.Mesh(geo.merged[k], fin[k] || mats[k])); }
   if (geo.deco) tilt.add(new T.Mesh(geo.deco, cfg.deco === 'damier' ? checkerMat() : stdMat(cfg.helmet, F.r, F.m)));
   const WD = geo.WD; const neon = cfg.wheels === 'neon';
-  const wt = cfg.wheels; const tireM = wt === 'bois' ? stdMat('#a0703f', .8, 0) : wt === 'ballon' ? stdMat(cfg.helmet, .35, .05) : wheelMat('pneu'), rimM = neon || wt === 'disco' ? glowMat(cfg.helmet) : wt === 'etoile' ? stdMat('#ffc531', .22, .85) : wt === 'bois' ? stdMat('#5a3c24', .7, 0) : wt === 'ballon' ? stdMat('#fffdf7', .3, .1) : wt === 'crampons' ? stdMat('#e8b020', .45, .35) : wt === 'jantes' ? stdMat('#2a2a34', .25, .85) : wheelMat('jante'), capM = neon ? stdMat('#1c1b24', .4, .5) : stdMat(cfg.helmet, .3, .4);
+  const wt = cfg.wheels; const tireM = wt === 'bois' ? stdMat('#a0703f', .8, 0) : wt === 'ballon' ? stdMat(cfg.helmet, .35, .05) : wheelMat('pneu'), rimM = neon || wt === 'disco' ? glowMat(cfg.helmet) : wt === 'etoile' ? stdMat('#ffc531', .22, .85) : wt === 'bois' ? stdMat('#5a3c24', .7, 0) : wt === 'ballon' ? stdMat('#fffdf7', .3, .1) : wt === 'crampons' ? stdMat('#e8b020', .45, .35) : wt === 'jantes' ? stdMat('#2a2a34', .25, .85) : wt === 'standard' && !window.WK_Q1_AVANT ? wheelMat('jante2') : wheelMat('jante'), capM = neon ? stdMat('#1c1b24', .4, .5) : stdMat(cfg.helmet, .3, .4);
   const wheels = [], fronts = []; const fz = BODY_FZ[cfg.body] || 1.05; const wide = BODY_WIDE[cfg.body] || 0;
   for (const [x, z, front] of [[-1, fz, 1], [1, fz, 1], [-1, -1, 0], [1, -1, 0]]) {
     const piv = new T.Group(); piv.position.set(x * (.92 + wide + WD.w / 2 - .12), WD.r, z); tilt.add(piv);
@@ -2719,12 +2736,13 @@ function kartMesh(cfgIn) {
   for (const fp of geo.flames) { const f = new T.Mesh(fg, flameMat); f.position.set(fp.x, fp.y, fp.z); f.scale.set(fp.s, fp.s, .01); f.userData.s = fp.s; f.visible = false; tilt.add(f); flames.push(f); }
   const shield = new T.Mesh(new T.SphereGeometry(2.1, 32, 20), new T.MeshBasicMaterial({ color: '#38b6ff', transparent: true, opacity: .26, depthWrite: false, blending: T.AdditiveBlending }));
   shield.position.y = .9; shield.visible = false; g.add(shield);
-  tilt.traverse((o) => { if (o.isMesh && o.material !== flameMat) o.castShadow = true; });
+  tilt.traverse((o) => { if (o.isMesh && o.material !== flameMat) o.castShadow = !o.userData.sansOmbre; });
   const glider = gliderMesh(cfg); tilt.add(glider);
   const shadow = new T.Mesh(new T.PlaneGeometry(3.2, 4.3), new T.MeshBasicMaterial({ map: SHADOW_TEX, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
   shadow.rotation.x = -Math.PI / 2; shadow.position.y = .05; g.add(shadow);
   shadow.visible = !qual().shadows;
   const sc = BODY_V2.has(bodyId) ? null : (BODIES[bodyId] && BODIES[bodyId].sc) || null; if (sc) tilt.scale.set(sc[0], sc[1], sc[2]);   // carrosseries v2 : modèle propre, plus de mise à l'échelle d'un autre
+  if (rig && !window.WK_POSE_AVANT) heroAnimate(rig, { spin: 0, boost: 0, finished: false, place: 0, drift: 0, air: false }, 0, 1, 0);   /* #36.Q1 : bras posés dès la construction (le fantôme du record n'est jamais animé : capsules des bras au repos sous le kart) ; WK_POSE_AVANT = témoin */
   return { g, tilt, wheels, fronts, flames, shield, wheelR: WD.r, trail, glider, sc, rig };
 }
 
@@ -2867,11 +2885,19 @@ function heroRig(cfg, mats) {
   // mains sur le volant, tête qui suit le virage, réactions boost / saut / choc / victoire) ; seule la coiffe change selon le pilote.
   const style = cfg.pilot, robot = style === 'robot', detail = [], cheek = [], whites = [], pupils = [], brows = [];
   /* #36.E1 (retour du 6 nov.) : visage sculpté. WK_VISAGE_AVANT = ancien rendu (témoin des planches avant/après). */
+  const Q1 = !(typeof window !== 'undefined' && window.WK_Q1_AVANT);   /* #36.Q1 lot 1 (finitions Galet + 5 pilotes) ; WK_Q1_AVANT = témoin avant */
   const VISAGE2 = !robot && !(typeof window !== 'undefined' && (window.WK_VISAGE_AVANT || window.WK_FINITION_AVANT)), FACE = VISAGE2 ? formeVisage(style) : null;
   if (robot) {
     mesh([G(new T.CapsuleGeometry(.27, .16, 8, 20), 0, 0, 0, 0, 0, Math.PI / 2, 1, 1.05, .95)], mats.metal, head);   // tête arrondie
-    mesh([G(new T.TorusGeometry(.3, .04, 10, 32, Math.PI), 0, 0, -.02), G(new T.CylinderGeometry(.09, .09, .1, 14), -.34, 0, 0, 0, 0, Math.PI / 2), G(new T.CylinderGeometry(.09, .09, .1, 14), .34, 0, 0, 0, 0, Math.PI / 2), G(new T.CylinderGeometry(.015, .015, .22, 6), .14, .38, -.05), G(new T.SphereGeometry(.045, 10, 8), .14, .5, -.05)], mats.dark, head);
-    detail.push(mesh([G(rbox(.46, .2, .04, .05), 0, .02, .27)], mats.visor || mats.glass, head));            // écran du visage
+    mesh([G(new T.TorusGeometry(.3, .04, 10, 32, Math.PI), 0, 0, -.02), G(new T.CylinderGeometry(.09, .09, .1, 32), -.34, 0, 0, 0, 0, Math.PI / 2), G(new T.CylinderGeometry(.09, .09, .1, 32), .34, 0, 0, 0, 0, Math.PI / 2), G(new T.CylinderGeometry(.015, .015, .22, 10), .14, .38, -.05), G(new T.SphereGeometry(.045, 16, 12), .14, .5, -.05)], mats.dark, head);   /* #36.Q1 : oreilles 32 côtés, antenne 10, boule 16×12 (facettes visibles en gros plan avant) */
+    if (!Q1) detail.push(mesh([G(rbox(.46, .2, .04, .05), 0, .02, .27)], mats.visor || mats.glass, head));            // écran du visage
+    else { /* #36.Q1 : écran intégré (avant : plaque noire posée devant la tête, sans raccord) — écran enfoncé de moitié dans la coque, cadre
+         tubulaire qui épouse la surface de la tête (tête = capsule couchée, rayon 0,27, échelles 1 / 1,05 / 0,95) */
+      detail.push(mesh([G(rbox(.44, .19, .04, .05), 0, .02, .248)], mats.visor || mats.glass, head));
+      const surf = (x, y) => { const ax = Math.max(0, Math.abs(x) - .08), q = .27 * .27 - ax * ax - (y / 1.05) ** 2; return Math.sqrt(Math.max(0, q)) * .95; }, L = [], w2 = .235, h2 = .108, rr = .05;
+      for (let i = 0; i < 64; i++) { const t = i / 64 * TAU, c = Math.cos(t), sn = Math.sin(t), px = Math.sign(c) * Math.min(w2 - rr, Math.abs(c) * w2 * 1.6) + rr * c, py = Math.sign(sn) * Math.min(h2 - rr, Math.abs(sn) * h2 * 1.6) + rr * sn, x = clamp(px, -w2, w2), y = clamp(py, -h2, h2) + .02;
+        L.push(new T.Vector3(x, y, Math.max(surf(x, y), .2) + .004)); }
+      mesh([new T.TubeGeometry(new T.CatmullRomCurve3(L, true), 128, .018, 8, true)], mats.metal, head); }
   } else {
     if (VISAGE2) mesh([teteSculptee(T, FACE)], mats.skin, head);   // #36.E1 : une seule surface (front, joues, menton, nez intégrés)
     else mesh([G(new T.SphereGeometry(style === 'heros' ? .325 : .295, 32, 24), 0, 0, 0, 0, 0, 0, 1, .95, .94), G(new T.SphereGeometry(.05, 12, 10), 0, -.07, style === 'heros' ? .33 : .3)], mats.skin, head);
@@ -2879,7 +2905,11 @@ function heroRig(cfg, mats) {
     detail.push(mesh(cheek, stdMat('#ff8fa3', .7, 0), head));
   }
   if (style === 'heros') {
-    mesh([G(new T.SphereGeometry(.355, 32, 16, 0, TAU, 0, Math.PI * .44), 0, .1, -.03, 0, 0, 0, 1.02, 1.05, 1), G(new T.ConeGeometry(.09, .26, 10), .06, .38, .1, .6, 0, -.3)], mats.helm, head);
+    { const coque = [G(new T.SphereGeometry(.355, 40, 18, 0, TAU, 0, Math.PI * .44), 0, .1, -.03, 0, 0, 0, 1.02, 1.05, 1), G(new T.ConeGeometry(.09, .26, 10), .06, .38, .1, .6, 0, -.3)];
+      /* #36.Q1 : bord inférieur tranché (calotte sans épaisseur) → bourrelet roulé sur tout le pourtour + intérieur sombre */
+      if (Q1) { const ry = .355 * Math.cos(Math.PI * .44) * 1.05 + .1, rr = .355 * Math.sin(Math.PI * .44); coque.push(G(new T.TorusGeometry(rr - .004, .021, 12, 64), 0, ry, -.03, Math.PI / 2, 0, 0, 1.02, 1, 1)); }
+      mesh(coque, mats.helm, head);
+      if (Q1) mesh([G(new T.SphereGeometry(.345, 32, 12, 0, TAU, 0, Math.PI * .44), 0, .1, -.03, 0, 0, 0, 1.02, 1.05, 1)], new T.MeshStandardMaterial({ color: '#4a4356', roughness: .9, side: T.BackSide }), head).userData.sansOmbre = true; }   /* intérieur : ombre déjà portée par la coque (exempté du traverse castShadow de kartMesh) */
     const gog = [], lens = []; for (const s of [-1, 1]) { gog.push(G(new T.TorusGeometry(.07, .024, 8, 18), s * .11, .29, .3, -.55)); lens.push(G(new T.CircleGeometry(.055, 16), s * .11, .29, .3, -.55)); }
     detail.push(mesh(gog, mats.metal, head), mesh(lens, mats.glass, head));
   } else if (style === 'casquette') {   // casquette à visière, mèches et oreilles
@@ -2890,11 +2920,25 @@ function heroRig(cfg, mats) {
       { const p = vg.attributes.position; for (let i = 0; i < p.count; i++) { const x = p.getX(i), z = p.getZ(i); p.setY(i, p.getY(i) - .55 * x * x - .06 * Math.max(0, z - .3)); } vg.computeVertexNormals(); }   /* bombée et inclinée vers l'avant */
       mesh([G(new T.SphereGeometry(.318, 32, 14, 0, TAU, 0, Math.PI * .365), 0, .03, -.01), G(new T.TorusGeometry(.275, .014, 8, 48), 0, .162, -.01, Math.PI / 2), G(vg, 0, .178, -.01), G(new T.SphereGeometry(.035, 10, 8), 0, .345, -.01)], mats.helm, head);
       /* lisière de cheveux continue sous la calotte, des tempes à la nuque (plus de boules sombres séparées) */
-      const lis = new T.SphereGeometry(.306, 36, 10, Math.PI * .82, Math.PI * 1.36, Math.PI * .36, Math.PI * .2); lis.scale(1, .95, .94);   /* φ centré sur la nuque (−z) */ mesh([G(lis, 0, .012, -.008)], stdMat('#5b3a24', .75, 0), head);   /* cheveux : calotte partielle qui épouse la tête (tempes → nuque) sous la casquette */
+      const lis = new T.SphereGeometry(.306, 36, 10, Math.PI * .82, Math.PI * 1.36, Math.PI * .36, Math.PI * .2);
+      if (Q1) { /* #36.Q1 : bord inférieur droit (« bande collée ») → mèches arrondies, plus longues à la nuque, effilées aux tempes ; léger
+           gonflement vers le bas pour l'épaisseur des cheveux */
+        const P = lis.attributes.position, W = 36, Hs = 10;
+        for (let i = 0; i < P.count; i++) { const row = Math.floor(i / (W + 1)), col = i % (W + 1), u = col / W, t = row / Hs, ph = Math.PI * .82 + u * Math.PI * 1.36;
+          const env = Math.pow(Math.sin(Math.PI * u), .6), meche = Math.pow(.5 + .5 * Math.cos(TAU * 6.5 * u), 1.6), nuque = .6 + .4 * Math.pow(Math.sin(Math.PI * u), 2);
+          const th = Math.PI * .36 + t * Math.PI * .2 + t * t * env * nuque * (Math.PI * .085 * meche + Math.PI * .03), Rr = .306 * (1 + .035 * t * t * env);
+          P.setXYZ(i, -Rr * Math.cos(ph) * Math.sin(th), Rr * Math.cos(th), Rr * Math.sin(ph) * Math.sin(th)); }
+        lis.computeVertexNormals(); }
+      lis.scale(1, .95, .94);   /* φ centré sur la nuque (−z) */ mesh([G(lis, 0, .012, -.008)], stdMat('#5b3a24', .75, 0), head);   /* cheveux : calotte partielle qui épouse la tête (tempes → nuque) sous la casquette */
     } else {
     mesh([G(new T.SphereGeometry(.318, 28, 12, 0, TAU, 0, Math.PI * .47), 0, .03, -.01), G(rbox(.42, .045, .3, .022), 0, .1, .33, .14, 0, 0), G(new T.SphereGeometry(.035, 10, 8), 0, .34, 0)], mats.helm, head);
     mesh([G(new T.SphereGeometry(.08, 10, 8), -.25, .02, .08, 0, 0, 0, .7, 1, 1.1), G(new T.SphereGeometry(.08, 10, 8), .25, .02, .08, 0, 0, 0, .7, 1, 1.1), G(new T.SphereGeometry(.09, 10, 8), 0, .02, -.27, 0, 0, 0, 1.6, .9, .8)], mats.dark, head); }
-    mesh([G(new T.SphereGeometry(.065, 10, 8), -.3, -.03, 0, 0, 0, 0, .5, 1, .8), G(new T.SphereGeometry(.065, 10, 8), .3, -.03, 0, 0, 0, 0, .5, 1, .8)], mats.skin, head);
+    if (!Q1) mesh([G(new T.SphereGeometry(.065, 10, 8), -.3, -.03, 0, 0, 0, 0, .5, 1, .8), G(new T.SphereGeometry(.065, 10, 8), .3, -.03, 0, 0, 0, 0, .5, 1, .8)], mats.skin, head);
+    else { /* #36.Q1 : oreille sculptée (ellipsoïde uni avant) : pavillon bordé d'un ourlet, creux ombré, lobe ; enracinée dans la tête, inclinée vers l'arrière */
+      const or = [], creux = []; for (const sd of [-1, 1]) { const x = sd * .288, ry = sd * .32;
+        or.push(G(new T.SphereGeometry(.062, 20, 14), x, -.03, -.005, 0, ry, 0, .42, 1, .74), G(new T.TorusGeometry(.046, .016, 10, 28), x + sd * .016, -.026, -.005, 0, sd * Math.PI / 2 + ry, 0, 1, 1.32, 1), G(new T.SphereGeometry(.022, 12, 10), x + sd * .012, -.085, .005));
+        creux.push(G(new T.SphereGeometry(.036, 16, 12), x + sd * .021, -.024, -.003, 0, ry, 0, .3, 1, .7)); }
+      mesh(or, mats.skin, head); mesh(creux, stdMat(darken(cfg.skin, .82), .7, 0), head); }
   } else if (style === 'capuche') {     // capuche ouverte sur le visage, cordons
     if (VISAGE2) { /* #36.E3 : coque sphérique fermée percée d'une ouverture ELLIPTIQUE autour du visage, bordure tubulaire continue (bord
          épais et arrondi, plus de découpe à angle vif ni de calotte plate), double face pour l'intérieur. Cordons : portés par le buste. */
@@ -2910,7 +2954,17 @@ function heroRig(cfg, mats) {
     if (!VISAGE2) mesh([G(new T.CylinderGeometry(.012, .012, .22, 6), -.1, -.32, .27), G(new T.CylinderGeometry(.012, .012, .22, 6), .1, -.32, .27), G(new T.SphereGeometry(.025, 8, 6), -.1, -.44, .27), G(new T.SphereGeometry(.025, 8, 6), .1, -.44, .27)], mats.glove, head);
   } else if (!robot) {                  // casque intégral ouvert devant, visière relevée, bande de couleur
     mesh([G(new T.SphereGeometry(.37, 32, 22, Math.PI / 2 + .85, TAU - 1.7, 0, Math.PI * .8), 0, .02, -.02)], mats.helm, head);
-    mesh([G(new T.TorusGeometry(.372, .04, 10, 40, Math.PI - .75), 0, .02, -.02, 0, Math.PI / 2, 0)], mats.paint, head);   // bande de la nuque jusqu'au-dessus du front (jamais sur le visage)
+    if (Q1) { /* #36.Q1 : bords de la coque tranchés (ouverture du visage et bas) → liseré tubulaire continu le long du bord réel + intérieur sombre */
+      const R = .37, p0 = Math.PI / 2 + .85, p1 = p0 + TAU - 1.7, th = Math.PI * .8, pt = (ph, t) => new T.Vector3(-R * Math.cos(ph) * Math.sin(t), .02 + R * Math.cos(t), -.02 + R * Math.sin(ph) * Math.sin(t)), L = [];
+      for (let i = 0; i <= 16; i++) L.push(pt(p0, th * (1 - i / 16)));          /* bord avant gauche, du bas vers le sommet */
+      for (let i = 1; i <= 16; i++) L.push(pt(p1, th * i / 16));                /* bord avant droit, du sommet vers le bas */
+      for (let i = 1; i < 40; i++) L.push(pt(p1 - (p1 - p0) * i / 40, th));     /* bord inférieur, par la nuque */
+      mesh([new T.TubeGeometry(new T.CatmullRomCurve3(L, true, 'centripetal'), 160, .022, 8, true)], mats.helm, head);
+      mesh([G(new T.SphereGeometry(.36, 32, 18, p0, TAU - 1.7, 0, th), 0, .02, -.02)], new T.MeshStandardMaterial({ color: '#4a4356', roughness: .9, side: T.BackSide }), head).userData.sansOmbre = true; }   /* intérieur : ombre déjà portée par la coque (exempté du traverse castShadow de kartMesh) */
+    { const bande = [G(new T.TorusGeometry(.372, .04, 10, 40, Math.PI - .75), 0, .02, -.02, 0, Math.PI / 2, 0)];   // bande de la nuque jusqu'au-dessus du front (jamais sur le visage)
+      /* #36.Q1 : le tore est ouvert à ses deux bouts (extrémités tranchées visibles en gros plan) → embouts arrondis ; WK_FINITION_AVANT = témoin */
+      if (!(typeof window !== 'undefined' && window.WK_FINITION_AVANT)) for (const a of [0, Math.PI - .75]) bande.push(G(new T.SphereGeometry(.04, 14, 10), 0, .02 + .372 * Math.sin(a), -.02 - .372 * Math.cos(a)));
+      mesh(bande, mats.paint, head); }
     detail.push(mesh([G(new T.SphereGeometry(.385, 28, 10, Math.PI / 2 - .9, 1.8, .42, .38), 0, .02, -.02)], mats.visor, head));
   }
   for (const s of [-1, 1]) {
@@ -2947,15 +3001,21 @@ function heroRig(cfg, mats) {
   const wheel = new T.Group(); wheel.position.set(0, 1.2, .23); wheel.rotation.x = .55; root.add(wheel);
   const spin = new T.Group(); wheel.add(spin); mesh([new T.TorusGeometry(.2, .035, 10, 28)], mats.dark, spin);
   mesh([0, 2.1, 4.2].map((a) => G(new T.CylinderGeometry(.018, .018, .2, 6), Math.sin(a) * .1, Math.cos(a) * .1, 0, 0, 0, -a)).concat([G(new T.CylinderGeometry(.05, .05, .05, 12), 0, 0, 0, Math.PI / 2)]), mats.metal, spin);
-  const sleeve = stdMat(cfg.color, .55, .05), seg = () => { const m = new T.Mesh(unit, sleeve); m.castShadow = true; root.add(m); return m; };
+  const sleeve = Q1 && expressif ? mats.suit : stdMat(cfg.color, .55, .05), seg =   /* #36.Q1 : manches dans le tissu de la combinaison (avant : tubes vernis couleur carrosserie, sans lien avec le buste) */ () => { const m = new T.Mesh(unit, sleeve); m.castShadow = true; root.add(m); return m; };
   const arms = [-1, 1].map((s) => ({ s, up: seg(), lo: seg(), coude: (() => { const m = new T.Mesh(new T.SphereGeometry(.09, 12, 10), sleeve); m.castShadow = true; root.add(m); return m; })(), hand: (() => { if (!expressif) { const h = new T.Mesh(new T.SphereGeometry(.085, 12, 10), mats.glove); h.castShadow = true; root.add(h); return h; }
     // #36 : gant moufle (paume, pouce refermé sur la jante, manchette) au lieu d'une boule ; orienté sur la jante dans heroAnimate
     const h = new T.Group(); h.userData.moufle = true; const part = (g) => { const m = new T.Mesh(g, mats.glove); m.castShadow = true; h.add(m); return m; };
     const paume = new T.SphereGeometry(.1, 16, 12); paume.scale(1.05, .85, 1.15); part(paume);
     const pouce = new T.CapsuleGeometry(.034, .05, 4, 10); pouce.rotateZ(s * .9); pouce.translate(-s * .07, .055, .03); part(pouce);
-    const manchette = new T.TorusGeometry(.075, .028, 8, 20); manchette.translate(0, 0, -.1); part(manchette);
-    root.add(h); return h; })() }));
-  for (const A of arms) detail.push(A.hand, A.up, A.lo, A.coude); detail.push(mouth);   // loin : bras et mains masqués aussi (budget d'appels Samsung)
+    if (!Q1) { const manchette = new T.TorusGeometry(.075, .028, 8, 20); manchette.translate(0, 0, -.1); part(manchette); }
+    /* #36.Q1 : la manchette n'est plus dans le groupe de la main (orienté sur le volant) mais suit l'avant-bras : voir A.cuff */
+    root.add(h); return h; })(), cuff: (() => { if (!(Q1 && expressif)) return null;
+      /* #36.Q1 : manchette évasée du gant (avant : bouée torique épaisse, mal orientée) — profil de révolution le long de l'avant-bras, bord
+         roulé, recouvre la fin de la manche ; liseré couleur carrosserie. Orientée dans heroAnimate (main → coude). */
+      const c = new T.Group(), prof = [[.07, .0], [.074, .03], [.083, .065], [.094, .1], [.098, .118], [.091, .13], [.08, .124]].map(([r, y]) => new T.Vector2(r, y));
+      const gm = new T.Mesh(new T.LatheGeometry(prof, 24), mats.glove), li = new T.Mesh(new T.TorusGeometry(.093, .009, 8, 28), mats.paint); li.rotation.x = Math.PI / 2; li.position.y = .112;
+      gm.castShadow = li.castShadow = true; c.add(gm, li); root.add(c); return c; })() }));
+  for (const A of arms) { detail.push(A.hand, A.up, A.lo, A.coude); if (A.cuff) detail.push(A.cuff); } detail.push(mouth);   // loin : bras et mains masqués aussi (budget d'appels Samsung)
   const rig = { visage2: VISAGE2, face: FACE, detail, far: false, root, torso, head, eyes: [eyesG], brows: [browG], browM, teeth, mouth, open, wheel, spin, arms, ang: 0, blink: 2 + Math.random() * 3, cheer: 0, _a: V3(), _b: V3(), _c: V3(), _q: new T.Quaternion(), _y: V3(0, 1, 0) };
   if (window.WKPilotesPrototype) window.WKPilotesPrototype.habiller(T, cfg, mats, rig);
   // #36 identité des cinq pilotes au-delà de la coiffe : proportions, posture et visage (nez, taches de rousseur, menton).
@@ -3018,6 +3078,7 @@ function heroAnimate(R, k, st, dt, now) {
     const elbow = coudeIK(sh, hand, .44, .43, R._b.set(A.s, -.55 - .9 * (A.s > 0 ? R.cheer : 0), -.35));
     heroSeg(A.up, sh, elbow, .095, R); heroSeg(A.lo, elbow, hand, VISAGE2_BRAS ? .08 : .085, R); A.hand.position.copy(hand); if (A.coude) A.coude.position.copy(elbow);   /* articulation du coude : pas de pli brusque entre les deux segments */
     if (A.hand.userData.moufle) { A.hand.quaternion.copy(R.wheel.quaternion); A.hand.rotateZ(-ang); if (A.s > 0 && R.cheer > .05) A.hand.quaternion.slerp(R._q.identity(), R.cheer); }   // paume refermée sur la jante
+    if (A.cuff) { A.cuff.position.copy(hand); A.cuff.quaternion.setFromUnitVectors(R._y, R._c.copy(elbow).sub(hand).normalize()); R._y.set(0, 1, 0); }   /* manchette le long de l'avant-bras */
   }
 }
 function extraBody(body, add, limb, cap, V) {
@@ -3054,13 +3115,13 @@ function sportExtras(add, cap) {
   add('dark', cap(.1, 1.6, 0, .4, 1.98, 0, 0, Math.PI / 2));
 }
 // Roues v2 (refonte du 4 novembre) : chacune des 11 roues a son pneu et sa jante (avant : 8 formes et la même jante partout).
-function wheelMat(k) { const key = 'roue|' + k + '|' + qual().shadows; if (!matCache.has(key)) matCache.set(key, k === 'pneu' ? new T.MeshStandardMaterial({ color: '#ffffff', map: tireTex(), roughness: .92, metalness: 0, envMapIntensity: .25 }) : new T.MeshStandardMaterial({ color: '#dfe2ea', map: brushTex(), roughness: .28, metalness: .9 })); return matCache.get(key); }
+function wheelMat(k) { const key = 'roue|' + k + '|' + qual().shadows; if (!matCache.has(key)) matCache.set(key, k === 'pneu' ? new T.MeshStandardMaterial({ color: '#ffffff', map: tireTex(), roughness: .92, metalness: 0, envMapIntensity: .25 }) : k === 'jante2' ? new T.MeshStandardMaterial({ color: '#ffffff', vertexColors: true, map: brushTex(), roughness: .3, metalness: .85 }) : new T.MeshStandardMaterial({ color: '#dfe2ea', map: brushTex(), roughness: .28, metalness: .9 })); return matCache.get(key); }
 function spokes(n, R, w, r0, wid, depth, faces = [-1, 1], twist = 0) { const L = []; for (const sx of faces) for (let k = 0; k < n; k++) { const a = k / n * TAU, g = rbox(depth, R * .5, wid, Math.min(wid, depth) * .45); g.translate(0, R * .5 * .5 + r0, 0); g.applyMatrix4(trs(sx * w * .3, 0, 0, a + twist, 0, 0)); L.push(g); } return mergeGeos(L); }
 function ringOf(n, R, x, mk) { const L = []; for (let k = 0; k < n; k++) { const a = k / n * TAU, g = mk(); g.translate(x, Math.cos(a) * R, Math.sin(a) * R); L.push(g); } return mergeGeos(L); }
 function discGeo(R, w, talon = false) { const pts = (talon ? [[.001, w * .33], [R * .9, w * .3], ...rimLevre(R, w, 1).reverse(), ...rimLevre(R, w, -1), [R * .9, -w * .3], [.001, -w * .33]] : [[.001, w * .33], [R * .9, w * .3], [R * .97, w * .38], [R * .97, -w * .38], [R * .9, -w * .3], [.001, -w * .33]]).map((p) => new T.Vector2(p[0], p[1])); const g = new T.LatheGeometry(pts, 32); g.rotateZ(Math.PI / 2); return g; }
 function wheelGeoV2(type, WD) {
   const R = WD.r, w = WD.w, r0 = R * .6, wh = {}, both = (mk) => mergeGeos([-1, 1].map((sx) => { const g = mk(); g.translate(sx * w * .34, 0, 0); return g; }));
-  if (type === 'standard') { wh.tire = tireGeo(R, w, false); wh.rim = rimGeo(R, w); }
+  if (type === 'standard') { wh.tire = tireGeo(R, w, false); if (typeof window !== 'undefined' && window.WK_Q1_AVANT) wh.rim = rimGeo(R, w); else { const j = jante2Geo(R, w); wh.rim = j.rim; wh.cap2 = j.cap; } }
   else if (type === 'slicks') { wh.tire = tireGeo(R, w, false, 'lisse'); wh.rim = discGeo(r0, w, true); wh.detail = both(() => ringOf(6, r0 * .55, 0, () => { const c = new T.CylinderGeometry(r0 * .14, r0 * .14, .02, 14); c.rotateZ(Math.PI / 2); return c; })); }
   else if (type === 'jantes') { wh.tire = tireGeo(R, w, false, 'lisse'); wh.rim = mergeGeos([discGeo(r0 * .35, w), spokes(10, r0 * 1.6, w, r0 * .1, .045, .05)]); const cal = new T.TorusGeometry(r0 * .72, .07, 6, 12, 1.4); cal.rotateY(Math.PI / 2); cal.translate(w * .1, 0, 0); wh.accent = cal; }
   else if (type === 'offroad') { wh.tire = tireGeo(R, w, true); wh.rim = mergeGeos([rimGeo(R, w), spokes(6, r0 * 1.5, w, r0 * .15, .12, .06)]); wh.bolts = both(() => ringOf(10, r0 * .86, 0, () => new T.SphereGeometry(.028, 8, 6))); }
@@ -3069,7 +3130,7 @@ function wheelGeoV2(type, WD) {
   else if (type === 'neon') { wh.tire = tireGeo(R, w, false, 'lisse'); wh.rim = mergeGeos([discGeo(r0 * .3, w), spokes(3, r0 * 1.6, w, r0 * .15, .07, .05)]); const a = new T.TorusGeometry(R * .8, .028, 8, 32); a.rotateY(Math.PI / 2); const b = a.clone(); a.translate(w / 2 + .005, 0, 0); b.translate(-w / 2 - .005, 0, 0); wh.glow = mergeGeos([a, b]); }
   else if (type === 'disco') { wh.tire = tireGeo(R, w, false, 'lisse'); wh.rim = mergeGeos([-1, 1].map((sx) => { const g = new T.TorusGeometry(r0 * .92, .035, 6, 28); g.rotateY(Math.PI / 2); g.translate(sx * w * .33, 0, 0); return g; })); wh.accent = both(() => { const g = new T.IcosahedronGeometry(r0 * .55, 1); g.scale(.35, 1, 1); return g; }); }
   else return null;
-  wh.cap = new T.CylinderGeometry(R * .13, R * .16, w * .74, 16); wh.cap.rotateZ(Math.PI / 2);
+  if (wh.cap2) { wh.cap = wh.cap2; delete wh.cap2; } else { wh.cap = new T.CylinderGeometry(R * .13, R * .16, w * .74, 16); wh.cap.rotateZ(Math.PI / 2); }
   for (const k in wh) wh[k].userData.keep = true; return wh;
 }
 for (const t of ['standard', 'slicks', 'jantes', 'offroad', 'crampons', 'monstre', 'neon', 'disco']) WHEEL_V2.add(t);
@@ -4056,7 +4117,7 @@ function chefButtons() { const on = isChef(); document.querySelectorAll('.chef-o
 const WK_API = window.TK_API || 'https://wild-kart-serveur.uncreeper5431.workers.dev/api/compte';   // serveur gratuit (Cloudflare) ; il reprend tout seul les comptes de l'ancien serveur Netlify
 // tout est dans le compte (kart, réglages, calibrage, records…) sauf : la clé du chef (secrète), ce qui sert à revenir dans une partie
 // en cours sur CET appareil, et les graphismes (qui dépendent de la puissance de chaque téléphone)
-const ACC_SKIP = new Set(['acct', 'chefKey', 'uid', 'lastCode', 'lastCodeAt', 'quality', 'fps', 'accSeen', 'updSeen', 'braquage', 'v']);
+const ACC_SKIP = new Set(['acct', 'chefKey', 'uid', 'lastCode', 'lastCodeAt', 'quality', 'fps', 'accSeen', 'updSeen', 'braquage', 'v', 'salonGar']);   /* salonGar (#34.G17) : retour arrière d'un garage de salon, propre à l'appareil */
 const ACU = { tab: 'creer', busy: false, msg: '', rec: '', timer: 0, lastUp: 0, open: false, autre: null };
 const ACC_AUTH = new Set(['fpoll', 'fsend', 'sigreg', 'sigpoll', 'sigsend', 'sigdel', 'find', 'ginv', 'gjoin', 'gleave', 'gren', 'gsave']);   // #34.Q3/Q6 : toute action réseau ou d'amis présente la session
 /* #34.Q — Un seul appareil connecté par compte. Le serveur a ouvert la session ailleurs (ou changé le mot de passe) : cet appareil
@@ -4515,6 +4576,7 @@ function runSlicedLoad(gen, onP) {
 }
 async function launchPrepared(ti, cc, who) {
   if (G.prep) return; // double appui pendant la préparation : ignoré
+  if (window.WK_ESSAI && Net.peer) { window.WK_ESSAI = null; toast('Essai d\'un tour indisponible pendant une partie en ligne.', 3200); return; }   // #34.G17 : l'essai solo casserait le salon
   ATTRACT_ID++; // annule la construction du décor du menu en cours
   resetPerf(); // définition et qualité du joueur pour la nouvelle course (C2-4)
   const id = ++LAUNCH_ID, yieldFrame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
@@ -9662,6 +9724,8 @@ function netUsable() {
   return true;
 }
 function netReset() {
+  if (SG.ouvert) sgFermer(false, 'Partie quittée : brouillon du garage non appliqué, ancien montage conservé.');   // #34.G17
+  SG.confirme = null; SG.attente = null; Net.ph = 0; Net.sg = false; Net.sgVu = false; Net.settings.kp = true; SG.sansVoir = false; SG.sansCle = ''; Net.sansListe = []; Net.horsCourse = false;
   if (SAVE.lastCode) { SAVE.lastCode = ''; store(); }
   Net.leaving = true; Net.sessMode = ''; clearTimeout(Net.rejoinT); for (const t of Net.drops.values()) clearTimeout(t);
   try { for (const c of Net.conns.values()) c.close(); } catch (e) { /* déjà fermé */ }
@@ -9681,7 +9745,7 @@ const present = () => Net.players.filter((p) => !p.away);
 function netCreate() {
   if (!netUsable()) return; AudioSys.init(); prepControls(); netReset(); Net.host = true; Net.code = randCode(); netStatus('Création de la partie…');
   const peer = netPeer(NET_PREFIX + Net.code); Net.peer = peer;
-  peer.on('open', (id) => { Net.pid = id; Net.id = UID; Net.players = [{ id: UID, name: SAVE.name || 'Hôte', cfg: myCfg(), host: true }]; netStatus('Partie créée. Donne le code à tes potes.'); renderOnline(); });
+  peer.on('open', (id) => { Net.pid = id; Net.id = UID; Net.players = [{ id: UID, name: SAVE.name || 'Hôte', cfg: sgCfgSalon(), host: true, etat: 'pret', v: 2 }]; netStatus('Partie créée. Donne le code à tes potes.'); renderOnline(); });
   peer.on('visible', (ok) => { if (Net.peer !== peer || Net.inRace) return; netStatus(ok ? 'Partie ' + Net.code + ' : ✓ visible, tes potes peuvent la rejoindre.' : 'Partie ' + Net.code + ' : serveur injoignable, vérifie ta connexion…'); });
   peer.on('error', (e) => { if (e.type === 'unavailable-id' && !Net.players.length) { try { peer.destroy(); } catch (x) { /* rien */ } netCreate(); return; } if (e.type === 'peer-unavailable' || Net.players.length) return; netFail(e); });
   peer.on('connection', (conn) => {
@@ -9696,8 +9760,9 @@ function hostBroadcast(d) { hostRelay(d, null); }
 // pour un ami) ; « inv » signale un invité, « ok » un compte dont la session a été vérifiée par le serveur.
 function lobbyPlayers() { const verif = Net.sessMode && Net.sessMode !== 'non';
   return Net.players.map((p) => ({ id: p.id, name: p.name, cfg: p.cfg, host: !!p.host, away: !!p.away, inv: !!p.inv, ok: !!(p.verifie || (p.host && SAVE.acct)),
-    fid: p.host ? frMyId() : verif && !p.verifie ? '' : p.fid || '' })); }
-function hostBroadcastLobby() { musPrewarmOnline(); hostBroadcast({ t: 'lobby', players: lobbyPlayers(), settings: Net.settings, code: Net.code, inRace: Net.inRace, cl: SAVE.chefList || '' }); renderOnline(); }
+    fid: p.host ? frMyId() : verif && !p.verifie ? '' : p.fid || '',
+    st: sgEtat(p), ref: sgRefus(p), perso: !!(p.cfg && kartPerso(p.cfg).length), v: p.v | 0, n: sgN(p.n) })); }   /* #34.G17/G18 : état prêt/garage, refus, kart personnalisé */
+function hostBroadcastLobby() { musPrewarmOnline(); hostBroadcast({ t: 'lobby', players: lobbyPlayers(), settings: Net.settings, code: Net.code, inRace: Net.inRace, cl: SAVE.chefList || '', sg: 2, ph: Net.ph, sans: Net.inRace && Net.lastStart && Net.lastStart.sans || [] }); renderOnline(); }
 /* #34.Q3 — Ticket d'hôte. Un joueur connecté à un compte présente un ticket court (90 s) délivré par le serveur et le renouvelle
    toutes les 30 s ; l'hôte demande au serveur s'il est toujours lié à la session active de ce compte. Session remplacée ou ticket
    d'un autre compte → le joueur est exclu (« sessionfin »). Ancien client sans ticket : accepté tant que le serveur n'est pas en
@@ -9730,11 +9795,11 @@ function hostOnData(conn, d) {
     let p = Net.players.find((x) => x.id === id);
     // #34.Q6 : la place d'un compte VÉRIFIÉ ne peut être reprise que par le même compte (qui repassera le ticket) ; sinon place distincte.
     if (p && p.verifie && String(d.pu || '').toLowerCase() !== p.verifie && !p.host) { const id2 = (id + '~' + String(conn.peer).slice(-4)).slice(0, 40); id = id2; Net.uidOf.set(conn.peer, id); Net.seen.set(id, performance.now()); p = Net.players.find((x) => x.id === id) || null; }
-    if (p) { const was = p.away; p.away = 0; p.pid = conn.peer; p.name = String(d.name || p.name).slice(0, 10); p.cfg = cleanCfg(d.cfg); if (d.fid) p.fid = String(d.fid).slice(0, 20);
+    if (p) { const was = p.away; p.away = 0; p.pid = conn.peer; p.name = String(d.name || p.name).slice(0, 10); sgHello(p, d, false); if (d.fid) p.fid = String(d.fid).slice(0, 20);
       { const pu = d.pu ? String(d.pu).slice(0, 16) : ''; if (pu !== (p.pu || '')) { p.pu = pu; p.tk = ''; p.tkOk = 0; p.verifie = ''; p.inv = false; } }   /* #34.Q6 : au retour, l'identité annoncée est réévaluée (ex. compte révoqué pendant l'absence → invité) */ clearTimeout(Net.drops.get(id)); Net.drops.delete(id); if (was) toast(p.name + ' est de retour !'); }
     else {
       if (present().length >= 8) { try { conn.send({ t: 'busy' }); } catch (e) { /* rien */ } setTimeout(() => conn.close(), 400); Net.uidOf.delete(conn.peer); return; }
-      p = { id, pid: conn.peer, name: String(d.name || 'Joueur').slice(0, 10), cfg: cleanCfg(d.cfg), fid: d.fid ? String(d.fid).slice(0, 20) : '', pu: d.pu ? String(d.pu).slice(0, 16) : '' }; Net.players.push(p); AudioSys.sfx('got');
+      p = { id, pid: conn.peer, name: String(d.name || 'Joueur').slice(0, 10), cfg: cleanCfg(d.cfg), fid: d.fid ? String(d.fid).slice(0, 20) : '', pu: d.pu ? String(d.pu).slice(0, 16) : '' }; sgHello(p, d, true); Net.players.push(p); AudioSys.sfx('got');
     }
     if (d.tk) { p.tk = String(d.tk).slice(0, 64); hostVerifTicket(conn, p, p.tk); } else setTimeout(() => hostAttendreTicket(conn, p, 0), 8000);   // #34.Q3 : le ticket suit hello de près
     hostBroadcastLobby();
@@ -9742,7 +9807,7 @@ function hostOnData(conn, d) {
     try {
       if (Net.inRace && Net.lastStart && Net.lastStart.roster.some((e) => e.id === id)) conn.send({ t: 'resume', start: Net.lastStart, elapsed: performance.now() - Net.lastStartAt });
       else if (!Net.inRace && MINI.cur) conn.send(Object.assign({}, MINI.cur));
-      else if (Net.inRace && Net.lastStart) conn.send({ t: 'watch', start: Net.lastStart, elapsed: performance.now() - Net.lastStartAt });
+      else if (Net.inRace && Net.lastStart && !(Net.lastStart.sans || []).includes(id)) conn.send({ t: 'watch', start: Net.lastStart, elapsed: performance.now() - Net.lastStartAt });   // laissé au salon : reste au salon
     } catch (e) { /* rien */ }
     return;
   }
@@ -9753,6 +9818,7 @@ function hostOnData(conn, d) {
   else if (d.t === 'ev') { hostRelay(d, conn.peer); onNetEvent(d); }
   else if (d.t === 'fin') { d.id = uid; hostRelay(d, conn.peer); onNetFin(d); }
   else if (d.t === 'cl') { if (chefListApply(d.cl, true)) { hostBroadcastLobby(); hostKickBanned(); } }
+  else if (d.t === 'gar' || d.t === 'pret') hostSalonMsg(uid, d);   // #34.G17 : garage et état prêt (validés par l'hôte)
   else if (d.t === 'mvote') miniRecord('vote', uid, d.v);
   else if (d.t === 'mres') miniRecord('reflex', uid, +d.v);
 }
@@ -9786,7 +9852,7 @@ function clientConnect() {
   const c = peer.connect(NET_PREFIX + Net.code, { reliable: true, serialization: 'json' }); const old = Net.hc; Net.hc = c; if (old && old !== c) { try { old.close(); } catch (e) { /* rien */ } }
   const to = setTimeout(() => { if (!c.open && Net.hc === c && !Net.rejoining && !Net.lastHost) netFail({ type: 'hote-injoignable' }); }, 28000);
   c.on('open', () => {
-    if (Net.hc !== c) return; clearTimeout(to); Net.lastHost = performance.now(); c.send({ t: 'hello', name: SAVE.name || 'Joueur', cfg: myCfg(), uid: UID, fid: frMyId(), fo: SAVE.fidOld || [], pu: SAVE.acct ? String(SAVE.acct.u).toLowerCase() : '', cl: SAVE.chefList || '', tk: Net.tk || '' });
+    if (Net.hc !== c) return; clearTimeout(to); Net.lastHost = performance.now(); c.send({ t: 'hello', v: 2, gar: SG.ouvert ? 1 : 0, n: SG.n, cfg: sgCfgSalon(), name: SAVE.name || 'Joueur', uid: UID, fid: frMyId(), fo: SAVE.fidOld || [], pu: SAVE.acct ? String(SAVE.acct.u).toLowerCase() : '', cl: SAVE.chefList || '', tk: Net.tk || '' });
     netTicketEnvoi(c); clearInterval(Net.tkT); Net.tkT = setInterval(() => { if (Net.hc === c && c.open) netTicketEnvoi(c); else clearInterval(Net.tkT); }, 30000);   // #34.Q3
     if (Net.rejoining) { Net.rejoining = false; clearTimeout(Net.rejoinT); toast('De retour dans la partie !', 2200); } else netStatus('Connecté !');
     SAVE.lastCode = Net.code; SAVE.lastCodeAt = Date.now(); store();
@@ -9817,7 +9883,10 @@ function clientOnData(d) {
     case 'busy': toast('La partie est pleine (8 joueurs).', 4500); netReset(); renderOnline(); break;
     case 'banned': toast('Le chef t\'a bloqué : impossible de rejoindre cette partie.', 5000); netReset(); renderOnline(); break;
     case 'sessionfin': toast('Ton compte est utilisé ailleurs : tu as quitté la partie.', 5000); netReset(); renderOnline(); break;   // #34.Q3
-    case 'lobby': if (d.cl) chefListApply(d.cl, true); Net.players = d.players || []; Net.settings = Object.assign(Net.settings, d.settings || {}); musPrewarmOnline(); if (!Net.inRace) { if (UI.screen !== 'calib' && !(UI.screen === 'mini' && MINI.cur) && UI.screen !== 'settings' && UI.screen !== 'chef') show('online'); renderOnline(); } chefRender(); break;
+    case 'lobby': { if (d.cl) chefListApply(d.cl, true); const kp0 = Net.settings.kp; Net.players = d.players || []; Net.sansListe = d.inRace && Array.isArray(d.sans) ? d.sans.map(String) : []; Net.horsCourse = Net.sansListe.includes(Net.id); Net.sg = d.sg >= 2; if (Net.sg) Net.ph = d.ph | 0; else Net.settings.kp = true; Net.settings = Object.assign(Net.settings, d.settings || {}); musPrewarmOnline();
+      if (Net.sg && Net.sgVu && kp0 !== Net.settings.kp) { const me = sgMoi(); toast('L\'hôte a changé la règle : karts personnalisés ' + (Net.settings.kp === false ? 'NON autorisés.' : 'autorisés.') + (me && me.ref === 'regle' ? ' Ton montage est refusé : choisis le kart de série ou passe au garage.' : ''), 5000); }   /* #34.G18 */
+      if (!Net.inRace) { if (UI.screen !== 'calib' && !(UI.screen === 'mini' && MINI.cur) && UI.screen !== 'settings' && UI.screen !== 'chef' && UI.screen !== 'garage') show('online'); renderOnline(); sgRenvoi(); if (SG.ouvert) sgBarre(); } Net.sgVu = Net.sg; chefRender(); break; }
+    case 'garko': if (d.r !== 'course' && d.r !== 'perime') SG.attente = null; toast('Refusé par l\'hôte : ' + (SG_RAISONS[d.r] || 'montage invalide') + '.', 4000); break;   // #34.G17/G18
     case 'start': netStartRace(d); break;
     case 'watch': if (!(G.race && G.race.online && G.race.raceId === d.start.raceId)) netWatch(d); break;
     case 'resume': if (!(G.race && G.race.online && G.race.raceId === d.start.raceId)) { const m = Object.assign({}, d.start, { delay: (d.start.delay || 7000) - (d.elapsed || 0) }); netStartRace(m); } break;
@@ -9825,7 +9894,7 @@ function clientOnData(d) {
     case 'ev': onNetEvent(d); break;
     case 'fin': onNetFin(d); break;
     case 'left': onNetLeft(d.id); break;
-    case 'lobbyback': goLobby(); break;
+    case 'lobbyback': if (Net.inRace) goLobby(); else renderOnline(); break;   // laissé au salon pendant la course : déjà au salon (garage ouvert conservé)
     case 'mini': if (!Net.inRace) onMini(d); break;
   }
 }
@@ -9852,16 +9921,29 @@ document.addEventListener('visibilitychange', () => {
 
 function netEmit(d) { d.t = d.t || 'ev'; if (!Net.peer) return; if (Net.host) hostBroadcast(d); else if (Net.hc && Net.hc.open) { try { Net.hc.send(d); } catch (e) { /* rien */ } } }
 const netNewId = () => Net.id + ':' + (++Net.evId);
-function hostStart() {
-  if (!Net.host || !Net.players.length) return;
-  const S = Net.settings, humans = present().slice(0, 8), n = humans.length, total = S.bots ? 8 : n, roster = [];
-  shuffle(humans.slice()).forEach((p, i) => roster.push({ id: p.id, cfg: Object.assign({}, p.cfg, { name: p.name }), slot: total - n + i, ai: false }));
+function hostStart(opts) {
+  if (!Net.host || !Net.players.length || Net.inRace) return false;
+  // #34.G17/G18 : contrôle juste avant le départ — personne au garage, tout le monde prêt, montages conformes à la règle du salon.
+  // « Lancer sans eux » (opts.sans = liste confirmée par l'hôte) : on part avec les seuls joueurs disponibles, SI la liste n'a pas changé
+  // depuis la confirmation affichée ; sinon refus et liste rafraîchie (jamais un départ avec d'autres participants que ceux annoncés).
+  let humans = present();
+  if (opts && opts.sans) { const L = sgListeSans(); if (!L.ok || L.cle !== opts.sans || (SG.sansCle && SG.sansCle !== opts.sans)) { sgJournal({ depart: 'refuse', sans: 'liste-changee' }); toast('La liste des participants a changé : vérifie-la avant de confirmer.', 4000); SG.sansVoir = !!L.ok; renderOnline(); return false; } humans = L.part; }
+  else { const bl = sgBloquants(); if (bl.length) { sgJournal({ depart: 'refuse', bl }); toast('Départ impossible : ' + bl.join(', ') + '.', 4500); renderOnline(); return false; } }
+  SG.sansVoir = false; SG.sansCle = ''; humans = humans.slice(0, 8);
+  const S = Net.settings, n = humans.length, total = S.bots ? 8 : n, roster = [], sans = present().filter((p) => !humans.includes(p)).map((p) => p.id);
+  shuffle(humans.slice()).forEach((p, i) => roster.push({ id: p.id, cfg: Object.assign(cleanCfg(p.cfg), { name: p.name }), slot: total - n + i, ai: false }));   // pièces nettoyées ; stats recalculées partout par statsFor
   for (let i = 0; i < total - n; i++) roster.push({ id: 'ai' + i, cfg: RIVALS[i % RIVALS.length], slot: i, ai: true });
   const ti = S.track >= 0 ? S.track : pickTrack13(S.pmode === 'bombe');
-  const msg = { t: 'start', ti, cc: S.cc, roster, party: S.party && S.pmode !== 'bombe', bomb: S.pmode === 'bombe', type: S.type || 'sips', dose: S.dose, cupRound: Net.cup && Net.cup.racing ? Net.cup.round : 0, botLvl: S.botLvl != null ? S.botLvl : 1, laps: S.laps || 0, obst: S.obst !== false, music: S.music || 'auto', seed: (Math.random() * 4294967295) >>> 0, delay: 7000, raceId: Date.now().toString(36) + Math.random().toString(36).slice(2, 5) };
-  Net.lastStart = msg; Net.lastStartAt = performance.now(); hostBroadcast(msg); netStartRace(msg);
+  const msg = { t: 'start', ti, cc: S.cc, roster, party: S.party && S.pmode !== 'bombe', bomb: S.pmode === 'bombe', type: S.type || 'sips', dose: S.dose, cupRound: Net.cup && Net.cup.racing ? Net.cup.round : 0, botLvl: S.botLvl != null ? S.botLvl : 1, laps: S.laps || 0, obst: S.obst !== false, music: S.music || 'auto', seed: (Math.random() * 4294967295) >>> 0, delay: 7000, raceId: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), kp: S.kp !== false, ph: ++Net.ph, sans };   // règle et montages figés pour la course
+  sgJournal({ depart: 'ok', ph: Net.ph, roster: roster.filter((e) => !e.ai).map((e) => e.id + ':' + e.cfg.engine), sans });
+  Net.lastStart = msg; Net.lastStartAt = performance.now();
+  // Le départ n'est envoyé qu'aux participants ; les joueurs laissés au salon reçoivent l'état du salon (nouvelle phase, « hors course »).
+  if (sans.length) { for (const [pid, c] of Net.conns) if (c.open && !sans.includes(Net.uidOf.get(pid))) { try { c.send(msg); } catch (e) { /* connexion fermée */ } } } else hostBroadcast(msg);
+  netStartRace(msg); if (sans.length) hostBroadcastLobby(); return true;
 }
 function netStartRace(msg) {
+  if (SG.ouvert) sgFermer(false, 'La course a démarré : ton brouillon n\'est pas appliqué, tu cours avec ton montage confirmé.');   // #34.G17 : départ concurrent
+  if (msg.ph != null) Net.ph = msg.ph | 0;
   const goAt = performance.now() + (msg.delay || 7000) - (Net.host ? 0 : 80); MINI.cur = null; clearTimeout(MINI.timer);
   UI.mode = 'online'; Net.inRace = true; Net.states.clear(); Net.settings.party = !!msg.party; Net.settings.dose = msg.dose || 1;
   Net.botLvl = msg.botLvl != null ? msg.botLvl : 1; Net.cupRound = msg.cupRound || 0; RACE_OPTS.laps = msg.laps || 0; RACE_OPTS.obst = msg.obst !== false; RACE_OPTS.seed = msg.seed || 1; RACE_OPTS.music = typeof msg.music === 'string' && MUSIC_OPTS.some((o) => o[0] === msg.music) ? msg.music : 'auto';
@@ -9970,7 +10052,7 @@ function emoShow(n, x) { if (!EMOS.includes(x)) return; const el = document.crea
 function goLobby() {
   if (G.race) G.race.spec = null; $('#spec').hidden = true; $('#b-pause').hidden = false;
   Net.inRace = false; G.paused = false; showHud(false); AudioSys.engine(0, false); AudioSys.stopMusic();
-  startAttract(G.W ? G.W.ti : 0); UI.mode = 'online'; show('online'); renderOnline();
+  startAttract(G.W ? G.W.ti : 0); UI.mode = 'online'; show('online'); renderOnline(); if (Net.host) hostBroadcastLobby();   // #34.G17 : nouvelle phase de salon diffusée
 }
 function chipsSel(el, list, cur, onPick) {
   el.innerHTML = ''; for (const [v, label] of list) { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.setAttribute('aria-pressed', String(v === cur)); b.onclick = () => { AudioSys.sfx('click'); onPick(v); }; el.appendChild(b); }
@@ -9980,7 +10062,7 @@ function renderOnline() {
   $('#on-start').hidden = inLobby; $('#on-lobby').hidden = !inLobby; if (!inLobby) return;
   $('#on-codeval').textContent = Net.code;
   const list = $('#on-players'); list.innerHTML = '';
-  for (const p of Net.players) { const b = document.createElement('span'); b.className = 'pchip'; b.style.setProperty('--c', (p.cfg && p.cfg.color) || '#ff4f3a'); b.innerHTML = '<i></i><span></span>'; b.querySelector('span').textContent = p.name + (p.host ? ' (hôte)' : '') + (p.inv ? ' · invité' : '') + (p.id === Net.id ? ' · toi' : '') + (p.away ? ' · absent' : ''); if (p.away) b.style.opacity = '.55'; list.appendChild(b); }
+  for (const p of Net.players) { const b = document.createElement('span'); b.className = 'pchip'; b.style.setProperty('--c', (p.cfg && p.cfg.color) || '#ff4f3a'); b.innerHTML = '<i></i><span></span>'; b.querySelector('span').textContent = p.name + (p.host ? ' (hôte)' : '') + (p.inv ? ' · invité' : '') + (p.id === Net.id ? ' · toi' : '') + (p.away ? ' · absent' : '') + sgPuce(p); if (p.away) b.style.opacity = '.55'; list.appendChild(b); }
   const S = Net.settings; $('#on-host-opts').hidden = !Net.host; $('#on-go').hidden = !Net.host;
   if (Net.host) {
     const upd = (k, v) => { S[k] = v; hostBroadcastLobby(); };
@@ -9999,11 +10081,17 @@ function renderOnline() {
     chipsSel($('#on-type'), [['sips', 'Gorgées'], ['dares', 'Gages']], S.type || 'sips', (v) => upd('type', v));
     renderThemeChips();
     chipsSel($('#on-wmode'), [['random', 'Cases aléatoires'], ['custom', 'Cases perso']], S.wheelMode || 'random', (v) => upd('wheelMode', v));
+    { const bl = sgBloquants(); if (bl.length) { $('#on-wait').textContent = 'En attente avant le départ : ' + bl.join(', ') + '.'; sgRendre(); return; } }
     $('#on-wait').textContent = present().length < 2 ? 'Partage le code. Tu peux aussi lancer seul avec les bots.' : present().length + ' joueurs prêts.' + (Net.players.length > present().length ? ' Les absents reviennent tout seuls en rouvrant le jeu.' : '');
   } else {
-    $('#on-wait').textContent = 'En attente de l\'hôte… ' + (S.track >= 0 ? TRACKS[S.track].name : 'Circuit au hasard') + ' · ' + CC[S.cc].name + (S.laps ? ' · ' + S.laps + ' tour' + (S.laps > 1 ? 's' : '') : '') + (S.obst === false ? ' · sans obstacles' : '') + (S.pmode === 'pari' ? ' · Pari Pilote' : S.pmode === 'bombe' ? ' · Patate chaude' : S.party ? ' · Soirée' : '');
+    sgRendre();
+    $('#on-wait').textContent = 'En attente de l\'hôte… ' + (S.track >= 0 ? TRACKS[S.track].name : 'Circuit au hasard') + ' · ' + CC[S.cc].name + (S.laps ? ' · ' + S.laps + ' tour' + (S.laps > 1 ? 's' : '') : '') + (S.obst === false ? ' · sans obstacles' : '') + (S.pmode === 'pari' ? ' · Pari Pilote' : S.pmode === 'bombe' ? ' · Patate chaude' : S.party ? ' · Soirée' : '') + (Net.sg ? ' · karts perso ' + (S.kp === false ? 'NON autorisés' : 'autorisés') : '');
   }
+  if (Net.host) sgRendre();
 }
+// Puce d'état d'un joueur dans le salon (#34.G17/G18) ; rien pour un hôte d'ancienne version (champs absents).
+function sgPuce(p) { if (!Net.host && !Net.sg) return ''; const e = sgEtat(p), r = Net.host ? sgRefus(p) : p.ref, hors = (Net.host ? Net.inRace && Net.lastStart && Net.lastStart.sans || [] : Net.sansListe || []).includes(p.id);
+  return (hors ? ' · hors course (prochaine)' : '') + (e === 'garage' ? ' · au garage 🔧' : e === 'attente' ? ' · pas prêt' : p.host ? '' : ' · prêt') + (r ? ' · montage refusé' : '') + ((Net.host ? p.cfg && kartPerso(p.cfg).length : p.perso) ? ' · kart perso' : '') + (Net.host && !p.host && (p.v | 0) < 2 ? ' · ancienne version' : ''); }
 $('#on-create').onclick = () => { AudioSys.sfx('click'); netCreate(); };
 $('#on-join').onclick = () => { AudioSys.sfx('click'); netJoin($('#on-code').value); };
 $('#on-code').addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4); });
@@ -10013,6 +10101,168 @@ $$('#on-minis [data-mini]').forEach((b) => (b.onclick = () => { AudioSys.init();
 $('#on-leave').onclick = () => { AudioSys.sfx('click'); netReset(); renderOnline(); netStatus(''); };
 $('#on-back').onclick = () => { AudioSys.sfx('click'); netReset(); netStatus(''); show('title'); };
 $('#on-wedit').onclick = () => { AudioSys.sfx('click'); UI.weBack = 'online'; show('wedit'); };
+/* ================= #34.G17/G18 — Garage depuis le salon et règle « Karts personnalisés » ================= */
+/* G17 : le garage s'ouvre depuis le salon (avant ou entre deux courses) SANS quitter la partie : la connexion, la place, les amis et le rôle
+   d'hôte sont conservés. Ouvrir = « au garage » (pas prêt) ; tout changement reste LOCAL (aperçu, brouillon) ; seule « Confirmer » envoie le
+   montage à l'hôte, qui le valide puis le diffuse à tous. « Annuler » (ou toute autre sortie : course lancée entre-temps, mini-jeu, réseau
+   perdu, rechargement) remet l'ancien montage. Aucun accès pendant la course ; l'essai d'un tour de l'atelier est indisponible depuis le salon.
+   G18 : l'hôte choisit « Karts personnalisés : autorisés / non autorisés » (Net.settings.kp, défaut : autorisés = règle historique).
+   Définition CANONIQUE (jamais un nom, un drapeau du joueur ou l'écran d'origine) : un kart est « personnalisé » si une de ses pièces de
+   CONDUITE hors série diffère du réglage standard. Série = carrosserie, roues et planeur du jeu (choix rapide historique) ; apparence
+   (couleurs, pilote, accessoire, finition, déco, turbo, peau, titre) toujours libre. Toute nouvelle clé de conduite ajoutée à cleanCfg
+   (ex. moteur, futurs transmission/freins de G15/G16) est hors série dès qu'elle quitte sa valeur par défaut : rien n'est élargi en silence.
+   Autorité : l'HÔTE (le salon n'a pas de serveur de jeu) valide le schéma et les IDs, garde le montage refusé tel quel (rien n'est effacé),
+   contrôle à l'entrée, à la confirmation, au changement de règle et juste avant le départ ; les stats ne viennent jamais du joueur : chaque
+   appareil les recalcule par statsFor à partir des pièces du roster figé. Limite : un hôte au code modifié peut contourner sa propre règle. */
+const SG = { ouvert: false, depart: null, confirme: null, n: 0, attente: null, question: false };
+const sgEsc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const SG_CLES = ['body', 'wheels', 'glider', 'engine', 'pilot', 'color', 'helmet', 'skin', 'acc', 'finish', 'deco', 'trail'];   // équipement (mêmes clés que l'atelier)
+const SG_LIBRE = new Set(['name', 'title', 'color', 'helmet', 'skin', 'pilot', 'acc', 'finish', 'deco', 'trail', 'body', 'wheels', 'glider']);
+const SG_CONDUITE = ['body', 'wheels', 'glider', 'engine'];   // pièces lues par statsFor : un ID inconnu est refusé, jamais remplacé en silence
+const SG_RAISONS = { regle: 'karts personnalisés non autorisés par l\'hôte', piece: 'pièce inconnue du salon (versions différentes ?)', donnees: 'données de montage invalides',
+  garage: 'tu es encore au garage', course: 'course en cours : montage figé', perime: 'message périmé (le salon a changé)' };
+Net.settings.kp = true; Net.ph = 0;
+// Rechargement / fermeture brutale pendant un garage de salon : le brouillon non confirmé n'est jamais conservé comme équipement.
+if (SAVE.salonGar && SAVE.salonGar.depart && typeof SAVE.salonGar.depart === 'object') { for (const k of SG_CLES) if (SAVE.salonGar.depart[k] !== undefined) SAVE[k] = SAVE.salonGar.depart[k]; delete SAVE.salonGar; store(); }
+let SG_DEF = null; const sgDef = () => SG_DEF || (SG_DEF = cleanCfg({}));
+// Pièces de conduite hors série d'un montage (comparaison canonique des pièces nettoyées).
+function kartPerso(cfg) { const c = cleanCfg(cfg), d = sgDef(); return Object.keys(c).filter((k) => !SG_LIBRE.has(k) && c[k] !== d[k]); }
+// Présélection permise la plus proche : mêmes carrosserie/roues/planeur/apparence, pièces hors série remises au standard.
+function kartSerie(cfg) { const c = cleanCfg(cfg), d = sgDef(); for (const k of kartPerso(c)) c[k] = d[k]; return c; }
+// Contrôle du schéma : objet attendu ; client récent (v ≥ 2, qui nettoie avant d'envoyer) → un ID de conduite inconnu est REFUSÉ ;
+// ancien client : nettoyage historique (compatibilité). Champs en trop (ex. « stats ») ignorés : jamais lus.
+function sgControle(brut, v) {
+  if (!brut || typeof brut !== 'object' || Array.isArray(brut)) return { err: 'donnees' };
+  const c = cleanCfg(brut); if (v >= 2) for (const k of SG_CONDUITE) if (brut[k] != null && brut[k] !== c[k]) return { err: 'piece', cfg: c };
+  return { cfg: c };
+}
+const sgRefus = (p) => (p.err || (Net.settings.kp === false && p.cfg && kartPerso(p.cfg).length ? 'regle' : ''));
+const sgEtat = (p) => p.etat || p.st || 'pret';   // p.etat chez l'hôte, p.st dans la liste reçue par un joueur
+// « Lancer sans eux » (décision du propriétaire du 6 nov.) : participants = joueurs présents, prêts, hors garage, montage conforme ; les
+// autres (au garage, pas prêts, refusés) restent dans le salon. Jamais d'état « prêt » forcé, jamais d'exclusion sur simple délai.
+// Indisponible si l'hôte lui-même ne peut pas partir, sans personne à laisser, ou en Pari Pilote (manches et paris pour tout le groupe).
+function sgListeSans() { const pres = present(), part = [], exclus = [];
+  for (const p of pres) { const e = sgEtat(p), r = sgRefus(p); if (e === 'pret' && !r) part.push(p); else exclus.push({ p, raison: e === 'garage' ? 'au garage' : r ? 'montage refusé' : 'pas prêt' }); }
+  const hote = part.some((p) => p.host), pari = Net.settings.pmode === 'pari';
+  return { ok: hote && !pari && exclus.length > 0, hote, pari, part, exclus, cle: part.map((p) => p.id).sort().join(',') + '|' + exclus.map((x) => x.p.id).sort().join(',') }; }
+function sgBloquants() { return present().filter((p) => sgEtat(p) !== 'pret' || sgRefus(p)).map((p) => p.name + ' (' + (sgEtat(p) === 'garage' ? 'au garage' : sgRefus(p) ? 'montage refusé' : 'pas prêt') + ')'); }
+function sgJournal(o) { (Net.sgLog = (Net.sgLog || []).slice(-60)).push(Object.assign({ t: Date.now() }, o)); }   // décisions de l'hôte (bancs, diagnostic)
+// ---- hôte ----
+function sgHello(p, d, nouveau) {
+  p.v = d.v | 0;
+  if (nouveau || !Net.inRace) { const r = sgControle(d.cfg, p.v); if (r.err) { p.err = r.err; if (!p.cfg) p.cfg = r.cfg || cleanCfg({}); } else { p.cfg = r.cfg; p.err = ''; } if (sgN(d.n)) p.n = Math.max(sgN(p.n), sgN(d.n)); }   // en course : montage figé
+  if (p.v >= 2 && d.gar && !Net.inRace) p.etat = 'garage'; else if (nouveau) p.etat = 'pret'; else if (p.etat === 'garage') p.etat = 'attente';
+  sgJournal({ qui: p.name, msg: 'hello', v: p.v, etat: p.etat, ref: sgRefus(p) });
+}
+function sgDire(p, r) { sgJournal({ qui: p.name, refus: r }); if (p.id === Net.id) { toast('Refusé : ' + (SG_RAISONS[r] || r) + '.', 3500); return; } const c = Net.conns.get(p.pid); if (c && c.open) { try { c.send({ t: 'garko', r }); } catch (e) { /* rien */ } } }
+function hostSalonMsg(uid, d) {
+  const p = Net.players.find((x) => x.id === uid); if (!p || !d) return;
+  if (Net.inRace && !(Net.lastStart && (Net.lastStart.sans || []).includes(p.id))) return sgDire(p, 'course');   // édition en course refusée ; un message tardif n'a aucun effet sur la course
+  // (un joueur laissé au salon par « Lancer sans eux » peut régler son kart et se dire prêt : effet à la course SUIVANTE, roster figé)
+  if ((d.ph | 0) !== Net.ph) return sgDire(p, 'perime');            // message d'un salon précédent (avant une course) : sans effet
+  if (d.t === 'gar') {
+    if (d.o) p.etat = 'garage';
+    else { if (d.cfg !== undefined) { const n = sgN(d.n);
+        if (n > sgN(p.n)) { p.n = n; const r = sgControle(d.cfg, Math.max(2, p.v | 0)); if (r.err) { p.err = r.err; sgDire(p, r.err); } else { p.cfg = r.cfg; p.err = ''; if (sgRefus(p)) sgDire(p, sgRefus(p)); } }
+        else sgJournal({ qui: p.name, ignore: 'doublon', n }); }
+      p.etat = p.host ? 'pret' : 'attente'; }                         // l'hôte lance lui-même : prêt dès son retour ; un invité se remet prêt
+  } else if (d.t === 'pret') {
+    if (!d.v) { if (sgEtat(p) !== 'garage') p.etat = 'attente'; }
+    else if (sgEtat(p) === 'garage') sgDire(p, 'garage'); else if (sgRefus(p)) sgDire(p, sgRefus(p)); else p.etat = 'pret';
+  }
+  sgJournal({ qui: p.name, msg: d.t + (d.o ? ':ouvre' : d.cfg ? ':confirme' : d.t === 'gar' ? ':ferme' : ':' + !!d.v), etat: p.etat, ref: sgRefus(p) });
+  hostBroadcastLobby();
+}
+// Changement de règle : les joueurs concernés (montage désormais refusé) repassent « pas prêts » ; chacun reçoit un message clair.
+function sgRegle(v) { const S = Net.settings; if (S.kp === v) return; S.kp = v; for (const p of Net.players) if (!p.host && sgRefus(p) === 'regle' && sgEtat(p) === 'pret') p.etat = 'attente'; sgJournal({ regle: v }); hostBroadcastLobby(); }
+// ---- joueur (l'hôte passe par les mêmes fonctions, traitées chez lui) ----
+// Numéro de confirmation croissant même après un rechargement (horodatage) : l'hôte ignore un doublon ou un message plus ancien.
+const sgNum = () => Math.max(SG.n + 1, Date.now());
+const sgN = (x) => (Number.isFinite(+x) && +x > 0 ? Math.floor(+x) : 0);   // pas de « | 0 » : un horodatage dépasse 32 bits
+const sgEquipe = () => { const o = {}; for (const k of SG_CLES) o[k] = SAVE[k]; return o; };
+const sgCfgSalon = () => SG.confirme || (SG.confirme = cleanCfg(myCfgEquipe()));   // montage annoncé au salon (jamais un brouillon)
+function sgEnvoyer(d) { d.ph = Net.ph; if (Net.host) hostSalonMsg(Net.id, d); else if (Net.hc && Net.hc.open) { try { Net.hc.send(d); } catch (e) { /* la reconnexion renverra l'état (hello) */ } } }
+const sgMoi = () => Net.players.find((p) => p.id === Net.id) || null;
+const sgDispo = () => !!(Net.peer && Net.id && !Net.inRace && (Net.host || (Net.hc && Net.hc.open && Net.sg)));
+function sgOuvrirGarage() {
+  if (!sgDispo()) { toast(Net.inRace ? 'Pas de garage pendant la course.' : 'Garage du salon indisponible (hôte d\'une ancienne version ?).', 3200); return false; }
+  SG.ouvert = true; SG.depart = sgEquipe(); SAVE.salonGar = { depart: Object.assign({}, SG.depart), code: Net.code }; store();
+  sgEnvoyer({ t: 'gar', o: 1 }); show('garage'); sgBarre(); return true;
+}
+// Fermeture : « ok » = confirmer et diffuser ; sinon annuler (ancien montage remis, rien n'est envoyé d'autre que la fermeture).
+function sgFermer(ok, pourquoi) {
+  if (!SG.ouvert) return; const at = window.WKAtelier; if (at && at.ATL && at.ATL.ouvert) { try { at.fermer(); } catch (e) { /* rien */ } }
+  SG.ouvert = false; document.body.classList.remove('wk-sg'); const bar = $('#sg-barre'); if (bar) bar.hidden = true;
+  if (ok) { const cfg = cleanCfg(myCfgEquipe()); SG.confirme = cfg; SG.n = sgNum(); SG.attente = { n: SG.n, cfg, ph: Net.ph }; sgEnvoyer({ t: 'gar', o: 0, cfg, n: SG.n }); }
+  else { for (const k of SG_CLES) if (SG.depart && SG.depart[k] !== undefined) SAVE[k] = SG.depart[k]; if (Net.peer) sgEnvoyer({ t: 'gar', o: 0 }); }
+  delete SAVE.salonGar; store(); SG.depart = null;
+  if (pourquoi) toast(pourquoi, 3800); else if (pourquoi !== '') toast(ok ? 'Montage envoyé au salon. Mets-toi prêt quand tu veux.' : 'Garage fermé : ton montage précédent est conservé.', 3000);
+}
+function sgModifie() { if (!SG.depart) return false; const e = sgEquipe(); return SG_CLES.some((k) => e[k] !== SG.depart[k]); }
+function sgSerie() { const cfg = kartSerie(sgCfgSalon()); SG.confirme = cfg; SG.n = sgNum(); SG.attente = { n: SG.n, cfg, ph: Net.ph }; sgEnvoyer({ t: 'gar', o: 0, cfg, n: SG.n }); sgEnvoyer({ t: 'pret', v: true });
+  toast('Kart de série pour ce salon. Ton montage reste équipé et enregistré dans ton garage.', 4200); }
+// Un message de confirmation arrivé pendant une course déjà lancée est sans effet : de retour au salon, il est renvoyé (même montage).
+function sgRenvoi() { const me = sgMoi(); if (!SG.attente || !me || Net.inRace) return; if (sgN(me.n) >= SG.attente.n) { SG.attente = null; return; }
+  if (SG.attente.ph === Net.ph) return; SG.attente.ph = Net.ph; sgEnvoyer({ t: 'gar', o: 0, cfg: SG.attente.cfg, n: SG.attente.n }); toast('Ton dernier montage est renvoyé au salon (la course était déjà lancée).', 3500); }
+// Styles du salon et de la barre du garage (injectés une fois).
+function sgStyle() { if (document.getElementById('sg-style')) return;
+  const st = document.createElement('style'); st.id = 'sg-style'; st.textContent = '#sg-box{gap:6px;margin:6px 0}#sg-box .row{display:flex;gap:6px;flex-wrap:wrap}#sg-box .sg-regle{font-size:13px}#sg-box .sg-refus{background:#ffe1df;color:#5a1010;border-radius:10px;padding:8px}' +
+      '#sg-barre{display:flex;gap:8px;align-items:center;box-sizing:border-box;background:rgba(255,253,247,.96);color:#17143a;border:2px solid #17143a;border-radius:12px;padding:5px 8px;z-index:6;opacity:.995;line-height:1.15;position:fixed;top:max(10px,env(safe-area-inset-top,0px));right:max(12px,env(safe-area-inset-right,0px));width:min(436px,calc(50vw - 14px))}#sg-barre[hidden]{display:none}#sg-barre .sg-txt{display:flex;flex-direction:column;gap:1px;flex:1;min-width:0}#sg-barre b{font-size:12px}#sg-barre small{font-size:11px}#sg-barre .sg-info{display:none}#sg-barre .sg-alerte{color:#a0150f;font-weight:800}#sg-barre .sg-btns{display:flex;gap:6px;flex-shrink:0}#sg-barre .btn{margin:0;min-height:40px;padding-left:10px;padding-right:10px}body.wk-sg #s-garage .g-panel,body.wk-sg #atl{padding-top:calc(var(--sg-h,60px) + 8px)}@media (orientation:portrait){#sg-barre{top:auto;right:max(8px,env(safe-area-inset-right,0px));left:max(8px,env(safe-area-inset-left,0px));bottom:max(8px,env(safe-area-inset-bottom,0px));width:auto;flex-direction:column;align-items:stretch;gap:6px;padding:7px 9px}#sg-barre b{font-size:13px}#sg-barre .sg-btns .btn{flex:1;min-height:44px}body.wk-sg #s-garage .g-panel,body.wk-sg #atl{padding-top:12px;padding-bottom:calc(var(--sg-h,120px) + 24px)}}' +
+      'body.wk-sg #atl-essai{opacity:.4}body.wk-sg #s-garage .back{display:none}'; document.head.appendChild(st); }
+// Barre du garage en mode salon : état, règle, confirmer / annuler.
+function sgBarre() {
+  let bar = $('#sg-barre'); const st = $('#s-garage .g-stage'); if (!bar && st) { bar = document.createElement('div'); bar.id = 'sg-barre'; const nm = $('#g-name'); st.insertBefore(bar, nm ? nm.nextSibling : st.firstChild); }
+  if (!bar) return; sgStyle(); document.body.classList.add('wk-sg'); bar.hidden = false; const perso = kartPerso(myCfgEquipe()).length > 0, regle = Net.settings.kp === false;
+  bar.innerHTML = '<div class="sg-txt"><b>Salon ' + sgEsc(Net.code) + ' · au garage (pas prêt)</b><small class="sg-info">Les autres voient ton ancien kart jusqu\'à ta confirmation.</small>' +
+    (regle && perso ? '<small class="sg-alerte">Karts perso NON autorisés : moteur ' + sgEsc((ENGINES[SAVE.engine] || {}).name || '') + ' refusé (il reste enregistré).</small>' : '<small>Karts personnalisés : ' + (regle ? 'non autorisés' : 'autorisés') + '.</small>') +
+    (SG.question ? '<small class="sg-alerte">Kart modifié : confirmer ou annuler ?</small>' : '') +
+    '</div><div class="sg-btns"><button class="btn red sm" id="sg-ok"><span>Confirmer</span></button><button class="btn ghost sm" id="sg-annuler"><span>Annuler</span></button></div>';
+  sgHauteur();
+  $('#sg-annuler').onclick = () => { AudioSys.sfx('click'); SG.question = false; sgFermer(false); show('online'); };
+  $('#sg-ok').onclick = () => { AudioSys.sfx('click'); SG.question = false; sgFermer(true); show('online'); };
+}
+function sgHauteur() { const bar = $('#sg-barre'); if (bar && !bar.hidden) document.body.style.setProperty('--sg-h', Math.ceil(bar.getBoundingClientRect().height) + 'px'); }
+addEventListener('resize', () => { if (SG.ouvert) requestAnimationFrame(sgHauteur); });
+// Retour (←) du garage en mode salon : on revient au salon, jamais au menu ; s'il y a des changements, on demande.
+document.addEventListener('click', (e) => { if (!SG.ouvert) return; const t = e.target.closest && e.target.closest('#s-garage [data-go], #atl-essai'); if (!t) return;
+  e.stopImmediatePropagation(); e.preventDefault();
+  if (t.id === 'atl-essai') { toast('Essai d\'un tour indisponible depuis le salon : il ferait quitter la partie.', 3500); return; }
+  if (sgModifie()) { SG.question = true; sgBarre(); } else { sgFermer(false, ''); show('online'); } }, true);
+// Interface du salon : état de chacun, règle visible par tous, garage, prêt / pas prêt, refus avec présélection permise.
+function sgRendre() {
+  let box = $('#sg-box'); const lob = $('#on-lobby'); if (!lob) return;
+  if (!box) { box = document.createElement('div'); box.id = 'sg-box'; box.className = 'col'; lob.insertBefore(box, $('#on-host-opts'));
+    sgStyle();
+    const pane = $('#on-host-opts .tabpane[data-p="race"]'); if (pane) { const o = document.createElement('div'); o.className = 'opt'; o.innerHTML = '<span>Karts personnalisés</span><div class="chips" id="on-kp"></div>'; pane.appendChild(o); } }
+  const me = sgMoi(), S = Net.settings; if (!me) { box.innerHTML = ''; return; }
+  if (Net.host) chipsSel($('#on-kp'), [[true, 'Autorisés'], [false, 'Non autorisés']], S.kp !== false, (v) => sgRegle(v));
+  const regle = '<p class="hint sg-regle">Karts personnalisés : <b>' + (S.kp === false ? 'non autorisés' : 'autorisés') + '</b> — personnalisé = une pièce de conduite de l\'atelier hors série (aujourd\'hui : Moteur &amp; suspension autre que Standard). Carrosserie, roues, planeur du jeu et toute l\'apparence restent libres.</p>';
+  if (!Net.host && !Net.sg) { box.innerHTML = regle.replace(/Karts personnalisés : <b>[^<]*<\/b>/, 'Karts personnalisés : <b>règle inconnue</b>') + '<p class="hint">Hôte d\'une ancienne version : garage du salon et état prêt indisponibles.</p>'; return; }
+  const etat = sgEtat(me), ref = Net.host ? sgRefus(me) : me.ref || '';
+  let h = regle + '<div class="row"><button class="btn blue sm" id="sg-garage"><span>🔧 Garage</span></button>';
+  if (!Net.host) h += etat === 'pret' ? '<button class="btn ghost sm" id="sg-pret"><span>Je ne suis plus prêt</span></button>' : '<button class="btn red sm" id="sg-pret"' + (ref ? ' disabled' : '') + '><span>Je suis prêt</span></button>';
+  h += '</div>';
+  if (Net.horsCourse) h += '<p class="hint sg-hors"><b>Course en cours sans toi</b> : tu restes dans le salon. Règle ton kart et mets-toi prêt : tu participeras à la prochaine course.</p>';
+  if (Net.host) { const L = sgListeSans();
+    if (L.exclus.length && L.pari) h += '<p class="hint">Pari Pilote : tout le monde doit être prêt (paris et manches pour tout le groupe).</p>';
+    else if (L.ok && !SG.sansVoir) h += '<div class="row"><button class="btn ghost sm" id="sg-sans"><span>Lancer sans ' + (L.exclus.length > 1 ? 'eux' : sgEsc(L.exclus[0].p.name)) + '…</span></button></div>';
+    else if (L.ok) { const change = !!SG.sansCle && SG.sansCle !== L.cle; if (!SG.sansCle) SG.sansCle = L.cle;
+      h += '<div class="sg-refus sg-conf" id="sg-conf"><b>' + (change ? '⚠ La liste a changé : vérifie-la' : 'Lancer sans attendre ?') + '</b><br>Participeront : ' + L.part.map((p) => sgEsc(p.name)).join(', ') + (Net.settings.bots ? ' (+ bots)' : '') +
+      '.<br>Restent au salon pour cette course : ' + L.exclus.map((x) => sgEsc(x.p.name) + ' (' + x.raison + ')').join(', ') + '. Leur montage et leur place sont conservés ; ils joueront la suivante s\'ils sont prêts.' +
+      '<div class="row"><button class="btn red sm" id="sg-sans-ok" data-cle="' + sgEsc(L.cle) + '"' + (change ? ' data-revoir="1"><span>J\'ai vu la nouvelle liste' : '><span>Confirmer le départ') + '</span></button><button class="btn ghost sm" id="sg-sans-non"><span>Attendre</span></button></div></div>'; }
+    else if (SG.sansVoir) { SG.sansVoir = false; SG.sansCle = ''; } }
+  if (ref) h += '<div class="sg-refus"><b>Montage refusé</b> : ' + sgEsc(SG_RAISONS[ref] || ref) + '. Ton montage reste équipé et enregistré.' + (ref === 'regle' ? '<div class="row"><button class="btn red sm" id="sg-serie"><span>Courir avec le kart de série équivalent</span></button></div>' : '') + '</div>';
+  box.innerHTML = h;
+  $('#sg-garage').onclick = () => { AudioSys.sfx('click'); sgOuvrirGarage(); };
+  const bp = $('#sg-pret'); if (bp) bp.onclick = () => { AudioSys.sfx('click'); sgEnvoyer({ t: 'pret', v: etat !== 'pret' }); };
+  const bs = $('#sg-serie'); if (bs) bs.onclick = () => { AudioSys.sfx('click'); sgSerie(); };
+  { const e = $('#sg-sans'); if (e) e.onclick = () => { AudioSys.sfx('click'); SG.sansVoir = true; SG.sansCle = ''; renderOnline(); }; }
+  { const e = $('#sg-sans-non'); if (e) e.onclick = () => { AudioSys.sfx('click'); SG.sansVoir = false; SG.sansCle = ''; renderOnline(); }; }
+  // Confirmer = la liste AFFICHÉE (data-cle) doit être celle lue à l'ouverture ; si elle a changé, un premier clic ne fait que la valider.
+  { const e = $('#sg-sans-ok'); if (e) e.onclick = () => { AudioSys.sfx('click'); if (e.dataset.revoir) { SG.sansCle = e.dataset.cle; renderOnline(); return; } if (hostStart({ sans: e.dataset.cle })) SG.sansCle = ''; }; }
+}
+// Accès des bancs (tests/salon-garage*.cjs) ; game.js étant enveloppé, rien n'est autrement visible de l'extérieur.
+window.__TK_SG = { SG, sgListeSans, sgBarre, sgRendre, hostCupRace, sgOuvrirGarage, sgFermer, sgSerie, sgRegle, sgBloquants, kartPerso, kartSerie, sgCfgSalon, hostSalonMsg, goLobby, hostBroadcast, sgEtat, sgRefus };
 $('#on-copy').onclick = () => { const t = Net.code; try { navigator.clipboard.writeText(t).then(() => toast('Code copié : ' + t)).catch(() => toast('Code : ' + t)); } catch (e) { toast('Code : ' + t); } };
 
 
@@ -10201,6 +10451,7 @@ function cupCard(p, others, kinds) {
 function cupStandings() { const C = Net.cup; return Object.keys(C.scores).map((id) => ({ id, name: C.names[id], total: C.scores[id] })).sort((a, b) => b.total - a.total); }
 function hostCupStart() {
   if (!Net.host || Net.inRace) return;
+  { const bl = sgBloquants(); if (bl.length) { toast('Pari Pilote impossible : ' + bl.join(', ') + '.', 4500); renderOnline(); return false; } }   // #34.G17 : sinon le pari fermerait un garage ouvert et la manche attendrait un joueur qui ne peut plus se remettre prêt
   Net.cup = { round: 0, total: Net.settings.rounds || 3, scores: {}, names: {}, bets: new Map(), betsDone: {}, racing: false };
   for (const p of present()) { Net.cup.scores[p.id] = 0; Net.cup.names[p.id] = p.name; }
   hostCupBet();
@@ -10215,6 +10466,7 @@ function hostCupBet() {
 }
 function hostCupRace() {
   const C = Net.cup; if (!Net.host || !C || C.racing) return; clearTimeout(MINI.timer);
+  { const bl = sgBloquants(); if (bl.length) { toast('Manche en attente : ' + bl.join(', ') + '.', 2800); MINI.timer = setTimeout(hostCupRace, 3000); return; } }   // #34.G17 : personne au garage au départ
   C.betsDone = Object.fromEntries(C.bets); C.racing = true; MINI.cur = null; hostStart();
 }
 function hostCupVerdict() {
@@ -10377,6 +10629,8 @@ function onMini(m) {
 /* ================= Menus ================= */
 const SCREENS = ['chef', 'friends', 'title', 'tracks', 'garage', 'settings', 'calib', 'pause', 'results', 'install', 'party', 'turn', 'card', 'online', 'mini', 'wheel', 'wedit'];
 function show(id) {
+  if (id === 'garage' && Net.inRace) { toast('Pas de garage pendant une course en ligne : ton montage est figé jusqu\'à la fin.', 3200); return; }   // #34.G17 : verrou (appels internes compris)
+  if (UI.screen === 'garage' && id !== 'garage' && SG.ouvert) sgFermer(false, 'Garage du salon fermé sans confirmation : ancien montage conservé.');   // toute autre sortie = annulation
   for (const s of SCREENS) { const el = $('#s-' + s); if (el) el.hidden = s !== id; }
   const prev = UI.screen; UI.screen = id;
   if (id === 'garage') enterGarage(); else if (prev === 'garage') leaveGarage();
