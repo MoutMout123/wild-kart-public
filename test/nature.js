@@ -372,15 +372,15 @@ function terrainMaterial(B, opts = {}) {
     tB2: { value: texture(B2.b[0], 'albedo') }, cB2: { value: new T.Color(B2.b[1]) }, sB2: { value: B2.b[2] },
     tR2: { value: texture(B2.r[0], 'albedo') }, cR2: { value: new T.Color(B2.r[1]) }, sR2: { value: B2.r[2] },
     hiLevel: { value: opts.hiLevel != null ? opts.hiLevel : 1e5 }, lowLevel: { value: opts.lowLevel != null ? opts.lowLevel : -1e5 }, wkPatch: { value: opts.wkPatch != null ? opts.wkPatch : .32 },
-    edge: { value: opts.edge != null ? opts.edge : 1 }, ao: { value: opts.ao != null ? opts.ao : 1 }, fogScale: { value: opts.fogScale || 1 }, rockSlope: { value: opts.rockSlope || .3 },
+    edge: { value: opts.edge != null ? opts.edge : 1 }, ao: { value: opts.ao != null ? opts.ao : 1 }, fogScale: { value: opts.fogScale || 1 }, rockSlope: { value: opts.rockSlope || .3 }, rocheOn: { value: opts.roche ? 1 : 0 },
   };
   mat.userData.uniforms = u;
   mat.onBeforeCompile = (s) => {
     Object.assign(s.uniforms, u);
-    s.vertexShader = 'attribute float wkRoad; attribute float wkZone; varying float vWkRoad; varying float vWkZone; varying vec3 vWkPos; varying vec3 vWkN;\n' + s.vertexShader.replace('#include <fog_vertex>', `#include <fog_vertex>
-      vWkPos=(modelMatrix*vec4(transformed,1.0)).xyz; vWkN=normalize(mat3(modelMatrix)*objectNormal); vWkRoad=wkRoad; vWkZone=wkZone;`);
-    s.fragmentShader = `uniform sampler2D tA,nA,tB,nB,tR,nR,tH,tA2,nA2,tB2,tR2; uniform vec3 cA,cB,cR,cH,cA2,cB2,cR2; uniform float sA,sB,sR,sA2,sB2,sR2,hiLevel,lowLevel,wkPatch,edge,ao,fogScale,rockSlope;
-      varying float vWkRoad; varying float vWkZone; varying vec3 vWkPos; varying vec3 vWkN;\n${COMMON}\n` + s.fragmentShader
+    s.vertexShader = 'attribute float wkRoad; attribute float wkZone; attribute float wkRoche; varying float vWkRoad; varying float vWkZone; varying float vWkRoche; varying vec3 vWkPos; varying vec3 vWkN;\n' + s.vertexShader.replace('#include <fog_vertex>', `#include <fog_vertex>
+      vWkPos=(modelMatrix*vec4(transformed,1.0)).xyz; vWkN=normalize(mat3(modelMatrix)*objectNormal); vWkRoad=wkRoad; vWkZone=wkZone; vWkRoche=wkRoche;`);
+    s.fragmentShader = `uniform sampler2D tA,nA,tB,nB,tR,nR,tH,tA2,nA2,tB2,tR2; uniform vec3 cA,cB,cR,cH,cA2,cB2,cR2; uniform float sA,sB,sR,sA2,sB2,sR2,hiLevel,lowLevel,wkPatch,edge,ao,fogScale,rockSlope,rocheOn;
+      varying float vWkRoad; varying float vWkZone; varying float vWkRoche; varying vec3 vWkPos; varying vec3 vWkN;\n${COMMON}\n` + s.fragmentShader
       .replace('#include <map_fragment>', `
         vec3 N0=normalize(vWkN); vec2 xz=vWkPos.xz;
         float macro=wkFbm(xz*.012), mid=wkFbm(xz*.05+7.3), m=wkNoise(xz*.021);
@@ -405,6 +405,7 @@ function terrainMaterial(B, opts = {}) {
         wB=clamp(wB+(hB-hA)*.6*wB*(1.0-wB)*4.0,0.0,1.0);
         vec3 col=mix(colA,colB,wB);
         float slope=1.0-N0.y, wR=smoothstep(rockSlope,rockSlope+.16,slope+(mid-.5)*.18);
+        wR=max(wR,rocheOn*clamp(vWkRoche,0.0,1.0)*smoothstep(.05,.15,slope+(mid-.5)*.12)); /* massif « roche » : roche dès 18-32° */
         col=mix(col,colR,wR);
         float wH=smoothstep(hiLevel,hiLevel+18.0,vWkPos.y+(mid-.5)*22.0)*(1.0-smoothstep(.45,.7,slope));
         vec3 colH=wkGrade(texture2D(tH,uvA*.7).rgb,cH,1.0)*1.08; col=mix(col,colH,wH);
@@ -588,7 +589,7 @@ function* buildSteps(W, quality, renderer) {
   const dist = samplerFor(W), wallD = W.wallD, bb = W.bb, half = bb.ext + 520, cx = bb.cx, cz = bb.cz;
   const inTerrain = (x, z, m = 8) => Math.abs(x - cx) < half - m && Math.abs(z - cz) < half - m;
   // Parcelles de biomes : champ de zone lissé (0 = biome principal, 1 = biome secondaire) et tirage pondéré par objet.
-  const Z = ZONES[W.def.id], B2 = Z && BIOMES[Z.biome], zf0 = B2 ? zoneField(W, Z, half) : () => 0;
+  const Z = ZONES[W.def.id] || W.def.parcelleNature || null, B2 = Z && BIOMES[Z.biome], zf0 = B2 ? zoneField(W, Z, half) : () => 0;
   // Cartes à massif (specials.massifs) : la parcelle de vallée ne monte pas sur les sommets (fondu entre +50 et +100 m au-dessus de
   // la route la plus basse) ; sans massif, comportement inchangé.
   let yLow = Infinity; if (W.def.massifs && W.def.massifs.length) for (let i = 0; i < W.S.N; i += 4) yLow = Math.min(yLow, W.S.py[i]);
@@ -604,8 +605,9 @@ function* buildSteps(W, quality, renderer) {
     const g = W.terrain.geometry, p = g.attributes.position, road = new Float32Array(p.count);
     const distSol = samplerFor(W, true); for (let i = 0; i < p.count; i++) road[i] = clamp(distSol(p.getX(i), p.getZ(i), 40) - wallD, 0, 60);
     g.setAttribute('wkRoad', new T.BufferAttribute(road, 1)); zoneAttribute(g, zf);
+    if (W.massifRoche && W.massifRoche.length === p.count) g.setAttribute('wkRoche', new T.BufferAttribute(W.massifRoche, 1));   // massifs « roche » (0 ailleurs : attribut absent)
     const hi = B.high ? (W.terrainMin || 0) + (W.th.terrain.h || 60) * .75 : 1e5, low = B.sandLow != null ? (W.terrainMin || 0) + B.sandLow : -1e5;
-    const old = W.terrain.material; W.terrain.material = terrainMaterial(B, { B2, patch: B.patch, hiLevel: hi, lowLevel: low, rockSlope: biomeId === 'snow' ? .38 : .3 });
+    const old = W.terrain.material; W.terrain.material = terrainMaterial(B, { B2, patch: B.patch, hiLevel: hi, lowLevel: low, rockSlope: biomeId === 'snow' ? .38 : .3, roche: !!g.attributes.wkRoche });
     if (W.roles) { W.roles.delete(old); W.roles.set(W.terrain.material, 'terrain'); } if (old.map && !old.map.userData.wkShared) old.map.dispose(); old.dispose();
     state.terrainMat = W.terrain.material;
   }

@@ -77,27 +77,30 @@ function build(W, quality) {
   cands.sort((a, b) => b[0] - a[0]);
   for (const [c, i] of cands) { if (spots.length >= 3 || c < .012) break; if (spots.some((s) => Math.min(Math.abs(s.i - i), N - Math.abs(s.i - i)) < N * .12)) continue; const sd0 = -Math.sign(curvAt(i)) || 1; if (!tribuneLibre(i, sd0)) continue; spots.push({ i, side: sd0, kind: 'épingle' }); }
   for (let i = 0; i < N; i++) if (S.glide[i] && !S.glide[(i + 1) % N]) { const j = (i + 25) % N; const sd1 = R() < .5 ? -1 : 1; if (!busy(j) && tribuneLibre(j, sd1)) spots.push({ i: j, side: sd1, kind: 'réception' }); }
-  const bodies = [], heads = [], stands = [];
-  for (const sp of spots) {
+  // Une tribune = ses propres instances (coût du 8 nov. : une seule InstancedMesh pour toute la carte était dessinée dès qu'une tribune
+  // entrait dans le champ, 83 k triangles en vue joueur sur les cartes du concepteur ; par tribune, les tribunes hors champ sont écartées).
+  const bodies = [], heads = [], stands = [], parTribune = [];
+  for (const sp of spots) { const b0 = bodies.length, s0 = stands.length;
     const rows = 4, cols = Math.round(14 * q) + 4;
     for (let c = 0; c < cols; c++) { const j = ((sp.i + Math.round((c - cols / 2) * 1.2)) % N + N) % N;
       for (let r = 0; r < rows; r++) { const off = sp.side * (wallD + 4 + r * 1.6), x = S.px[j] + S.rx[j] * off + (R() - .5) * .4, z = S.pz[j] + S.rz[j] * off + (R() - .5) * .4, y = Math.max(ground(x, z, j), S.py[j]) + .2 + r * .9;
         if (R() > .88) continue; const it = { x, y, z, r: S.hd[j] + (sp.side > 0 ? -Math.PI / 2 : Math.PI / 2) + (R() - .5) * .5, s: .9 + R() * .25 }; bodies.push(it); heads.push(it); }
       if (c % 2 === 0) for (let r = 0; r < rows; r++) { const off = sp.side * (wallD + 4 + r * 1.6), x = S.px[j] + S.rx[j] * off, z = S.pz[j] + S.rz[j] * off; stands.push({ x, y: Math.max(ground(x, z, j), S.py[j]) - .4 + r * .9, z, r: S.hd[j], s: 1 }); } }
+    parTribune.push([b0, bodies.length, s0, stands.length]);
   }
   if (bodies.length) {
-    group.add(instanced(G.body, animated('#ffffff', 'crowd', time), bodies, () => pal[Math.floor(R() * pal.length)]));
-    group.add(instanced(G.head, animated('#ffffff', 'crowd', time), heads, () => SKIN[Math.floor(R() * SKIN.length)]));
+    const mCorps = animated('#ffffff', 'crowd', time), mTete = animated('#ffffff', 'crowd', time), mGradin = new T.MeshStandardMaterial({ color: th.night ? '#3a3a5a' : '#c9c2b6', roughness: .9 });
     const step = new T.BoxGeometry(2.6, .9, 1.7); step.translate(0, .45, 0); step.userData.keep = false;
-    group.add(instanced(step, new T.MeshStandardMaterial({ color: th.night ? '#3a3a5a' : '#c9c2b6', roughness: .9 }), stands));
+    for (const [b0, b1, s0, s1] of parTribune) { if (b1 > b0) { group.add(instanced(G.body, mCorps, bodies.slice(b0, b1), () => pal[Math.floor(R() * pal.length)])); group.add(instanced(G.head, mTete, heads.slice(b0, b1), () => SKIN[Math.floor(R() * SKIN.length)])); }
+      if (s1 > s0) group.add(instanced(step, mGradin, stands.slice(s0, s1))); }
   }
   // 2. Drapeaux le long des lignes droites, alternés des deux côtés, derrière les barrières.
   const flags = [];
   for (let i = 0; i < N; i += Math.max(22, Math.round(36 / q))) { if (busy(i) || Math.abs(S.curv[i]) > .025) continue;
     for (const sd of [-1, 1]) { if (R() < .35) continue; const off = sd * (wallD + 2.2), x = S.px[i] + S.rx[i] * off, z = S.pz[i] + S.rz[i] * off; if (surBranche(x, z)) continue; flags.push({ x, y: Math.max(ground(x, z, i), S.py[i]) - .1, z, r: S.hd[i] + (R() - .5) * .6, s: 1 }); } }
-  if (flags.length) {
-    group.add(instanced(G.pole, new T.MeshStandardMaterial({ color: '#e9ecf4', roughness: .3, metalness: .7 }), flags));
-    group.add(instanced(G.flag, animated('#ffffff', 'flag', time, { side: T.DoubleSide, roughness: .8 }), flags.map((f) => Object.assign({}, f, { y: f.y + 5.6 })), () => pal[Math.floor(R() * pal.length)]));
+  if (flags.length) {   // par paquets de 8 drapeaux consécutifs : les paquets hors champ sont écartés (même raison que les tribunes)
+    const mMat = new T.MeshStandardMaterial({ color: '#e9ecf4', roughness: .3, metalness: .7 }), mDrap = animated('#ffffff', 'flag', time, { side: T.DoubleSide, roughness: .8 });
+    for (let a = 0; a < flags.length; a += 8) { const L = flags.slice(a, a + 8); group.add(instanced(G.pole, mMat, L)); group.add(instanced(G.flag, mDrap, L.map((f) => Object.assign({}, f, { y: f.y + 5.6 })), () => pal[Math.floor(R() * pal.length)])); }
   }
   // 3. Montgolfières (circuits extérieurs de jour).
   const outdoor = !th.night && !['space', 'seabed', 'mall', 'parquet', 'pinball'].includes(th.ground);

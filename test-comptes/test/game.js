@@ -62,29 +62,92 @@ const GLIDERS = {
   ombrelle: { name: 'Ombrelle', air: .08, shape: 'parapluie', col: { a: '#ff9ccf', b: '#ffffff' } }, origami: { name: 'Origami doré', air: .08, shape: 'avion', col: { paper: '#f2c94c', a: '#b8860b' } },
   dragon: { name: 'Dragon', air: .08, shape: 'chauvesouris', col: { a: '#c1121f', e: '#ff5a00' } }, arcenciel: { name: 'Arc-en-ciel', air: .08, shape: 'parapente', col: { a: '#ff4fd8', b: '#38b6ff' } },
 };
-// #34.G — Moteur & suspension (7 nov.) : famille « Conduite » indépendante de la carrosserie et des roues ; compromis équilibrés (la somme
-// des effets reste proche de zéro), appliqués par statsFor → makeKart (vitesse max, accélération, direction, poids, tout-terrain).
+// #34.G15/G16 — Pièces de conduite SÉPARÉES (7 nov., soir) : moteur, suspension, transmission, freinage, direction, jantes (les pneus
+// sont la famille historique WHEELS). Chaque pièce porte des écarts de statistiques (même échelle que BODIES, compromis : la somme reste
+// proche de zéro) et, si besoin, des RÉGLAGES PHYSIQUES lus par kartPhysics :
+//   brakeK freinage · driftK vitesse de charge du dérapage · boostK durée des turbos de dérapage et de figure · gripK adhérence (le kart
+//   suit son cap plus vite) · landK vitesse gardée à une réception dure · recep turbo (s) à la réception d'un vrai saut (≥ 0,6 s en l'air).
+// Réglages VISUELS (sans effet de conduite) : roll roulis de la caisse, h garde au sol de la caisse (m), amort amortisseurs visibles.
+// L'ancien moteur « souple » (Suspension souple, avant la séparation) est migré vers la suspension Souple (migrerPieces).
 const ENGINES = {
   standard: { name: 'Standard', speed: 0, accel: 0, handling: 0, weight: 0, off: 0 },
   sprint: { name: 'Sprint', speed: -.06, accel: .12, handling: 0, weight: -.03, off: 0 },
   turbine: { name: 'Turbine', speed: .08, accel: -.1, handling: -.02, weight: .03, off: 0 },
   couple: { name: 'Couple', speed: -.04, accel: .02, handling: -.03, weight: .06, off: .14 },
-  souple: { name: 'Suspension souple', speed: -.04, accel: 0, handling: .08, weight: -.02, off: .04 },
+  electrique: { name: 'Électrique', speed: -.03, accel: .09, handling: .02, weight: .05, off: -.08 },
 };
+const SUSPS = {
+  standard: { name: 'Standard' },
+  souple: { name: 'Souple', speed: -.04, handling: .08, weight: -.02, off: .04, recep: .25, roll: 1.7, h: .04 },
+  ferme: { name: 'Ferme', speed: .04, handling: .06, off: -.1, landK: .9, roll: .4 },
+  rallye: { name: 'Rallye', speed: -.06, handling: -.04, weight: .04, off: .18, recep: .4, roll: 1.3, h: .12, amort: true },
+};
+const TRANS = {
+  standard: { name: 'Standard' },
+  courte: { name: 'Courte', speed: -.06, accel: .11 },
+  longue: { name: 'Longue', speed: .07, accel: -.09 },
+  sequentielle: { name: 'Séquentielle', speed: -.02, accel: -.03, boostK: 1.22 },
+};
+const FREINS = {
+  standard: { name: 'Standard' },
+  renforces: { name: 'Renforcés', speed: -.02, weight: .05, brakeK: 1.4 },
+  ceramique: { name: 'Céramique', weight: -.03, off: -.06, brakeK: 1.2 },
+  legers: { name: 'Légers', accel: .04, weight: -.05, brakeK: .75 },
+};
+const DIRS = {
+  standard: { name: 'Standard' },
+  directe: { name: 'Directe', handling: .1, driftK: .85 },
+  derive: { name: 'Dérive', handling: -.04, driftK: 1.2, gripK: .9 },
+  assistee: { name: 'Assistée', speed: -.03, handling: .04, gripK: 1.2 },
+};
+const RIMS = {
+  serie: { name: 'De série' },
+  alliage: { name: 'Alliage', accel: .03, weight: -.03 },
+  acier: { name: 'Acier', accel: -.02, weight: .05, off: .04 },
+  carbone: { name: 'Carbone', accel: .04, weight: -.05, off: -.04 },
+  doree: { name: 'Dorées' },
+};
+// Pièces d'apparence posées sur les ancrages de la carrosserie (aucun effet de conduite).
+const AILERONS = { serie: { name: 'De série' }, bas: { name: 'Bas' }, haut: { name: 'Haut' }, double: { name: 'Double' } };
+const ECHAPS = { serie: { name: 'De série' }, chrome: { name: 'Chromés' }, double: { name: 'Doubles' }, megaphone: { name: 'Mégaphone' } };
+// Clés de pièces : [clé de sauvegarde, table, valeur par défaut]. CONDUITE = lues par statsFor ; APPARENCE = kartMesh seulement.
+const PIECES_CONDUITE = [['engine', ENGINES, 'standard'], ['susp', SUSPS, 'standard'], ['trans', TRANS, 'standard'], ['frein', FREINS, 'standard'], ['dir', DIRS, 'standard'], ['rims', RIMS, 'serie']];
+// #34 (8 nov.) : ailes et pare-chocs AJOUTÉS sur la caisse (les ailes et pare-chocs d'origine restent fondus dans chaque carrosserie ; leur
+// séparation complète reste à faire). Contrat G0 : supports qui touchent la caisse, rien dans les pneus (avant braqués ±0,45) ni le pilote.
+const AILES = { serie: { name: 'De série' }, elargisseurs: { name: 'Élargisseurs' }, bavettes: { name: 'Bavettes' } };
+const PARECHOCS = { serie: { name: 'De série' }, buffle: { name: 'Pare-buffle' }, lame: { name: 'Lame avant' }, tubes: { name: 'Tubes arrière' } };
+const PIECES_APPARENCE = [['aileron', AILERONS, 'serie'], ['echap', ECHAPS, 'serie'], ['ailes', AILES, 'serie'], ['parechocs', PARECHOCS, 'serie']];
+const PIECES = PIECES_CONDUITE.concat(PIECES_APPARENCE);
+const REGLAGES = ['brakeK', 'driftK', 'boostK', 'gripK', 'landK'];
+// Une pièce a-t-elle un effet de conduite ? (écart de stat ou réglage physique ≠ 1, ou turbo de réception)
+const pieceEffet = (p) => !!p && (['speed', 'accel', 'handling', 'weight', 'off'].some((s) => p[s]) || REGLAGES.some((r) => p[r] != null && p[r] !== 1) || !!p.recep);
+// Migration des anciennes sauvegardes / montages / clients : moteur « souple » → suspension Souple (même effet), moteur Standard.
+function migrerPieces(o) { if (o && o.engine === 'souple') { o.engine = 'standard'; if (!o.susp || o.susp === 'standard') o.susp = 'souple'; } return o; }
 const SKINS = ['#f3d2b3', '#e0b08a', '#c68b5e', '#8d5a3b', '#5c3a25'];
 // #34.G2 : pendant l'ESSAI d'un brouillon de l'atelier (atelier.js), la course utilise ce brouillon sans l'équiper.
 function myCfg() { const c = myCfgEquipe(); return typeof window !== 'undefined' && window.WK_ESSAI && window.WK_ESSAI.cfg ? Object.assign(c, window.WK_ESSAI.cfg) : c; }
-function myCfgEquipe() { return { name: SAVE.name || 'Toi', color: SAVE.color, helmet: SAVE.helmet, body: SAVE.body, wheels: SAVE.wheels, pilot: SAVE.pilot, acc: SAVE.acc, finish: SAVE.finish, deco: SAVE.deco, trail: SAVE.trail, skin: SAVE.skin, glider: SAVE.glider, engine: ENGINES[SAVE.engine] ? SAVE.engine : 'standard', title: SAVE.title || '' }; }   /* valeur inconnue (ancienne sauvegarde) → Standard */
+function myCfgEquipe() { return { name: SAVE.name || 'Toi', color: SAVE.color, helmet: SAVE.helmet, body: SAVE.body, wheels: SAVE.wheels, pilot: SAVE.pilot, acc: SAVE.acc, finish: SAVE.finish, deco: SAVE.deco, trail: SAVE.trail, skin: SAVE.skin, glider: SAVE.glider, engine: ENGINES[SAVE.engine] ? SAVE.engine : 'standard', title: SAVE.title || '', ...piecesDe(migrerPieces(SAVE)) }; }   /* valeur inconnue (ancienne sauvegarde) → Standard */
+// Pièces séparées validées (valeur inconnue → défaut) ; l'objet source n'est pas modifié sauf migration explicite.
+function piecesDe(c) { const o = {}; for (const [k, t, d] of PIECES) o[k] = c && typeof c[k] === 'string' && Object.prototype.hasOwnProperty.call(t, c[k]) ? c[k] : d; if (c && c.engine === 'souple' && o.susp === 'standard') o.susp = 'souple'; return o; }
 function cleanCfg(c) {
   c = c || {}; const ok = (v, o, d) => (Object.prototype.hasOwnProperty.call(o, v) ? v : d); const col = (v, d) => (/^#[0-9a-f]{6}$/i.test(v || '') ? v : d);
   return { name: String(c.name || 'Joueur').slice(0, 10), color: col(c.color, '#ff4f3a'), helmet: col(c.helmet, '#ffc531'), body: ok(c.body, BODIES, 'equilibre'), wheels: ok(c.wheels, WHEELS, 'standard'),
-    pilot: ok(c.pilot, PILOTS, 'casque'), acc: ok(c.acc, ACCS, 'aucun'), finish: ok(c.finish, FINISHES, 'brillant'), deco: ok(c.deco, DECOS, 'aucune'), trail: ok(c.trail, TRAILS, 'feu'), skin: col(c.skin, '#e0b08a'), engine: ok(c.engine, ENGINES, 'standard'), glider: ok(c.glider, GLIDERS, 'classique'), title: typeof c.title === 'string' && typeof ACHS !== 'undefined' && ACHS.some((a) => a[4][0] === 'title' && a[4][1] === c.title) ? c.title : '' };
+    pilot: ok(c.pilot, PILOTS, 'casque'), acc: ok(c.acc, ACCS, 'aucun'), finish: ok(c.finish, FINISHES, 'brillant'), deco: ok(c.deco, DECOS, 'aucune'), trail: ok(c.trail, TRAILS, 'feu'), skin: col(c.skin, '#e0b08a'), engine: ok(c.engine, ENGINES, 'standard'), glider: ok(c.glider, GLIDERS, 'classique'), title: typeof c.title === 'string' && typeof ACHS !== 'undefined' && ACHS.some((a) => a[4][0] === 'title' && a[4][1] === c.title) ? c.title : '', ...piecesDe(c) };
 }
 const COLORS = ['#ff4f3a', '#ffc531', '#38b6ff', '#3ee08f', '#7c4dff', '#ff6fb5', '#f5f3ec', '#2b2b3a'];
-function statsFor(body, wheels, glider, engine) {
-  const b = BODIES[body] || BODIES.equilibre, w = WHEELS[wheels] || WHEELS.standard, gl = GLIDERS[glider] || GLIDERS.classique, e = ENGINES[engine] || ENGINES.standard;
-  return { speed: clamp(.5 + b.speed + w.speed + e.speed, 0, 1), accel: clamp(.5 + b.accel + w.accel + e.accel, 0, 1), handling: clamp(.5 + b.handling + w.handling + e.handling, 0, 1),
-    weight: clamp(.5 + b.weight + w.weight + e.weight, 0, 1), off: clamp(.3 + b.off + w.off + e.off, 0, 1), air: clamp(.35 + gl.air * 4, 0, 1) };
+// Statistiques et réglages d'un kart. Signature historique (carrosserie, roues, planeur, moteur) conservée ; le 5e argument facultatif
+// est la configuration complète (pièces séparées). Les réglages physiques valent 1 (ou 0) pour les pièces standard : un kart de série
+// conduit exactement comme avant la séparation.
+function statsFor(body, wheels, glider, engine, cfg) {
+  const b = BODIES[body] || BODIES.equilibre, w = WHEELS[wheels] || WHEELS.standard, gl = GLIDERS[glider] || GLIDERS.classique, e = ENGINES[engine === 'souple' ? 'standard' : engine] || ENGINES.standard;
+  const pc = cfg ? piecesDe(cfg) : (engine === 'souple' ? { susp: 'souple' } : {}), ps = [b, w, e];
+  for (const [k, t, d] of PIECES_CONDUITE) if (k !== 'engine') ps.push(t[pc[k] || d] || t[d]);
+  const sum = (s) => ps.reduce((a, p) => a + (p[s] || 0), 0), mul = (r) => ps.reduce((a, p) => a * (p[r] != null ? p[r] : 1), 1);
+  const su = SUSPS[pc.susp] || SUSPS.standard;
+  return { speed: clamp(.5 + sum('speed'), 0, 1), accel: clamp(.5 + sum('accel'), 0, 1), handling: clamp(.5 + sum('handling'), 0, 1),
+    weight: clamp(.5 + sum('weight'), 0, 1), off: clamp(.3 + sum('off'), 0, 1), air: clamp(.35 + gl.air * 4, 0, 1),
+    brakeK: +mul('brakeK').toFixed(3), driftK: +mul('driftK').toFixed(3), boostK: +mul('boostK').toFixed(3), gripK: +mul('gripK').toFixed(3), landK: +mul('landK').toFixed(3), recep: sum('recep'),
+    roll: su.roll || 1, h: su.h || 0, amort: !!su.amort };
 }
 const CC = [{ name: '50cc', v: 44, ai: .84 }, { name: '100cc', v: 54, ai: .92 }, { name: '150cc', v: 64, ai: .985 }];
 const RIVALS = [
@@ -1191,12 +1254,14 @@ function* buildWorldSteps(ti) {
   if (def.production) window.WKProduction.installJunctions(W);
   if (def.production) window.WKProduction.applyFrames(S, def);
   buildEdges(S, def); computeBridges(W); W.env = envFor(def);
+  marquerEtape(W, 'ciel, lumières, route et jonctions');
   yield* drainPixelJobs(); yield 0.15;
   { let a = Infinity, b = -Infinity, e = Infinity, f = -Infinity; const acc = (P) => { for (let i = 0; i < P.N; i++) { a = Math.min(a, P.px[i]); b = Math.max(b, P.px[i]); e = Math.min(e, P.pz[i]); f = Math.max(f, P.pz[i]); } }; acc(S); W.branches.forEach(acc);
     W.bb = { cx: (a + b) / 2, cz: (e + f) / 2, ext: Math.max(b - a, f - e) / 2 }; }
   W.nearAll = nearAllFn(W);
   temoinLieu(W); if (grandeCascadeActive(W)) W.lieux = grandeCascadeLieux;   // #37 Grande Cascade : relief des lieux posé d'abord
   if (th.terrain) buildTerrain(W, W.bb.ext, W.bb.cx, W.bb.cz);
+  marquerEtape(W, 'terrain');
   yield* drainPixelJobs(); yield 0.25;
   CUR_HAT = W.hAt || null;
   const openAt = (i, sg) => W.branches.some((B) => B.side === sg && (inWin(i, B.winA) || inWin(i, B.winB)));
@@ -1205,6 +1270,7 @@ function* buildWorldSteps(ti) {
 
   // sol
   const gtex = groundTex(th.ground); gtex.repeat.set(100, 100);
+  marquerEtape(W, 'chaussée et bords');
   yield* drainPixelJobs(); yield 0.32;
   const groundMat = gfxDetail(new T.MeshLambertMaterial({ map: gtex, polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 2 }), 'ground'); W.groundMat = groundMat;
   const ground = new T.Mesh(new T.PlaneGeometry(4000, 4000), groundMat); ground.rotation.x = -Math.PI / 2; ground.position.y = th.groundY != null ? th.groundY : -.08; if (th.terrain || th.noGround) { ground.geometry.dispose(); groundMat.dispose(); } else scene.add(ground);
@@ -1256,6 +1322,7 @@ function* buildWorldSteps(ti) {
   }
 
   if (!def.production) buildUndersides(W, gap, warpIn);
+  marquerEtape(W, 'murs et dessous de route');
   yield* drainPixelJobs(); yield 0.45;
   if (S.wz && !def.production) {
     // Coque de structure (style sections anti-gravité) : flancs qui masquent le dos des barrières, fond fermé, liserés lumineux.
@@ -1295,6 +1362,7 @@ function* buildWorldSteps(ti) {
   const bmats = { shoulder: shoulderMat, road: roadMat, curb: curbMat, wall: wallMat, rail: railMat, skirt: skirtMat, pad: padMat, dirt: new T.MeshLambertMaterial({ map: stex, color: '#d8c0a0', polygonOffset: true, polygonOffsetFactor: -1 }), fence: new T.MeshLambertMaterial({ color: '#8a6a48', side: T.DoubleSide }), fenceRail: lam('#6b4a2b') };
   bmats.path = new T.MeshStandardMaterial({ map: DIRT_TEX, roughness: .95, envMapIntensity: .2, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
   for (const B of W.branches) buildBranchGeo2(W, B, bmats);
+  marquerEtape(W, 'branches et objets');
   yield* drainPixelJobs(); yield 0.52;
   buildGores(W, bmats);
   planGates(W); buildGates(W);
@@ -1314,6 +1382,7 @@ function* buildWorldSteps(ti) {
   planWeather(W); buildBridges(W); if (W.def.fortress) buildFortress(W); buildZones(W); if (W.def.railway) buildRailway(W); planChameleon(W);
   if (!def.production) buildDetails(W); else W.noDecor = []; warpNoDecor(W); buildWarpGlow(W); buildKickers(W);
   if (!def.production) { buildDecor(W); buildGrass9(W); }
+  marquerEtape(W, 'décors de piste (décor, détails, ponts, portes, obstacles, herbe, zones)');
   yield* drainPixelJobs(); yield 0.62;
   W.parts = new Particles(scene, 420, true); W.dust = new Particles(scene, 200, false);
   if (th.decor === 'snow') W.snow = makeSnow(scene);
@@ -1323,6 +1392,7 @@ function* buildWorldSteps(ti) {
   buildTunnels(W);
   if (Graphics && def.pilot && !def.production) Graphics.pilotWorld(W);
   if (def.production) window.WKScenery.build(W, SAVE.quality);
+  marquerEtape(W, 'éléments de piste (vols, boue, ressorts, tunnels)');
   yield* drainPixelJobs(); yield 0.68;
   CUR_HAT = null;
   W.roles = new Map([[roadMat, 'road'], [curbMat, 'curb'], [shoulderMat, 'shoulder'], [padMat, 'road'], [bmats.dirt, 'road'], [bmats.path, 'road'], [bmats.fence, 'wall'], [skirtMat, 'skirt'], [wallMat, 'wall'], [W.bumpMat, 'road'], [W.hullMat, 'structure'], [W.underMat, 'structure'], [W.underBackMat, 'structure']]); if (W.terrain) W.roles.set(W.terrain.material, 'terrain');
@@ -1335,20 +1405,27 @@ function* buildWorldSteps(ti) {
   buildVivants(W);
   // Kit Nature : terrain PBR, végétation modélisée et horizon des circuits naturels (aucun effet sur les collisions).
   temoinBuild(W);   // scène témoin #36/#37 (Cascades) : avant la Nature, qui évite ses zones (W.noDecor)
+  lieuxEauxBuild(W);   // plans d'eau des lieux (specials.eaux, concepteur « paysage ») : avant la Nature, qui évite leur emprise
   if (window.WKNature && window.WKNature.handles(W)) { if (window.WKNature.buildSteps) yield* window.WKNature.buildSteps(W, SAVE.quality, renderer); else window.WKNature.build(W, SAVE.quality, renderer); }
+  marquerEtape(W, 'décors (Nature, vivants, témoin, eaux, supports)');
   yield* drainPixelJobs(); yield 0.85;
   // Plan lointain à la taille du monde : la couronne de montagnes (brouillard atténué) était tranchée jusqu'à 66 % du champ
   // quand on roulait près d'un bord (scripts/bac-a-sable.cjs --horizon). La précision de profondeur dépend surtout du plan proche.
   camera.far = Math.max(1900, W.farNeed || 0); camera.updateProjectionMatrix();
   // Décors vivants : spectateurs animés, drapeaux, montgolfières (visuel seulement, hors enveloppe roulable).
   if (window.WKVivant) window.WKVivant.build(W, SAVE.quality);
+  marquerEtape(W, 'paysage (Nature, Décors vivants)');
   yield* drainPixelJobs(); yield 0.92;
   if (Graphics) Graphics.prepare(W, enhancedGraphics(), SAVE.quality, renderer);
   yield* drainPixelJobs();
+  marquerEtape(W, 'graphismes et finitions');
   if (def.production) window.WKProduction.colliders(W, (P, i) => P === S ? (W.branches.find(B => inWin(i, B.winA) || inWin(i, B.winB)) || {}).side || 0 : (i < P.jA || i > P.jB ? -P.side : 0));
   return W;
 }
 
+// #36.A3 (8 nov.) : chaque objet de la scène porte l'étape de construction qui l'a créé (userData.wkEtape), pour que l'inventaire
+// « affiché » rattache tout ce qui est dessiné à une famille, même sans nom. Étiquette seulement : aucun effet de rendu ni de jeu.
+function marquerEtape(W, nom) { const ch = W.scene.children; for (let i = W.__etape || 0; i < ch.length; i++) if (!ch[i].userData.wkEtape) ch[i].userData.wkEtape = nom; W.__etape = ch.length; }
 function nearTrackFn(S, cell = 24) {
   const grid = new Map();
   for (let i = 0; i < S.N; i += 2) { const k = Math.floor(S.px[i] / cell) + ',' + Math.floor(S.pz[i] / cell); if (!grid.has(k)) grid.set(k, []); grid.get(k).push(i); }
@@ -2655,7 +2732,7 @@ function kartGeometry(cfg) {
   if (deco) deco.userData.keep = true;
   const WD = WHEEL_DIM[cfg.wheels] || WHEEL_DIM.standard;
   const wh = wheelGeoFor(cfg.wheels, WD);
-  const out = { merged, wh, WD, flames, deco }; KART_GEO.set(key, out); return out;
+  const out = { merged, wh, WD, flames, deco, anc: v2 && v2.ancrages || null }; KART_GEO.set(key, out); return out;
 }
 function darken(hex, k) { const c = rgb(hex); return '#' + c.map((v) => Math.round(v * k).toString(16).padStart(2, '0')).join(''); }
 // Textures procédurales des karts (refonte du 4 novembre) : peinture pailletée (grain + paillettes, sert aussi de carte de rugosité),
@@ -2716,6 +2793,9 @@ function casqueMat(color) { const hi = qual().shadows, key = 'casque|' + color +
 function kartMesh(cfgIn) {
   const cfg = cleanCfg(cfgIn), bodyId = cfg.body; cfg.body = BODY_V2.has(cfg.body) ? cfg.body : shapeB(cfg.body); cfg.wheels = WHEEL_V2.has(cfg.wheels) ? cfg.wheels : shapeW(cfg.wheels);
   const g = new T.Group(); const tilt = new T.Group(); g.add(tilt);
+  // #34.G16 : la caisse (carrosserie, pilote, flammes, pièces posées) est un sous-groupe ; la suspension règle sa garde au sol, les roues
+  // restent au sol.
+  const SU = SUSPS[cfg.susp] || SUSPS.standard, caisse = new T.Group(); caisse.name = 'caisse'; caisse.position.y = SU.h || 0; tilt.add(caisse);
   const geo = kartGeometry(cfg); const F = FINISHES[cfg.finish];
   const mats = { paint: paintMat(cfg.color, F), dark: stdMat('#22213a', .5, .35), metal: stdMat('#cfd2dc', .2, .9), suit: stdMat(cfg.color === '#2b2b3a' ? '#4a4a60' : darken(cfg.color, .45), .7, .05),
     helm: stdMat(cfg.helmet, .15, .3), visor: stdMat('#0b0b16', .05, .85), glove: stdMat('#f7f5ee', .6, 0), skin: stdMat(cfg.skin, .72, 0), glass: stdMat('#101018', .05, .75),
@@ -2725,15 +2805,18 @@ function kartMesh(cfgIn) {
   if (!(typeof window !== 'undefined' && window.WK_FINITION_AVANT)) { mats.suit = tissuMat(mats.suit.color.getStyle()); mats.helm = casqueMat(cfg.helmet); mats.skin = stdMat(cfg.skin, .58, 0); mats.glove = tissuMat('#f7f5ee', .62); }
   mats.arch = new T.MeshStandardMaterial({ color: cfg.color, roughness: F.r, metalness: F.m, side: T.DoubleSide });
   const fin = typeof window !== 'undefined' && window.WK_FINITION_AVANT ? {} : finitionVehicule(geo, mats, F);
-  let rig = null; if (RIG_PILOTS.has(cfg.pilot)) { rig = heroRig(cfg, mats); tilt.add(rig.root); }
-  for (const k in geo.merged) { if (k.startsWith('h:')) { if (rig) { const m = new T.Mesh(geo.merged[k], mats[k.slice(2)]); m.position.set(0, -1.7, .3); rig.head.add(m); } continue; } tilt.add(new T.Mesh(geo.merged[k], fin[k] || mats[k])); }
-  if (geo.deco) tilt.add(new T.Mesh(geo.deco, cfg.deco === 'damier' ? checkerMat() : stdMat(cfg.helmet, F.r, F.m)));
+  let rig = null; if (RIG_PILOTS.has(cfg.pilot)) { rig = heroRig(cfg, mats); caisse.add(rig.root); }
+  for (const k in geo.merged) { if (k.startsWith('h:')) { if (rig) { const m = new T.Mesh(geo.merged[k], mats[k.slice(2)]); m.position.set(0, -1.7, .3); rig.head.add(m); } continue; } caisse.add(new T.Mesh(geo.merged[k], fin[k] || mats[k])); }
+  if (geo.deco) caisse.add(new T.Mesh(geo.deco, cfg.deco === 'damier' ? checkerMat() : stdMat(cfg.helmet, F.r, F.m)));
   const WD = geo.WD; const neon = cfg.wheels === 'neon';
   const wt = cfg.wheels; const tireM = wt === 'bois' ? stdMat('#a0703f', .8, 0) : wt === 'ballon' ? stdMat(cfg.helmet, .35, .05) : wheelMat('pneu'), rimM = neon || wt === 'disco' ? glowMat(cfg.helmet) : wt === 'etoile' ? stdMat('#ffc531', .22, .85) : wt === 'bois' ? stdMat('#5a3c24', .7, 0) : wt === 'ballon' ? stdMat('#fffdf7', .3, .1) : wt === 'crampons' ? stdMat('#e8b020', .45, .35) : wt === 'jantes' ? stdMat('#2a2a34', .25, .85) : wt === 'standard' && !window.WK_Q1_AVANT ? wheelMat('jante2') : wheelMat('jante'), capM = neon ? stdMat('#1c1b24', .4, .5) : stdMat(cfg.helmet, .3, .4);
+  // Jantes séparées (#34.G16) : matière propre à la jante, quelle que soit la forme du pneu (« De série » = jante d'origine du pneu).
+  const RJ = { alliage: ['#dfe3ea', .26, .92], acier: ['#3b3e47', .55, .6], carbone: ['#1a1b21', .32, .45], doree: ['#ffc531', .2, .9] }[cfg.rims], rimJ = RJ ? stdMat(RJ[0], RJ[1], RJ[2]) : null;
   const wheels = [], fronts = []; const fz = BODY_FZ[cfg.body] || 1.05; const wide = BODY_WIDE[cfg.body] || 0;
   for (const [x, z, front] of [[-1, fz, 1], [1, fz, 1], [-1, -1, 0], [1, -1, 0]]) {
     const piv = new T.Group(); piv.position.set(x * (.92 + wide + WD.w / 2 - .12), WD.r, z); tilt.add(piv);
-    const w = new T.Group(); piv.add(w); w.add(new T.Mesh(geo.wh.tire, tireM)); w.add(new T.Mesh(geo.wh.rim, rimM)); w.add(new T.Mesh(geo.wh.cap, capM));
+    const w = new T.Group(); piv.add(w); w.add(new T.Mesh(geo.wh.tire, tireM)); w.add(new T.Mesh(geo.wh.rim, rimJ || rimM));
+    if (SU.amort) piecesAmortisseur(piv, x, WD, SU.h, cfg); w.add(new T.Mesh(geo.wh.cap, capM));
     if (geo.wh.glow) w.add(new T.Mesh(geo.wh.glow, glowMat(cfg.helmet)));
     if (geo.wh.star) w.add(new T.Mesh(geo.wh.star, stdMat('#ffc531', .22, .85)));
     if (geo.wh.detail) w.add(new T.Mesh(geo.wh.detail, stdMat('#15141c', .5, .3))); if (geo.wh.accent) w.add(new T.Mesh(geo.wh.accent, wt === 'disco' ? stdMat('#f4f6ff', .05, 1) : wt === 'jantes' ? stdMat('#ff3048', .35, .3) : stdMat(cfg.helmet, .3, .4))); if (geo.wh.bolts) w.add(new T.Mesh(geo.wh.bolts, stdMat('#d8dbe4', .2, .9)));
@@ -2742,17 +2825,102 @@ function kartMesh(cfgIn) {
   const trail = TRAILS[cfg.trail].c;
   const flameMat = new T.MeshBasicMaterial({ color: trail[0], transparent: true, opacity: .9, blending: T.AdditiveBlending, depthWrite: false });
   const flames = []; const fg = new T.ConeGeometry(.2, 1, 12); fg.rotateX(-Math.PI / 2); fg.translate(0, 0, -.5);
-  for (const fp of geo.flames) { const f = new T.Mesh(fg, flameMat); f.position.set(fp.x, fp.y, fp.z); f.scale.set(fp.s, fp.s, .01); f.userData.s = fp.s; f.visible = false; tilt.add(f); flames.push(f); }
+  for (const fp of geo.flames) { const f = new T.Mesh(fg, flameMat); f.position.set(fp.x, fp.y, fp.z); f.scale.set(fp.s, fp.s, .01); f.userData.s = fp.s; f.visible = false; caisse.add(f); flames.push(f); }
   const shield = new T.Mesh(new T.SphereGeometry(2.1, 32, 20), new T.MeshBasicMaterial({ color: '#38b6ff', transparent: true, opacity: .26, depthWrite: false, blending: T.AdditiveBlending }));
   shield.position.y = .9; shield.visible = false; g.add(shield);
   tilt.traverse((o) => { if (o.isMesh && o.material !== flameMat) o.castShadow = !o.userData.sansOmbre; });
+  piecesPosees(caisse, geo, cfg, mats, { fz, wide, WD });
   const glider = gliderMesh(cfg); tilt.add(glider);
   const shadow = new T.Mesh(new T.PlaneGeometry(3.2, 4.3), new T.MeshBasicMaterial({ map: SHADOW_TEX, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
   shadow.rotation.x = -Math.PI / 2; shadow.position.y = .05; g.add(shadow);
   shadow.visible = !qual().shadows;
   const sc = BODY_V2.has(bodyId) ? null : (BODIES[bodyId] && BODIES[bodyId].sc) || null; if (sc) tilt.scale.set(sc[0], sc[1], sc[2]);   // carrosseries v2 : modèle propre, plus de mise à l'échelle d'un autre
   if (rig && !window.WK_POSE_AVANT) heroAnimate(rig, { spin: 0, boost: 0, finished: false, place: 0, drift: 0, air: false }, 0, 1, 0);   /* #36.Q1 : bras posés dès la construction (le fantôme du record n'est jamais animé : capsules des bras au repos sous le kart) ; WK_POSE_AVANT = témoin */
-  return { g, tilt, wheels, fronts, flames, shield, wheelR: WD.r, trail, glider, sc, rig };
+  return { g, tilt, caisse, wheels, fronts, flames, shield, wheelR: WD.r, trail, glider, sc, rig };
+}
+// Ailes et pare-chocs ajoutés (#34, 8 nov.). Chaque pièce est posée puis RACCORDÉE à la caisse par des supports dont l'autre bout est le
+// point touché par un rayon sur la vraie carrosserie (≤ 0,7 m) ; sans contact, la pièce n'est pas posée (« non posé », consigné).
+// Élargisseurs : arc au-dessus de chaque roue, rayon > distance maximale d'un point du pneu à son moyeu (+0,1 m) : aucun contact même
+// roue braquée. Bavettes : derrière les roues arrière. Pare-chocs : devant / derrière le pare-chocs déclaré (ancrages.parechocs) ou la
+// caisse. userData.pieces.ailes / .parechocs = { posees, supports } ou 'non posé'.
+function piecesCarrosserie(caisse, geo, cfg, mats, roues, info) {
+  const dbl = new T.MeshBasicMaterial({ side: T.DoubleSide }), tmp = [], box = new T.Box3(); for (const k in geo.merged) { if (k.startsWith('h:')) continue; const m = new T.Mesh(geo.merged[k], dbl); m.updateMatrixWorld(); tmp.push(m); box.expandByObject(m); }
+  const rc = new T.Raycaster(), sombre = mats.dark, accent = mats.accent, chrome = chromeMat(), parts = [];
+  const contact = (p, d) => { rc.set(p, d.clone().normalize()); rc.far = 1; const h = rc.intersectObjects(tmp, false)[0]; return h ? h.point : null; };
+  const tube = (a, b, r, m, nom) => { const L = a.distanceTo(b); if (L < .005) return null; const g = new T.CylinderGeometry(r, r, L, 10); const ms = new T.Mesh(g, m); ms.position.copy(a).add(b).multiplyScalar(.5); ms.quaternion.setFromUnitVectors(new T.Vector3(0, 1, 0), b.clone().sub(a).normalize()); ms.name = nom; return ms; };
+  // support : du point de la pièce vers la caisse, plusieurs directions essayées ; renvoie la longueur ou null
+  // plusieurs points de départ (décalés le long de la pièce) × directions : le premier contact trouvé, le plus court
+  const support = (p, dirs, nom, decal = [V(0, 0, 0)]) => { let best = null; for (const o of decal) for (const d of dirs) { const q = p.clone().add(o), h = contact(q, d); if (h && (!best || q.distanceTo(h) < best[2])) best = [q, h, q.distanceTo(h)]; }
+    if (!best) return null; const t = tube(best[0], best[1], .03, sombre, nom); if (t) parts.push(t); return +best[2].toFixed(3); };
+  const { fz, wide, WD } = roues, wx = .92 + wide + WD.w / 2 - .12, V = (x, y, z) => new T.Vector3(x, y, z), vers = (x, y, z) => V(x, y, z);
+  if (cfg.ailes === 'elargisseurs' || cfg.ailes === 'bavettes') { const lot = [], sup = [];
+    if (cfg.ailes === 'elargisseurs') { const R = Math.hypot(WD.r, WD.w / 2) + .1, arc = 1.9;
+      for (const [sx, z] of [[-1, fz], [1, fz], [-1, -1], [1, -1]]) { const g = new T.TorusGeometry(R, .055, 8, 28, arc); g.rotateZ(Math.PI / 2 - arc / 2); g.rotateY(Math.PI / 2); g.scale((WD.w / 2 + .06) / .055, 1, 1); g.translate(sx * wx, WD.r, z);
+        const m = new T.Mesh(g, mats.paint || accent); m.name = 'aile-elargisseur'; lot.push(m);
+        // support : du bord intérieur de l'arc vers l'axe du kart, à mi-hauteur de l'arc
+        // support : du SOMMET de l'arc (au-dessus du pneu, hors de son volume même braqué) vers la caisse
+        sup.push(support(V(sx * (wx - WD.w / 2 - .02), WD.r + R - .04, z), [vers(-sx, 0, 0), vers(-sx, -.5, 0), vers(-sx, -1, 0), vers(-sx, -.3, .4), vers(-sx, -.3, -.4)], 'aile-support', [V(0, 0, 0), V(0, 0, .18), V(0, 0, -.18)])); } }
+    else for (const sx of [-1, 1]) { const zf = -1 - Math.hypot(WD.r, .05) - .12, hb = Math.max(.42, WD.r * 1.15), g = rbox(WD.w * .9, hb, .035, .012); g.translate(sx * wx, .1 + hb / 2, zf); const m = new T.Mesh(g, sombre); m.name = 'aile-bavette'; lot.push(m);
+      const top = V(sx * wx, .1 + hb, zf); sup.push(support(top, [vers(0, 1, 0), vers(-sx, 0, 0), vers(-sx, .5, .3), vers(0, .4, 1), vers(-sx, .5, 0), vers(0, .6, .5)], 'aile-support', [V(0, 0, 0), V(-sx * WD.w * .4, 0, 0), V(0, -.08, 0)])); }
+    if (sup.every((x) => x != null)) { for (const m of lot) parts.push(m); info.ailes = { posees: lot.length, supports: sup }; } else { info.ailes = 'non posé'; for (let i = parts.length - 1; i >= 0; i--) if (parts[i].name === 'aile-support') parts.splice(i, 1); } }
+  if (cfg.parechocs && cfg.parechocs !== 'serie') { const anc = (geo.anc && geo.anc.parechocs) || [], av = anc.find((p) => p.cote === 'avant'), ar = anc.find((p) => p.cote === 'arriere');
+    const front = av || { z: box.max.z - .04, y: .42, largeur: Math.min(1.5, (box.max.x - box.min.x) * .75) }, rear = ar || { z: box.min.z + .04, y: .45, largeur: Math.min(1.45, (box.max.x - box.min.x) * .75) };
+    const avant = cfg.parechocs !== 'tubes', B = avant ? front : rear, sz = avant ? 1 : -1, l = Math.min(B.largeur * .82, 2 * (wx - WD.w / 2) - .2), lot = [], sup = [], z0 = B.z + sz * .2, y0 = B.y;
+    if (cfg.parechocs === 'buffle') { const yb = Math.max(.14, y0 - .2), yh = y0 + .38; for (const sx of [-1, 1]) lot.push(tube(V(sx * l / 2, yb, z0), V(sx * l / 2, yh, z0), .045, chrome, 'parechoc'));
+      lot.push(tube(V(-l / 2, yh, z0), V(l / 2, yh, z0), .045, chrome, 'parechoc')); lot.push(tube(V(-l / 2, y0, z0), V(l / 2, y0, z0), .04, chrome, 'parechoc')); lot.push(tube(V(-l * .3, yh, z0), V(-l * .3, y0, z0), .03, chrome, 'parechoc')); lot.push(tube(V(l * .3, yh, z0), V(l * .3, y0, z0), .03, chrome, 'parechoc')); }
+    else if (cfg.parechocs === 'lame') { const g = rbox(l, .045, .34, .015); g.translate(0, Math.max(.13, y0 - .24), B.z + .1); const m = new T.Mesh(g, sombre); m.name = 'parechoc'; lot.push(m);
+      for (const e of [-1, 1]) { const g2 = rbox(.04, .12, .3, .01); g2.translate(e * l / 2, Math.max(.13, y0 - .24) + .07, B.z + .1); const m2 = new T.Mesh(g2, accent); m2.name = 'parechoc'; lot.push(m2); } }
+    else { for (const yy of [y0, y0 + .2]) lot.push(tube(V(-l / 2, yy, z0), V(l / 2, yy, z0), .045, chrome, 'parechoc')); for (const sx of [-1, 1]) lot.push(tube(V(sx * l / 2, y0, z0), V(sx * l / 2, y0 + .2, z0), .045, chrome, 'parechoc')); }
+    const yS = cfg.parechocs === 'lame' ? Math.max(.13, y0 - .24) + .03 : y0, zS = cfg.parechocs === 'lame' ? B.z + .1 + sz * .17 : z0;
+    for (const sx of [-1, 1]) sup.push(support(V(sx * l * .32, yS, zS), [vers(0, 0, -sz), vers(0, .5, -sz), vers(0, -.4, -sz), vers(0, 1, 0), vers(0, .6, -sz * .6), vers(-sx * .4, 0, -sz)], 'parechoc-support', [V(0, 0, 0), V(0, .12, 0), V(0, -.1, 0), V(-sx * .15, 0, 0)]));
+    if (lot.every(Boolean) && sup.every((x) => x != null)) { for (const m of lot) parts.push(m); info.parechocs = { posees: lot.length, supports: sup, cote: avant ? 'avant' : 'arriere' }; }
+    else { info.parechocs = 'non posé'; for (let i = parts.length - 1; i >= 0; i--) if (parts[i].name === 'parechoc-support') parts.splice(i, 1); } }
+  for (const m of parts) { m.castShadow = true; caisse.add(m); } dbl.dispose();
+}
+// Compatibilité d'une pièce posée avec la carrosserie (raison lisible, '' si compatible) : l'atelier grise les choix incompatibles.
+const PIECE_POSE = new Map();   // ailes / pare-chocs : résultat de pose par carrosserie, pneus et pièce (essai réel avec kartMesh)
+function pieceIncompatible(cle, val, cfgIn) {
+  if (val === 'serie' || !['aileron', 'echap', 'ailes', 'parechocs'].includes(cle)) return '';
+  const cfg = cleanCfg(cfgIn); cfg.body = BODY_V2.has(cfg.body) ? cfg.body : shapeB(cfg.body); cfg.wheels = WHEEL_V2.has(cfg.wheels) ? cfg.wheels : shapeW(cfg.wheels); const geo = kartGeometry(cfg);
+  if (cle === 'aileron' && geo.anc && geo.anc.aileron) return 'cette carrosserie a déjà son aileron';
+  if (cle === 'echap' && !geo.flames.some((f) => f.s < 1.6)) return 'pas de sortie d\'échappement sur cette carrosserie';
+  if (cle === 'ailes' || cle === 'parechocs') { const k = [cfgIn && cfgIn.body, cfgIn && cfgIn.wheels, cle, val].join('|'); if (!PIECE_POSE.has(k)) { const m = kartMesh(Object.assign({}, cfgIn, { [cle]: val })); PIECE_POSE.set(k, m.caisse.userData.pieces[cle] === 'non posé' ? 'aucun point d\'attache sur cette carrosserie avec ces pneus' : ''); m.g.traverse((o) => { if (o.geometry && !o.geometry.userData.keep) o.geometry.dispose(); }); } return PIECE_POSE.get(k); }
+  return '';
+}
+// Amortisseur visible (suspension Rallye) : tige chromée et ressort coloré, côté intérieur de la roue, du moyeu jusque dans la caisse.
+function piecesAmortisseur(piv, sx, WD, h, cfg) {
+  const x = -sx * (WD.w / 2 + .06), haut = .34 + (h || 0), tige = new T.Mesh(new T.CylinderGeometry(.03, .03, haut, 10), chromeMat()); tige.position.set(x, haut / 2, 0); tige.name = 'amortisseur'; piv.add(tige);
+  const rs = stdMat(cfg.helmet, .35, .4); for (let i = 0; i < 6; i++) { const r = new T.Mesh(new T.TorusGeometry(.065, .016, 6, 14), rs); r.rotation.x = Math.PI / 2; r.position.set(x, .1 + i * (haut - .14) / 6, 0); r.name = 'ressort'; piv.add(r); }
+}
+// Aileron et échappements séparés (#34.G16, apparence) posés sur la VRAIE surface de la caisse : les pieds de l'aileron partent du point
+// touché par un rayon vertical sur la carrosserie (rien ne flotte) ; les embouts d'échappement se posent sur les sorties déclarées
+// (ancrages.echappements / flammes). Sans surface touchée (forme atypique), la pièce n'est pas posée et c'est consigné (userData).
+function piecesPosees(caisse, geo, cfg, mats, roues) {
+  const info = caisse.userData.pieces = { aileron: null, echap: 0, ailes: null, parechocs: null };
+  if ((cfg.ailes && cfg.ailes !== 'serie') || (cfg.parechocs && cfg.parechocs !== 'serie')) piecesCarrosserie(caisse, geo, cfg, mats, roues, info);
+  if (cfg.aileron && cfg.aileron !== 'serie' && geo.anc && geo.anc.aileron) info.aileron = 'aileron d\'origine';   // carrosserie déjà équipée : on n'empile pas
+  else if (cfg.aileron && cfg.aileron !== 'serie') {
+    const box = new T.Box3(), tmp = [], dbl = new T.MeshBasicMaterial({ side: T.DoubleSide }); for (const k in geo.merged) { if (k.startsWith('h:')) continue; const m = new T.Mesh(geo.merged[k], dbl); m.updateMatrixWorld(); tmp.push(m); box.expandByObject(m); }
+    const rc = new T.Raycaster(), lg = clamp((box.max.x - box.min.x) * .9, 1.1, 1.9), haut = (x, z) => { rc.set(new T.Vector3(x, box.max.y + 2, z), new T.Vector3(0, -1, 0)); const h = rc.intersectObjects(tmp, false)[0]; return h ? h.point.y : null; };
+    // Recherche du pont arrière : entre l'arrière de la caisse et z = −1,15 (dos du pilote à −0,74), deux pieds symétriques qui touchent
+    // la caisse à des hauteurs voisines ; le plan passe au-dessus de TOUT ce qui est dessous (grille de rayons sur son emprise).
+    let best = null;
+    for (let z = box.min.z + .3; z <= -1.15; z += .08) for (const xf of [.48, .38, .28, .18]) { const ya = haut(-xf, z), yb = haut(xf, z); if (ya == null || yb == null || Math.abs(ya - yb) > .12) continue;
+      let dessous = Math.max(ya, yb); for (let gx = -lg / 2; gx <= lg / 2 + 1e-6; gx += lg / 8) for (const dz of [-.3, 0, .3]) { const y = haut(gx, z + dz); if (y != null) dessous = Math.max(dessous, y); }
+      const score = dessous - Math.max(ya, yb); if (!best || score < best.score - 1e-6) best = { z, xf, ya, yb, dessous, score }; break; }
+    if (best) {
+      const zr = best.z, y = best.dessous + (cfg.aileron === 'bas' ? .2 : cfg.aileron === 'haut' ? .48 : .42), ac = mats.accent, sombre = mats.dark, pieds = [[-best.xf, best.ya], [best.xf, best.yb]];
+      const plan = (yy, l) => { const p = new T.Mesh(rbox(l, .06, .52, .02), ac); p.position.set(0, yy, zr); p.rotation.x = -.12; p.name = 'aileron'; caisse.add(p); for (const sx of [-1, 1]) { const e = new T.Mesh(rbox(.04, .17, .44, .012), sombre); e.position.set(sx * l / 2, yy + .015, zr); e.name = 'aileron'; caisse.add(e); } };
+      plan(y, lg); if (cfg.aileron === 'double') plan(y - .2, lg * .86);
+      for (const [x, yb] of pieds) { const L = y - yb + .02, t = new T.Mesh(new T.CylinderGeometry(.035, .035, L, 10), sombre); t.position.set(x, yb + L / 2 - .01, zr); t.name = 'aileron-pied'; caisse.add(t); }
+      info.aileron = { y: +y.toFixed(3), dessous: +best.dessous.toFixed(3), pieds: pieds.map(([x, yb]) => [+x.toFixed(3), +yb.toFixed(3)]), z: +zr.toFixed(3) };
+    } else info.aileron = 'non posé';
+    dbl.dispose();
+  }
+  if (cfg.echap && cfg.echap !== 'serie') for (const fp of geo.flames) { if (fp.s >= 1.6) continue; const s = fp.s, cm = chromeMat();
+    const embout = (x, r1, r2, L) => { const t = new T.Mesh(new T.CylinderGeometry(r1, r2, L, 16, 1, true), cm); t.rotation.x = Math.PI / 2; t.position.set(x, fp.y, fp.z + L / 2 - .12); t.name = 'echappement'; caisse.add(t);
+      const c = new T.Mesh(new T.CircleGeometry(Math.min(r1, r2) * .85, 14), mats.dark); c.rotation.y = Math.PI; c.position.set(x, fp.y, fp.z + .02); c.name = 'echappement'; caisse.add(c); info.echap++; };
+    if (cfg.echap === 'chrome') embout(fp.x, .15 * s, .13 * s, .34); else if (cfg.echap === 'double') { for (const d of [-1, 1]) embout(fp.x + d * .1 * s, .085 * s, .08 * s, .32); } else embout(fp.x, .21 * s, .1 * s, .44); }
 }
 
 /* ================= v7 : nouvelles pièces de garage ================= */
@@ -4535,9 +4703,9 @@ const G = { W: null, race: null, karts: [], hazards: [], rockets: [], autopilot:
 const UI = { screen: 'title', mode: 'quick', track: (SAVE.track || 0) < TRACKS.length ? SAVE.track || 0 : 0, gp: null, afterCalib: null };
 
 function makeKart(cfg, isPlayer, ccIdx) {
-  const st = statsFor(cfg.body, cfg.wheels, cfg.glider, cfg.engine), cc = CC[ccIdx];
+  const st = statsFor(cfg.body, cfg.wheels, cfg.glider, cfg.engine, cfg), cc = CC[ccIdx];
   const k = { cfg, isPlayer, name: cfg.name, st, maxSpeed: cc.v * (.9 + .2 * st.speed), accel: 15 + 22 * st.accel, turn: 1.8 + .9 * st.handling,
-    weight: .6 + .8 * st.weight, offFactor: .46 + .42 * st.off, x: 0, z: 0, y: 0, h: 0, vh: 0, speed: 0, idx: 0, lap: 0, halfway: false, prog: 0, lat: 0, groundY: 0,
+    weight: .6 + .8 * st.weight, offFactor: .46 + .42 * st.off, brakeK: st.brakeK, driftK: st.driftK, boostK: st.boostK, gripK: st.gripK, landK: st.landK, recep: st.recep, rollK: st.roll, x: 0, z: 0, y: 0, h: 0, vh: 0, speed: 0, idx: 0, lap: 0, halfway: false, prog: 0, lat: 0, groundY: 0,
     drift: 0, driftT: 0, driftLock: false, boost: 0, spin: 0, spinAng: 0, shield: 0, star: 0, ghost: 0, item: null, roll: 0, hop: 0, bumpCd: 0, wallCd: 0, off: false,
     finished: false, finishTime: 0, lapStart: 0, lapTimes: [], bestLap: Infinity, place: 1, wrongT: 0, sparkT: 0,
     ai: { lane: rand(-.3, .3), laneGoal: rand(-.35, .35), laneT: rand(1, 4), skill: rand(.965, 1.02), itemT: 0, drifty: Math.random() < .55 },
@@ -4549,6 +4717,15 @@ function placeOnGrid(k, slot) {
   k.P = S; k.idx = i; k.x = S.px[i] + S.rx[i] * lat; k.z = S.pz[i] + S.rz[i] * lat; k.h = k.vh = S.hd[i]; k.y = k.groundY = S.py[i]; k.lat = lat; k.prog = i - S.N;
 }
 
+// Compilation parallèle des shaders (KHR_parallel_shader_compile) avec attente bornée. Remplace renderer.compileAsync (three r158) :
+// son minuteur continuait après notre délai et levait « reading 'isReady' » si le monde était libéré entre-temps (essai quitté tôt).
+// Ici, un matériau sans programme (libéré, remplacé) est simplement retiré de l'attente.
+function compilerShaders(scene, cam, max) {
+  const set = renderer.compile(scene, cam); if (!set || typeof set.forEach !== 'function') return Promise.resolve();
+  const t0 = performance.now();
+  return new Promise((res) => { const tick = () => { set.forEach((m) => { const pr = renderer.properties.get(m).currentProgram; if (!pr || typeof pr.isReady !== 'function' || pr.isReady()) set.delete(m); });
+    if (!set.size || performance.now() - t0 > max) res(); else setTimeout(tick, 10); }; tick(); });
+}
 function setWorld(ti) {
   LAPS = TRACKS[ti].sections ? 1 : RACE_OPTS.laps || TRACKS[ti].laps || 3;
   const pre = G.prebuilt; G.prebuilt = null;
@@ -4600,7 +4777,7 @@ async function launchPrepared(ti, cc, who) {
     G.prebuilt = { ti, W, seed: RACE_OPTS.seed }; const seed = RACE_OPTS.seed;
     { const a = performance.now(); startRace(ti, cc, who); PT.startRaceMs = Math.round(performance.now() - a); } RACE_OPTS.seed = seed; G.paused = true; RACE_LOADER.set(.8); mk('course');
     // compileAsync (three r158) ne se termine jamais si un matériau change pendant l'attente (erreur dans son minuteur) : 5 s au plus.
-    try { if (renderer.compileAsync) await Promise.race([renderer.compileAsync(G.W.scene, camera), new Promise((r) => setTimeout(r, 5000))]); } catch (e) { /* compilation au premier rendu */ }
+    try { await compilerShaders(G.W.scene, camera, 5000); } catch (e) { /* compilation au premier rendu */ }
     mk('shaders'); RACE_LOADER.set(.9);
     try { await texturesPretes(G.W.scene); await runSlicedLoad(televerser(G.W.scene)); } catch (e) { /* téléversement au premier rendu */ }
     mk('textures'); RACE_LOADER.set(1);
@@ -4967,7 +5144,10 @@ function buildTerrain(W, ext, cx, cz) {
   const { th, scene } = W; const tr = th.terrain; if (!tr) return;
   // Massifs (specials.massifs, concepteur) : relief plus fin pour des falaises nettes au ras des routes.
   const MS = W.def.massifs || [], massif = MS.length > 0;
-  const size = 2 * (ext + 520), segs = W.def.production ? 150 : massif ? ({ high: 240, medium: 200, low: 160 }[SAVE.quality] || 200) : ({ high: 180, medium: 150, low: 110 }[SAVE.quality] || 150), step = size / segs, R1 = segs + 1;
+  // Grille fine seulement si un pic approche une route (falaises découpées au ras du couloir) ou s'il y a un tunnel : des rochers posés
+  // loin des routes (repères du concepteur, coupes 1-2) gardent la grille normale (coût du relief inchangé).
+  const massifFin = massif && ((W.def.tunnels || []).length > 0 || MS.some((M) => (M.pics || []).some((pk) => { for (let i = 0; i < W.S.N; i += 4) if (Math.hypot(W.S.px[i] - pk.x, W.S.pz[i] - pk.z) < pk.r + 30) return true; return W.branches.some((B) => { for (let j = 0; j < B.N; j += 4) if (Math.hypot(B.px[j] - pk.x, B.pz[j] - pk.z) < pk.r + 30) return true; return false; }); })));
+  const size = 2 * (ext + 520), segs = W.def.production ? 150 : massifFin ? ({ high: 240, medium: 200, low: 160 }[SAVE.quality] || 200) : ({ high: 180, medium: 150, low: 110 }[SAVE.quality] || 150), step = size / segs, R1 = segs + 1;
   const nL = fbm(3, 5, tr.seed || 17), nR = tileNoise(16, (tr.seed || 17) + 5);
   const x0 = cx - size / 2, z0 = cz - size / 2, flat = W.wallD + step * 1.7, blend = tr.blend || 64, reach = flat + blend + 4, drop = W.def.pond ? W.def.pond.depth : tr.drop || 22; // étang (option de carte) : creux modéré sous le planeur au lieu d'un ravin
   // distance à la route la plus proche (projection des échantillons sur la grille)
@@ -4987,13 +5167,16 @@ function buildTerrain(W, ext, cx, cz) {
   const cls = massif ? new Uint8Array(R1 * R1) : null; // 1 roche de tunnel, 2 bouche, 3 aplani (couloir des routes)
   if (massif) W.massifTunnel = { lat: flatM + 6, haut: toit + 4 };
   const H = new Float32Array(R1 * R1); let minH = Infinity;
+  // Massifs « roche » (concepteur, 8 nov.) : part de la hauteur due au massif au-dessus du sol naturel, par sommet ; le sol Nature y pose
+  // la roche dès une pente faible (sinon seules les faces > 45° sont rocheuses et le massif se lit comme une colline d'herbe).
+  const rocheV = massif && MS.some((m) => m.roche) ? new Float32Array(R1 * R1) : null;
   for (let iz = 0; iz <= segs; iz++) for (let ix = 0; ix <= segs; ix++) {
     const q = iz * R1 + ix, x = x0 + ix * step, z = z0 + iz * step, u = ix / segs, v = iz / segs;
     const far = Math.hypot(x - cx, z - cz) / (ext + 120);
     let hn = (nL(u, v) - .38) * tr.h + Math.max(0, far - .9) * tr.h * .9 + (tr.ridges ? Math.abs(nR(u, v) - .5) * tr.h * .5 : 0);
     if (tr.sculpt) hn = sculptHeight(tr.sculpt, x, z, hn); // Wild Kart Studio : pinceaux (la route garde sa plate-forme)
     let h = hn; const d = Math.sqrt(D[q]);
-    if (massif) { const M = massifAt(x, z, u, v), T0 = Math.max(hn, M);
+    if (massif) { const M = massifAt(x, z, u, v), T0 = Math.max(hn, M); if (rocheV) rocheV[q] = smoothstep(2, 12, M - hn);
       if (d < reach && TN[q] === 1) { const roof = HB[q] + toit; h = d < flatM ? Math.max(T0, roof) : Math.max(T0, lerp(roof, T0, smoothstep(flatM, flatM + blend, d))); if (d < flatM) cls[q] = 1; }
       else if (d < reach) { const base = GP[q] ? HB[q] - drop : Math.min(HB[q], HM[q]) - 1.2, cut = M > HB[q] + 4, f0 = cut ? flatM : flat, bl = cut ? (MS[0].falaise || 14) : blend;
         h = lerp(base, GP[q] ? Math.min(T0, base + 6) : T0, smoothstep(f0, f0 + bl, d)); if (d < flatM) cls[q] = TN[q] === 2 ? 2 : 3; }
@@ -5012,7 +5195,7 @@ function buildTerrain(W, ext, cx, cz) {
   const LX = W.lieux ? W.lieux(W, hBrut) : null, trou = LX ? new Uint8Array(segs * segs) : null; let nTrou = 0;
   if (LX) for (const Z of LX.zones) { const i0 = Math.max(0, Math.floor((Z.x - Z.r - x0) / step)), i1 = Math.min(segs - 1, Math.floor((Z.x + Z.r - x0) / step)), j0 = Math.max(0, Math.floor((Z.z - Z.r - z0) / step)), j1 = Math.min(segs - 1, Math.floor((Z.z + Z.r - z0) / step));
     for (let iz = j0; iz <= j1; iz++) for (let ix = i0; ix <= i1; ix++) { const cx0 = x0 + ix * step, cz0 = z0 + iz * step, dx = Math.max(cx0 - Z.x, 0, Z.x - cx0 - step), dz = Math.max(cz0 - Z.z, 0, Z.z - cz0 - step); if (dx * dx + dz * dz < Z.r * Z.r && !trou[iz * segs + ix]) { trou[iz * segs + ix] = 1; nTrou++; } } }
-  W.terrainGrid = { H, x0, z0, step, segs }; // hauteur du sol réel (dessous des routes surélevées)
+  W.terrainGrid = { H, x0, z0, step, segs }; if (rocheV) { W.massifRoche = rocheV; W.noDecor = W.noDecor || []; for (const M of MS) if (M.roche) for (const pk of M.pics || []) W.noDecor.push({ x: pk.x, z: pk.z, r: pk.r * .8 }); } // hauteur du sol réel (dessous des routes surélevées)
   const pos = new Float32Array(R1 * R1 * 3), uv = new Float32Array(R1 * R1 * 2), idx = new Uint32Array(segs * segs * 6); let ii = 0;
   let col = null; if (tr.colors) col = new Float32Array(R1 * R1 * 3); const c = new T.Color(), c2 = new T.Color();
   for (let iz = 0; iz <= segs; iz++) for (let ix = 0; ix <= segs; ix++) {
@@ -5339,7 +5522,7 @@ function startDrift(k, dir) {
 function endDrift(k, give) {
   const tier = k.driftTier || 0; k.drift = 0; k.driftT = 0; k.driftTier = 0;
   if (!give || k.spin > 0 || !tier) return;
-  k.boost = Math.max(k.boost, DRIFT_BOOST[tier]); k.boostTier = tier; k.driftCd = 1; if (k.isPlayer) styleAdd([0, 40, 100, 220][tier] || 0, tier >= 3 ? 'Super dérapage' : tier === 2 ? 'Beau dérapage' : '');
+  k.boost = Math.max(k.boost, DRIFT_BOOST[tier] * (k.boostK || 1)); k.boostTier = tier; k.driftCd = 1; if (k.isPlayer) styleAdd([0, 40, 100, 220][tier] || 0, tier >= 3 ? 'Super dérapage' : tier === 2 ? 'Beau dérapage' : '');
   if (k.isPlayer) { AudioSys.sfx(tier >= 2 ? 'boost' : 'mini'); vibrate(tier >= 3 ? [20, 30, 40] : 25); }
 }
 // compatibilité avec l'ancien code
@@ -5368,7 +5551,7 @@ function kartPhysics(k, inp, dt) { if (k.spect) return;
   if (k.spin <= 0) {
     if (inp.brake && !k.air) {
       // frein, puis marche arrière si on reste appuyé à l'arrêt (pratique pour se dégager)
-      if (k.speed > .5) { k.speed -= 50 * dt; k.revT = 0; } else { k.revT = (k.revT || 0) + dt; k.speed = k.revT > .35 && G.race && G.race.state === 'race' ? Math.max(-14, k.speed - 26 * dt) : Math.max(0, k.speed - 50 * dt); }
+      if (k.speed > .5) { k.speed -= 50 * (k.brakeK || 1) * dt; k.revT = 0; } else { k.revT = (k.revT || 0) + dt; k.speed = k.revT > .35 && G.race && G.race.state === 'race' ? Math.max(-14, k.speed - 26 * dt) : Math.max(0, k.speed - 50 * dt); }
     }
     else if (inp.throttle > 0) { k.revT = 0; if (k.speed < -.6) k.speed = Math.min(0, k.speed + 60 * dt); else if (k.speed < vmax) k.speed += (k.accel * (EV ? EV.accel : 1) * (1 - Math.max(0, k.speed) / vmax) + 4) * dt * inp.throttle + Math.max(0, -k.speed); else k.speed -= (k.speed - vmax) * 1.6 * dt; }
     else { k.speed *= Math.pow(.72, dt); if (Math.abs(k.speed) < .3) k.speed = 0; }
@@ -5390,7 +5573,7 @@ function kartPhysics(k, inp, dt) { if (k.spect) return;
       // contre-braquage maintenu : le drift bascule de l'autre côté (on garde le turbo déjà chargé)
       if (a < -.55) k.ctrT = (k.ctrT || 0) + dt; else k.ctrT = 0;
       if (k.ctrT > .2 && k.isPlayer) { const nd = -k.drift, keep = k.driftT * .5; endDrift(k, false); startDrift(k, nd); k.driftT = keep; k.ctrT = 0; k.driftA = 1; steerEff = nd * .9; }   // changer de côté ne donne plus de turbo
-      k.driftT += dt * (1 + .5 * Math.max(0, a) + (k.isPlayer ? 0 : .1)) * (k.wallT > 0 || k.driftCd > 0 ? 0 : 1);   // pas de charge contre un mur ni juste après un turbo
+      k.driftT += dt * (k.driftK || 1) * (1 + .5 * Math.max(0, a) + (k.isPlayer ? 0 : .1)) * (k.wallT > 0 || k.driftCd > 0 ? 0 : 1);   // pas de charge contre un mur ni juste après un turbo
       let tier = 0; for (let t = 1; t < DRIFT_TIERS.length; t++) if (k.driftT >= DRIFT_TIERS[t]) tier = t;
       if (tier > k.driftTier) { k.driftTier = tier; if (k.isPlayer) { AudioSys.tone([0, 880, 1100, 1320][tier], .09, 'square', .07); vibrate(12); } }
     }
@@ -5410,7 +5593,7 @@ function kartPhysics(k, inp, dt) { if (k.spect) return;
     const yaw = yawBase + Math.max(0, yawNeed - yawBase) * smoothstep(.45, .95, Math.abs(steerEff));
     k.h -= steerEff * yaw * (EV ? EV.turn : 1) * (k.drift ? 1.32 : 1) * dt * airF * (k.speed < 0 ? -1 : 1);
   } else k.h -= steerEff * k.turn * (EV ? EV.turn : 1) * (k.drift ? 1.32 : 1) * ts * dt * airF * (k.speed < 0 ? -1 : 1);
-  const ice = (W.def.grip || 1) * (EV ? EV.grip : 1) * (W.wx ? W.wx.grip : 1); const grip = k.air ? 3 : (k.drift ? 5.6 : (k.off ? 6.5 : 11)) * (k.off ? 1 : ice);
+  const ice = (W.def.grip || 1) * (EV ? EV.grip : 1) * (W.wx ? W.wx.grip : 1); const grip = k.air ? 3 : (k.drift ? 5.6 : (k.off ? 6.5 : 11)) * (k.off ? 1 : ice) * (k.gripK || 1);
   k.vh += angDiff(k.vh, k.h) * (1 - Math.exp(-grip * dt));
   // Montée frontale (expérimental) : gravité le long de la pente affichée, moins la part déjà portée par la pente physique de la rampe.
   if (S.montee && P0 === S && S.montee[j0] && !k.air) k.speed = Math.max(k.maxSpeed * .2, k.speed - 9.8 * Math.max(0, S.montee[j0] - (S.slope[j0] || 0)) * dt);
@@ -5539,8 +5722,11 @@ function airPhysics(k, P, overGap, inp, pressed, dt) {
   if (k.airH <= 0 && !overGap) {
     // atterrissage
     k.gfall = 0;
-    const hard = k.vy < -9; if (k.isPlayer) camKick = Math.min(.55, Math.max(.12, -k.vy * .025)); k.air = false; k.airH = 0; k.vy = 0; k.airT = 0; k.squash = hard ? .3 : .2; k.hop = .12;
-    if (k.trick) { k.boost = Math.max(k.boost, .85); if (k.isPlayer) { AudioSys.sfx('mini'); banner('Figure réussie !', .9); } }
+    const hard = k.vy < -9, enAir = k.airT || 0; if (k.isPlayer) camKick = Math.min(.55, Math.max(.12, -k.vy * .025)); k.air = false; k.airH = 0; k.vy = 0; k.airT = 0;
+    // Suspension (#34.G16) : réception dure → vitesse gardée landK ; vrai saut (≥ 0,6 s) → turbo de réception recep (Souple, Rallye).
+    if (hard && k.landK && k.landK !== 1) k.speed *= k.landK;
+    if (k.recep && enAir >= .6 && k.speed > 0) k.boost = Math.max(k.boost, k.recep); k.squash = hard ? .3 : .2; k.hop = .12;
+    if (k.trick) { k.boost = Math.max(k.boost, .85 * (k.boostK || 1)); if (k.isPlayer) { AudioSys.sfx('mini'); banner('Figure réussie !', .9); } }
     k.trick = false; k.trickOK = false;
     if (k.isPlayer) { AudioSys.sfx('land'); vibrate(hard ? 35 : 20); }
   }
@@ -6008,6 +6194,14 @@ function temoinLieu(W) {
 function temoinPlan(W) {
   if (!temoinLieu(W)) return; const S = W.S, N = S.N, hw = W.hw, best = W.temoin.c, side = W.temoin.side, at3 = (i) => ((i % N) + N) % N;
   if (W.obst && RACE_OPTS.obst) for (let q = 0; q < 3; q++) { const i = at3(best - 9 + q * 9), lat = side * hw * .48; W.obst.push({ kind: 'jet', style: 'eau', P: S, i, lat, r: 2.4, per: 5.2, ph: q * 1.15, x: S.px[i] + S.rx[i] * lat, z: S.pz[i] + S.rz[i] * lat, y: S.py[i], down: false }); }
+}
+// Plans d'eau des LIEUX (8 nov., style « paysage » du concepteur) : specials.eaux = [{ x, z, r, niveau }] ; chacun remplit le creux réel du
+// terrain jusqu'à son niveau (recette WKDecors.lagon : berge naturelle là où le sol remonte, écume au rivage, couleur selon la
+// profondeur). Purement visuel : aucune collision ; la Nature n'y pose rien. Rend la vallée lisible depuis la route.
+function lieuxEauxBuild(W) {
+  const L = W.def.eaux || []; if (!L.length || !window.WKDecors || !W.hAt) return; W.eaux = []; W.noDecor = W.noDecor || [];
+  for (const e of L) { const r = window.WKDecors.lagon(T, { centre: [e.x, e.z], rayon: e.r, niveau: e.niveau, sol: W.hAt, qualite: SAVE.quality });
+    r.groupe.name = 'Eau des lieux'; W.scene.add(r.groupe); if (r.maj) addTick(W, (dt, now) => r.maj(dt, now)); W.noDecor.push({ x: e.x, z: e.z, r: e.r * .92 }); W.eaux.push(Object.assign({}, e, r.infos || {})); }
 }
 function temoinBuild(W) {
   const T0 = W.temoin; if (!T0) return;
@@ -8942,7 +9136,7 @@ function updateVisuals(dt) { emoTick(dt);
     M.g.rotation.set(0, k.h + k.spinAng + k.driftVis, k.trickT > 0 ? (k.trickDir || 1) * (1 - k.trickT / .45) * TAU : 0);
     const warped = warpKartPose(k, M);
     M.tilt.rotation.x = warped ? 0 : -Math.atan(KP.slope[kj] * tdot);
-    k.rollV = lerp(k.rollV || 0, k.air ? 0 : k.drift * .1 + (k.drift ? 0 : -clamp(angDiff(k.vh, k.h), -.3, .3) * .3), 1 - Math.exp(-dt * 8)); M.tilt.rotation.z = k.rollV;
+    k.rollV = lerp(k.rollV || 0, k.air ? 0 : k.drift * .1 + (k.drift ? 0 : -clamp(angDiff(k.vh, k.h), -.3, .3) * .3), 1 - Math.exp(-dt * 8)); M.tilt.rotation.z = k.rollV * (k.rollK || 1);
     animateGlider(k, M, dt, now);
     { const ast = !k.air ? 0 : k.isPlayer && !G.autopilot ? clamp(Input.tiltSteer + Input.digSteer + (Input.stickSteer || 0), -1, 1) : clamp(angDiff(k.vh, k.h) * 3, -1, 1), gw = k.air === 'glide' ? 1 : .5, f = 1 - Math.exp(-dt * 5);
       k.bankV = lerp(k.bankV || 0, -ast * .32 * gw, f); k.pitchV = lerp(k.pitchV || 0, k.air ? clamp((k.vy || 0) * .03, -.28, .22) * gw : 0, f);
@@ -10293,9 +10487,9 @@ $('#on-wedit').onclick = () => { AudioSys.sfx('click'); UI.weBack = 'online'; sh
    appareil les recalcule par statsFor à partir des pièces du roster figé. Limite : un hôte au code modifié peut contourner sa propre règle. */
 const SG = { ouvert: false, depart: null, confirme: null, n: 0, attente: null, question: false };
 const sgEsc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-const SG_CLES = ['body', 'wheels', 'glider', 'engine', 'pilot', 'color', 'helmet', 'skin', 'acc', 'finish', 'deco', 'trail'];   // équipement (mêmes clés que l'atelier)
-const SG_LIBRE = new Set(['name', 'title', 'color', 'helmet', 'skin', 'pilot', 'acc', 'finish', 'deco', 'trail', 'body', 'wheels', 'glider']);
-const SG_CONDUITE = ['body', 'wheels', 'glider', 'engine'];   // pièces lues par statsFor : un ID inconnu est refusé, jamais remplacé en silence
+const SG_CLES = ['body', 'wheels', 'glider', 'engine', 'susp', 'trans', 'frein', 'dir', 'rims', 'aileron', 'echap', 'ailes', 'parechocs', 'pilot', 'color', 'helmet', 'skin', 'acc', 'finish', 'deco', 'trail'];   // équipement (mêmes clés que l'atelier)
+const SG_LIBRE = new Set(['name', 'title', 'color', 'helmet', 'skin', 'pilot', 'acc', 'finish', 'deco', 'trail', 'body', 'wheels', 'glider', 'aileron', 'echap', 'ailes', 'parechocs']);
+const SG_CONDUITE = ['body', 'wheels', 'glider', 'engine', 'susp', 'trans', 'frein', 'dir', 'rims'];   // pièces lues par statsFor : un ID inconnu est refusé, jamais remplacé en silence
 const SG_RAISONS = { regle: 'karts personnalisés non autorisés par l\'hôte', piece: 'pièce inconnue du salon (versions différentes ?)', donnees: 'données de montage invalides',
   garage: 'tu es encore au garage', course: 'course en cours : montage figé', perime: 'message périmé (le salon a changé)' };
 Net.settings.kp = true; Net.ph = 0;
@@ -10303,14 +10497,20 @@ Net.settings.kp = true; Net.ph = 0;
 if (SAVE.salonGar && SAVE.salonGar.depart && typeof SAVE.salonGar.depart === 'object') { for (const k of SG_CLES) if (SAVE.salonGar.depart[k] !== undefined) SAVE[k] = SAVE.salonGar.depart[k]; delete SAVE.salonGar; store(); }
 let SG_DEF = null; const sgDef = () => SG_DEF || (SG_DEF = cleanCfg({}));
 // Pièces de conduite hors série d'un montage (comparaison canonique des pièces nettoyées).
-function kartPerso(cfg) { const c = cleanCfg(cfg), d = sgDef(); return Object.keys(c).filter((k) => !SG_LIBRE.has(k) && c[k] !== d[k]); }
+// #34.G18 étendu (7 nov., soir) : l'hôte recalcule sur les pièces EFFECTIVES ; une pièce séparée sans effet de conduite (ex. jantes
+// Dorées) n'est pas « hors série ». Toute clé inconnue de cette liste reste hors série par défaut si elle diffère du standard.
+const SG_TABLES = Object.fromEntries(PIECES.map(([k, t]) => [k, t]));
+const SG_FAMILLE = { engine: 'moteur', susp: 'suspension', trans: 'transmission', frein: 'freins', dir: 'direction', rims: 'jantes' };
+// Noms lisibles des pièces hors série d'un montage (message de refus).
+function sgPiecesNoms(cfg) { const c = cleanCfg(cfg); return kartPerso(c).map((k) => (SG_FAMILLE[k] || k) + ' ' + ((SG_TABLES[k] && SG_TABLES[k][c[k]] || {}).name || c[k])).join(', ') || 'montage'; }
+function kartPerso(cfg) { const c = cleanCfg(cfg), d = sgDef(); return Object.keys(c).filter((k) => !SG_LIBRE.has(k) && c[k] !== d[k] && (!SG_TABLES[k] || pieceEffet(SG_TABLES[k][c[k]]))); }
 // Présélection permise la plus proche : mêmes carrosserie/roues/planeur/apparence, pièces hors série remises au standard.
 function kartSerie(cfg) { const c = cleanCfg(cfg), d = sgDef(); for (const k of kartPerso(c)) c[k] = d[k]; return c; }
 // Contrôle du schéma : objet attendu ; client récent (v ≥ 2, qui nettoie avant d'envoyer) → un ID de conduite inconnu est REFUSÉ ;
 // ancien client : nettoyage historique (compatibilité). Champs en trop (ex. « stats ») ignorés : jamais lus.
 function sgControle(brut, v) {
   if (!brut || typeof brut !== 'object' || Array.isArray(brut)) return { err: 'donnees' };
-  const c = cleanCfg(brut); if (v >= 2) for (const k of SG_CONDUITE) if (brut[k] != null && brut[k] !== c[k]) return { err: 'piece', cfg: c };
+  const c = cleanCfg(brut), m = migrerPieces(Object.assign({}, brut)); if (v >= 2) for (const k of SG_CONDUITE) if (m[k] != null && m[k] !== c[k]) return { err: 'piece', cfg: c };   // moteur « souple » d'avant la séparation : migré, pas refusé
   return { cfg: c };
 }
 const sgRefus = (p) => (p.err || (Net.settings.kp === false && p.cfg && kartPerso(p.cfg).length ? 'regle' : ''));
@@ -10391,7 +10591,7 @@ function sgBarre() {
   let bar = $('#sg-barre'); const st = $('#s-garage .g-stage'); if (!bar && st) { bar = document.createElement('div'); bar.id = 'sg-barre'; const nm = $('#g-name'); st.insertBefore(bar, nm ? nm.nextSibling : st.firstChild); }
   if (!bar) return; sgStyle(); document.body.classList.add('wk-sg'); bar.hidden = false; const perso = kartPerso(myCfgEquipe()).length > 0, regle = Net.settings.kp === false;
   bar.innerHTML = '<div class="sg-txt"><b>Salon ' + sgEsc(Net.code) + ' · au garage (pas prêt)</b><small class="sg-info">Les autres voient ton ancien kart jusqu\'à ta confirmation.</small>' +
-    (regle && perso ? '<small class="sg-alerte">Karts perso NON autorisés : moteur ' + sgEsc((ENGINES[SAVE.engine] || {}).name || '') + ' refusé (il reste enregistré).</small>' : '<small>Karts personnalisés : ' + (regle ? 'non autorisés' : 'autorisés') + '.</small>') +
+    (regle && perso ? '<small class="sg-alerte">Karts perso NON autorisés : ' + sgEsc(sgPiecesNoms(myCfgEquipe())) + ' refusé (il reste enregistré).</small>' : '<small>Karts personnalisés : ' + (regle ? 'non autorisés' : 'autorisés') + '.</small>') +
     (SG.question ? '<small class="sg-alerte">Kart modifié : confirmer ou annuler ?</small>' : '') +
     '</div><div class="sg-btns"><button class="btn red sm" id="sg-ok"><span>Confirmer</span></button><button class="btn ghost sm" id="sg-annuler"><span>Annuler</span></button></div>';
   sgHauteur();
@@ -11110,7 +11310,7 @@ function refreshGarageKart() {
   if (GS.kart) { GS.scene.remove(GS.kart.g); GS.kart.g.traverse((o) => { if (o.geometry && !o.geometry.userData.keep) o.geometry.dispose(); }); }
   GS.kart = kartMesh(window.WK_APERCU ? Object.assign(myCfgEquipe(), window.WK_APERCU) : myCfg()); GS.kart.shadow = null; if (GS.kart.rig && !window.WK_GARAGE_SANS_POSE) heroAnimate(GS.kart.rig, GARAGE_K, 0, 1, performance.now() / 1000);   /* posé dès la création (pas d'attente de l'image suivante) */ /* WK_APERCU : brouillon de l'atelier (#34.G2) */ GS.scene.add(GS.kart.g); GS.fake = { air: GS.showGlider ? 'glide' : false, glOpen: 0, vy: 0, x: 0, h: 0, vh: 0 };
   $('#g-name').textContent = SAVE.name || 'Toi';
-  const st = statsFor(SAVE.body, SAVE.wheels, SAVE.glider, SAVE.engine); const box = $('#g-stats'); box.innerHTML = '';
+  const st = statsFor(SAVE.body, SAVE.wheels, SAVE.glider, SAVE.engine, myCfgEquipe()); const box = $('#g-stats'); box.innerHTML = '';
   [['Vitesse', st.speed], ['Accélération', st.accel], ['Maniabilité', st.handling], ['Poids', st.weight], ['Tout-terrain', st.off], ['Planeur', st.air]].forEach(([n, v]) => {
     const l = document.createElement('span'); l.textContent = n; const bar = document.createElement('div'); bar.className = 'bar'; const i = document.createElement('i'); i.style.width = Math.round(15 + v * 85) + '%'; bar.appendChild(i); box.append(l, bar);
   });
@@ -11250,7 +11450,7 @@ listenMotion();
   try { await startAttractSliced(UI.track, (p) => prog(.15 + .65 * p)); }
   catch (e) { console.error(e); startAttract(UI.track); }
   show('title'); prog(.85);
-  try { if (renderer.compileAsync) await renderer.compileAsync(G.W.scene, camera); } catch (e) { /* compilation au premier rendu */ }
+  try { await compilerShaders(G.W.scene, camera, 60000); } catch (e) { /* compilation au premier rendu */ }
   prog(.9);
   // Téléversement des textures une par une (sinon toutes dans la première image : 0,6 s d'un bloc, 2,5 s sur un téléphone modeste).
   try { await texturesPretes(G.W.scene); await runSliced(televerser(G.W.scene)); } catch (e) { /* téléversement au premier rendu */ }
@@ -11296,7 +11496,7 @@ if (window.TK_TEST) (function testPanel() {
 })();
 
 // accès pour les tests automatisés
-window.__TK = { ENGINES, PILOTS, ACCS, FINISHES, DECOS, TRAILS, COLORS, SKINS, lockInfo, refreshGarageKart, launchPrepared, toast, ownedColors: typeof ownedColors === 'function' ? ownedColors : null, lobbyPlayers, heroAnimate, frAddFriend, frSend, buildWorldSteps, acctUpload, acctCall, ONGLET, GS, hostOnData, hostVerifTicket, clientOnData, netTicketEnvoi, disposeWorld, QAUTO, adaptPerf, PERF, setInstZone: (v) => { INST_ZONE = v; }, setDecorLeger: (v) => { DECOR_LEGER = !!v; delete DECOR.bush; }, startAttract, simStep, netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, updateItems, throwFwd, FRONT_TRAPS, onNetEvent, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, videoReady, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner, progOpen, weekDefs, updateObstacles, bridgeAvoid, brAt, raftsAvoid, playerEmote, kartEmote, aiControl, collideKarts, openStudio, toMenu, zoneEnv, studioSurfAt, obstacleHits };
+window.__TK = { ENGINES, SUSPS, TRANS, FREINS, DIRS, RIMS, AILERONS, ECHAPS, AILES, PARECHOCS, PIECES, PIECES_CONDUITE, PIECES_APPARENCE, pieceEffet, pieceIncompatible, migrerPieces, cleanCfg, myCfgEquipe, PILOTS, ACCS, FINISHES, DECOS, TRAILS, COLORS, SKINS, lockInfo, refreshGarageKart, launchPrepared, toast, ownedColors: typeof ownedColors === 'function' ? ownedColors : null, lobbyPlayers, heroAnimate, frAddFriend, frSend, buildWorldSteps, acctUpload, acctCall, ONGLET, GS, hostOnData, hostVerifTicket, clientOnData, netTicketEnvoi, disposeWorld, QAUTO, adaptPerf, PERF, setInstZone: (v) => { INST_ZONE = v; }, setDecorLeger: (v) => { DECOR_LEGER = !!v; delete DECOR.bush; }, startAttract, simStep, netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, updateItems, throwFwd, FRONT_TRAPS, onNetEvent, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, videoReady, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner, progOpen, weekDefs, updateObstacles, bridgeAvoid, brAt, raftsAvoid, playerEmote, kartEmote, aiControl, collideKarts, openStudio, toMenu, zoneEnv, studioSurfAt, obstacleHits };
 Object.assign(window.__TK, { Graphics, adaptPerf, enhancedGraphics, gravPulse, gravExposed, gravSurf, gravAvail, aiUse13x, GCUT_T, ICONS, ITEM_FR, heroAnimate, QUIZ });
 })();
 

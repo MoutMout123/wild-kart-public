@@ -8,7 +8,7 @@
   function definition(data){
     const t=JSON.parse(JSON.stringify(data.legacy));
     Object.assign(t,{id:data.id,name:data.name,pts:data.route.nodes.map(n=>[n.position[0],n.position[2],n.position[1]]),width:data.route.nodes[0].width,
-      branches:JSON.parse(JSON.stringify(data.alternatives)),warp:JSON.parse(JSON.stringify(data.specials.warp)),glide:JSON.parse(JSON.stringify(data.specials.glide)),tunnels:JSON.parse(JSON.stringify(data.specials.tunnels)),massifs:JSON.parse(JSON.stringify(data.specials.massifs||[])),vivants:JSON.parse(JSON.stringify(data.specials.vivants||[]))});
+      branches:JSON.parse(JSON.stringify(data.alternatives)),warp:JSON.parse(JSON.stringify(data.specials.warp)),glide:JSON.parse(JSON.stringify(data.specials.glide)),tunnels:JSON.parse(JSON.stringify(data.specials.tunnels)),massifs:JSON.parse(JSON.stringify(data.specials.massifs||[])),vivants:JSON.parse(JSON.stringify(data.specials.vivants||[])),eaux:JSON.parse(JSON.stringify(data.specials.eaux||[]))});
     t.sourceData=data;
     // « relief refait » : altitudes nouvelles, mais pipeline historique (murs, décors, physique) conservé.
     // « coupe refaite » : sections spéciales, relief ou parcelles ajoutés pour la difficulté de la coupe, pipeline historique.
@@ -217,7 +217,25 @@
   }
   function installBarriers(W){
     const segments=[];W.scene.traverse(o=>{if(o.isMesh&&W.roles.get(o.material)==='wall')segments.push(...(o.geometry.userData.barriers||[]));});
+    if(W.def.production)fermerFentes(W,segments);
     W.barriers=barrierIndex(segments);
+  }
+  /* Correctif préparé (8 nov., défaut hérité de Grand Saut, wall-scrape P1@0,1139) : sur les cartes de production, les fermetures de
+     jonction (closeJunctionWalls) ne sont pas construites ; au nez d'une branche, la reprise du mur principal pouvait s'arrêter à 2,3 m
+     du muret gore : fente plus étroite qu'un kart, où il se coince. Toute extrémité libre d'un mur de route située à moins de 3 m
+     d'un muret gore (même niveau à 1,5 m près) est reliée à son point le plus proche par un segment de collision invisible. */
+  function fermerFentes(W,segments){
+    const cle=(p)=>p[0].toFixed(2)+','+p[2].toFixed(2),n=new Map();for(const s of segments)if(!s.gore)for(const p of [s.a,s.b])n.set(cle(p),(n.get(cle(p))||0)+1);
+    const gores=segments.filter(s=>s.gore),ajout=[];W.fentesFermees=[];
+    for(const s of segments){if(s.gore||s.closure)continue;for(const [p,pt] of [[s.a,s.at],[s.b,s.bt]]){if(n.get(cle(p))!==1)continue;let best=null;
+      for(const g of gores){const ex=g.b[0]-g.a[0],ez=g.b[2]-g.a[2],L2=ex*ex+ez*ez||1,u=Math.max(0,Math.min(1,((p[0]-g.a[0])*ex+(p[2]-g.a[2])*ez)/L2)),q=[g.a[0]+ex*u,g.a[1]+(g.b[1]-g.a[1])*u,g.a[2]+ez*u],d=Math.hypot(p[0]-q[0],p[2]-q[2]);
+        if(d>.05&&d<3&&Math.abs(q[1]-p[1])<1.5&&(!best||d<best.d))best={d,q,qt:[q[0],g.at[1]+(g.bt[1]-g.at[1])*u,q[2]]};}
+      if(best){ajout.push({path:s.path,a:p.slice(),b:best.q,at:pt.slice(),bt:best.qt,world:[p.slice(),best.q,pt.slice(),best.qt],closure:'fente'});W.fentesFermees.push({x:+p[0].toFixed(1),z:+p[2].toFixed(1),largeur:+best.d.toFixed(2)});}}}
+    segments.push(...ajout);
+    // face visible du raccord (deux faces, matériau des murs) : le contrôleur refuse un mur physique invisible
+    if(ajout.length){let mat=null;W.scene.traverse(o=>{if(!mat&&o.isMesh&&W.roles.get(o.material)==='wall')mat=o.material;});const P=[];
+      for(const c of ajout){const [a,b,at,bt]=c.world;P.push(...a,...b,...at,...b,...bt,...at,...a,...at,...b,...b,...at,...bt);}
+      const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(P,3));g.computeVertexNormals();if(mat){const m=new T.Mesh(g,mat);m.name='Raccord de fente';W.scene.add(m);}}
   }
   function sweepBarrier(s,x,z,dx,dz,y,r=1.3,height=2.2){
     const ex=s.b[0]-s.a[0],ez=s.b[2]-s.a[2],len=Math.hypot(ex,ez);if(len<1e-7)return null;

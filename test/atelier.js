@@ -12,15 +12,17 @@
   // présenté avant toute diffusion, n'y est pas activé.
   if (/^test-comptes-/.test(String(window.WK_TEST || ''))) return;
   const kartMesh = K.kartMesh, THREE = window.THREE;
-  const { SAVE, store, statsFor, BODIES, WHEELS, GLIDERS, ENGINES, PILOTS, ACCS, FINISHES, DECOS, TRAILS, COLORS, SKINS, lockInfo, GS, refreshGarageKart, show, launchPrepared, UI, TRACKS, toast, AudioSys, ownedColors } = K;
+  const { SAVE, store, statsFor, BODIES, WHEELS, GLIDERS, ENGINES, SUSPS, TRANS, FREINS, DIRS, RIMS, AILERONS, ECHAPS, AILES, PARECHOCS, migrerPieces, PILOTS, ACCS, FINISHES, DECOS, TRAILS, COLORS, SKINS, lockInfo, GS, refreshGarageKart, show, launchPrepared, UI, TRACKS, toast, AudioSys, ownedColors } = K;
   const VERSION = 1, NB_MONTAGES = 3, MAX_MONTAGES = 8;
-  const CLES = ['body', 'wheels', 'glider', 'engine', 'pilot', 'color', 'helmet', 'skin', 'acc', 'finish', 'deco', 'trail'];
-  const NOMS_STATS = [['speed', 'Vitesse'], ['accel', 'Accélération'], ['handling', 'Maniabilité'], ['weight', 'Poids'], ['off', 'Tout-terrain'], ['air', 'Planeur']];
+  const CLES = ['body', 'wheels', 'glider', 'engine', 'susp', 'trans', 'frein', 'dir', 'rims', 'aileron', 'echap', 'ailes', 'parechocs', 'pilot', 'color', 'helmet', 'skin', 'acc', 'finish', 'deco', 'trail'];
+  const NOMS_STATS = [['speed', 'Vitesse'], ['accel', 'Accélération'], ['handling', 'Maniabilité'], ['weight', 'Poids'], ['off', 'Tout-terrain'], ['air', 'Planeur'],
+    // #34.G16 : réglages physiques des pièces séparées, ramenés sur 0–100 (50 = standard) ; valeurs réelles lues par kartPhysics.
+    ['frein', 'Freinage'], ['derive', 'Charge du dérapage'], ['turbo', 'Durée des turbos'], ['adher', 'Adhérence'], ['recep', 'Réception de saut']];
   // Familles : l'étiquette « conduite » est CALCULÉE (une pièce de la famille change réellement statsFor) ; sinon « apparence ».
   // Constat du 6 nov. : les 12 planeurs ont le même effet (choix de conception du jeu) → Planeur = Apparence.
   const FAMILLES = [
     { id: 'body', nom: 'Carrosserie', type: 'auto', table: () => BODIES, nb: () => Object.keys(BODIES).length },
-    { id: 'wheels', nom: 'Roues', type: 'auto', table: () => WHEELS, nb: () => Object.keys(WHEELS).length },
+    { id: 'wheels', nom: 'Pneus', type: 'auto', table: () => WHEELS, nb: () => Object.keys(WHEELS).length },
     { id: 'glider', nom: 'Planeur', type: 'auto', table: () => GLIDERS, nb: () => Object.keys(GLIDERS).length },
     { id: 'pilot', nom: 'Pilote', type: 'apparence', table: () => PILOTS, nb: () => Object.keys(PILOTS).length },
     { id: 'color', nom: 'Peinture', type: 'apparence', couleurs: () => COLORS.concat(typeof ownedColors === 'function' ? ownedColors() : []) },
@@ -29,16 +31,33 @@
     { id: 'deco', nom: 'Déco', type: 'apparence', table: () => DECOS },
     { id: 'acc', nom: 'Accessoire', type: 'apparence', table: () => ACCS },
     { id: 'trail', nom: 'Turbo', type: 'apparence', table: () => TRAILS },
-    { id: 'engine', nom: 'Moteur & suspension', type: 'auto', table: () => ENGINES, nb: () => Object.keys(ENGINES).length },   /* #34.G (7 nov.) : effet réel par statsFor */
-    { id: 'pieces', nom: 'Ailes, aileron, échappements', type: 'bientot', aide: 'pièces indépendantes à séparer (raccords G0 prêts)' }
+    { id: 'engine', nom: 'Moteur', type: 'auto', table: () => ENGINES },   /* #34.G15/G16 (7 nov., soir) : familles séparées, effet réel par statsFor → kartPhysics */
+    { id: 'susp', nom: 'Suspension', type: 'auto', table: () => SUSPS },
+    { id: 'trans', nom: 'Transmission', type: 'auto', table: () => TRANS },
+    { id: 'frein', nom: 'Freinage', type: 'auto', table: () => FREINS },
+    { id: 'dir', nom: 'Direction', type: 'auto', table: () => DIRS },
+    { id: 'rims', nom: 'Jantes', type: 'auto', table: () => RIMS },
+    { id: 'aileron', nom: 'Aileron', type: 'apparence', table: () => AILERONS },
+    { id: 'echap', nom: 'Échappements', type: 'apparence', table: () => ECHAPS },
+    { id: 'ailes', nom: 'Ailes', type: 'apparence', table: () => AILES },   /* #34 (8 nov.) : pièces ajoutées sur la caisse ; ailes d'origine non séparées */
+    { id: 'parechocs', nom: 'Pare-chocs', type: 'apparence', table: () => PARECHOCS }
   ];
-  for (const f of FAMILLES) if (f.type === 'auto') { const base = { body: 'equilibre', wheels: 'standard', glider: 'classique', engine: 'standard' }, ref = JSON.stringify(statsFor(base.body, base.wheels, base.glider, base.engine));
-    f.type = Object.keys(f.table()).some((v) => { const c = Object.assign({}, base, { [f.id]: v }); return JSON.stringify(statsFor(c.body, c.wheels, c.glider, c.engine)) !== ref; }) ? 'conduite' : 'apparence'; }
+  const BASE = { body: 'equilibre', wheels: 'standard', glider: 'classique', engine: 'standard', susp: 'standard', trans: 'standard', frein: 'standard', dir: 'standard', rims: 'serie' };
+  for (const f of FAMILLES) if (f.type === 'auto') { const ref = JSON.stringify(statsFor(BASE.body, BASE.wheels, BASE.glider, BASE.engine, BASE));
+    f.type = Object.keys(f.table()).some((v) => { const c = Object.assign({}, BASE, { [f.id]: v }); return JSON.stringify(statsFor(c.body, c.wheels, c.glider, c.engine, c)) !== ref; }) ? 'conduite' : 'apparence'; }
+  // Ce que fait chaque famille séparée, et ce qui se voit sur le kart (#34.G16).
+  const AIDE = { engine: '<strong>Moteur</strong> : vitesse de pointe contre reprise. Pièce interne, sans changement visible.',
+    susp: '<strong>Suspension</strong> : direction, tout-terrain et réceptions de saut (Souple et Rallye donnent un petit turbo après un vrai saut ; Ferme perd de la vitesse aux réceptions dures). <b>Visible</b> : garde au sol, roulis, amortisseurs Rallye.',
+    trans: '<strong>Transmission</strong> : Courte accélère, Longue va plus vite, Séquentielle allonge les turbos de dérapage et de figure. Pièce interne.',
+    frein: '<strong>Freinage</strong> : distance d\'arrêt (Renforcés, Céramique) contre poids. Pièce interne.',
+    dir: '<strong>Direction</strong> : Directe tourne mieux mais charge le dérapage moins vite ; Dérive charge plus vite et glisse plus ; Assistée tient mieux son cap.',
+    rims: '<strong>Jantes</strong> : poids et reprise ; Dorées : apparence seule. <b>Visible</b> sur les quatre roues.',
+    aileron: '<strong>Aileron</strong> : posé sur la caisse, sans effet de conduite.', ailes: '<strong>Ailes</strong> : élargisseurs au-dessus des roues ou bavettes derrière les roues arrière, fixés à la caisse ; sans effet de conduite. Les ailes d\'origine de la carrosserie restent en place.', parechocs: '<strong>Pare-chocs</strong> : pare-buffle, lame avant ou tubes arrière, fixés au pare-chocs d\'origine ; sans effet de conduite.', echap: '<strong>Échappements</strong> : embouts posés sur les sorties de la carrosserie, sans effet de conduite.' };
   const $a = (s) => document.querySelector(s), esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const equipe = () => { const o = {}; for (const k of CLES) o[k] = SAVE[k]; return o; };
+  const equipe = () => { const o = {}, c = typeof K.myCfgEquipe === 'function' ? K.myCfgEquipe() : SAVE; for (const k of CLES) o[k] = c[k] !== undefined ? c[k] : SAVE[k]; return o; };
   // Validation d'une configuration (montage relu, brouillon restauré) : uniquement des clés et des valeurs connues.
   function valide(cfg) {
-    if (!cfg || typeof cfg !== 'object') return null; const o = {}, base = equipe();
+    if (!cfg || typeof cfg !== 'object') return null; cfg = typeof migrerPieces === 'function' ? migrerPieces(Object.assign({}, cfg)) : cfg; const o = {}, base = equipe();
     for (const k of CLES) { const v = cfg[k], F = FAMILLES.find((f) => f.id === k);
       let ok = false; if (typeof v === 'string') { if (F && F.table) ok = Object.prototype.hasOwnProperty.call(F.table(), v); else if (F && F.couleurs) ok = /^#[0-9a-f]{6}$/i.test(v); else if (k === 'skin') ok = SKINS.includes(v); }
       o[k] = ok ? v : base[k]; }
@@ -62,7 +81,9 @@
   function annuler() { const B = brouillon(); if (!B.histo.length) return; B.redo.push(Object.assign({}, B.cfg)); B.cfg = B.histo.pop(); sauver(); apercu(); rendre(); }
   function retablir() { const B = brouillon(); if (!B.redo.length) return; B.histo.push(Object.assign({}, B.cfg)); B.cfg = B.redo.pop(); sauver(); apercu(); rendre(); }
   function pieceAvant() { const B = brouillon(), f = etat().famille; appliquer(f, B.depart[f]); }
-  const st = (c) => statsFor(c.body, c.wheels, c.glider, c.engine);
+  // Statistiques affichées : vraies valeurs statsFor, plus les réglages physiques ramenés sur 0–1 (0,5 = standard).
+  const st = (c) => { const v = statsFor(c.body, c.wheels, c.glider, c.engine, c), n = (x, e) => Math.max(0, Math.min(1, .5 + (x - 1) * e));
+    return Object.assign(v, { frein: n(v.brakeK, 1.25), derive: n(v.driftK, 2), turbo: n(v.boostK, 2), adher: n(v.gripK, 2.2), recep: Math.max(0, Math.min(1, .5 + (v.recep || 0) - (1 - (v.landK || 1)) * 2.5)) }); };
   function barres(a, n) { return NOMS_STATS.map(([k, nom]) => { const va = a[k], vn = n[k], d = Math.round((vn - va) * 100), lo = Math.min(va, vn), hi = Math.max(va, vn);
     return '<div class="atl-barre"><span>' + nom + '</span><div class="atl-jauge"><i class="a" style="width:' + (lo * 100).toFixed(1) + '%"></i><i class="n' + (d < 0 ? ' m' : '') + '" style="left:' + (lo * 100).toFixed(1) + '%;width:' + ((hi - lo) * 100).toFixed(1) + '%"></i></div><b class="' + (d > 0 ? 'p' : d < 0 ? 'm' : 'z') + '">' + (d > 0 ? '+' : '') + d + '</b></div>'; }).join(''); }
   function seul(v) { return NOMS_STATS.map(([k, nom]) => '<div class="atl-barre"><span>' + nom + '</span><div class="atl-jauge"><i class="n" style="left:0;width:' + (v[k] * 100).toFixed(1) + '%"></i></div><b class="z">' + Math.round(v[k] * 100) + '</b></div>').join(''); }
@@ -132,11 +153,11 @@
     if (ATL.messageEssai) h += '<p class="atl-essai">' + esc(ATL.messageEssai) + '</p>';
     if (ATL.quitter) h += '<div class="atl-alerte"><p>Tu as des changements non enregistrés.</p><button class="atl-b" id="atl-q-garder"><span>Garder le brouillon</span></button><button class="atl-b ghost" id="atl-q-jeter"><span>Jeter</span></button><button class="atl-b red" id="atl-q-annuler"><span>Rester</span></button></div>';
     h += '<div class="atl-fams">' + FAMILLES.map((f) => '<button class="atl-fam' + (f.id === A.famille ? ' on' : '') + (f.type === 'bientot' ? ' off' : '') + '" data-fam="' + f.id + '"' + (f.type === 'bientot' ? ' aria-disabled="true"' : '') + '><b>' + esc(f.nom) + '</b>' + etiquette(f.type) + '</button>').join('') + '</div>';
-    h += '<p class="atl-legende"><b>Conduite</b> : change le vrai calcul de conduite. <b>Apparence</b> : ne change que le look.</p>'; if (A.famille === 'engine') h += '<p class="atl-aide"><strong>Réglages de conduite</strong> : pas encore de pièce visible sur le kart (moteurs et suspensions personnalisables séparément : à venir).</p>';   /* #34.G : famille non terminée */
+    h += '<p class="atl-legende"><b>Conduite</b> : change le vrai calcul de conduite. <b>Apparence</b> : ne change que le look.</p>'; if (AIDE[A.famille]) h += '<p class="atl-aide">' + AIDE[A.famille] + '</p>';
     // Pièces de la famille
     h += '<div class="atl-pieces">';
     if (F.couleurs) h += F.couleurs().map((c) => '<button class="atl-coul' + (cfg[F.id] === c ? ' on' : '') + '" data-val="' + c + '" style="background:' + c + '" aria-label="Couleur ' + c + '"></button>').join('');
-    else for (const id of Object.keys(F.table())) { const lk = typeof lockInfo === 'function' ? lockInfo(F.id, id) : null; { const cv = AVEC_VIGNETTE.has(F.id) ? cleVign(F.id, id, cfg) : '', url = cv && VIGN.cache.get(cv); h += '<button class="atl-piece' + (cv ? ' img' : '') + (cfg[F.id] === id ? ' on' : '') + (ATL.choix === id ? ' vise' : '') + (lk ? ' lock' : '') + '" data-val="' + esc(id) + '"' + (lk ? ' data-lock="' + esc(lk) + '"' : '') + '>' + (cv ? '<img alt="" data-vign="' + esc(cv.replace(/"/g, '')) + '"' + (url ? ' class="ok" src="' + url + '"' : '') + '>' : '') + '<span>' + esc(nomPiece(F, id)) + (lk ? ' 🔒' : '') + '</span></button>'; } }
+    else for (const id of Object.keys(F.table())) { const inc = typeof K.pieceIncompatible === 'function' ? K.pieceIncompatible(F.id, id, cfg) : '', lk = inc ? null : typeof lockInfo === 'function' ? lockInfo(F.id, id) : null; { const cv = AVEC_VIGNETTE.has(F.id) ? cleVign(F.id, id, cfg) : '', url = cv && VIGN.cache.get(cv); h += '<button class="atl-piece' + (cv ? ' img' : '') + (cfg[F.id] === id ? ' on' : '') + (ATL.choix === id ? ' vise' : '') + (lk || inc ? ' lock' : '') + '" data-val="' + esc(id) + '"' + (lk ? ' data-lock="' + esc(lk) + '"' : '') + (inc ? ' data-inc="' + esc(inc) + '"' : '') + '>' + (cv ? '<img alt="" data-vign="' + esc(cv.replace(/"/g, '')) + '"' + (url ? ' class="ok" src="' + url + '"' : '') + '>' : '') + '<span>' + esc(nomPiece(F, id)) + (lk ? ' 🔒' : inc ? ' ⛔' : '') + '</span></button>'; } }
     h += '</div>';
     // Comparateur : pièce visée → vrais deltas statsFor ; famille « Apparence » : dit clairement qu'il n'y a pas d'effet.
     if (F.type === 'conduite') { const cand = ATL.choix && ATL.choix !== cfg[F.id] ? Object.assign({}, cfg, { [F.id]: ATL.choix }) : null, a = st(cfg);
@@ -165,7 +186,7 @@
     on('#atl-equiper', () => { ATL.confirmer = true; rendre(); }); on('#atl-equiper-ok', equiper); on('#atl-equiper-non', () => { ATL.confirmer = false; rendre(); });
     P.querySelectorAll('[data-vue]').forEach((e) => (e.onclick = () => vue(e.dataset.vue)));
     P.querySelectorAll('[data-fam]').forEach((e) => (e.onclick = () => { const f = FAMILLES.find((x) => x.id === e.dataset.fam); if (f.type === 'bientot') { try { toast(f.nom + ' : ' + f.aide + '.', 3200); } catch (x) { /* rien */ } return; } etat().famille = f.id; ATL.choix = null; sauver(); rendre(); }));
-    P.querySelectorAll('[data-val]').forEach((e) => (e.onclick = () => { if (e.dataset.lock) { try { toast('À débloquer (' + e.dataset.lock + ').', 2500); } catch (x) { /* rien */ } return; }
+    P.querySelectorAll('[data-val]').forEach((e) => (e.onclick = () => { if (e.dataset.inc) { try { toast('Incompatible : ' + e.dataset.inc + '.', 2600); } catch (x) { /* rien */ } return; } if (e.dataset.lock) { try { toast('À débloquer (' + e.dataset.lock + ').', 2500); } catch (x) { /* rien */ } return; }
       if (F.type === 'conduite') { ATL.choix = e.dataset.val; rendre(); } else appliquer(F.id, e.dataset.val); }));
     P.querySelectorAll('[data-save]').forEach((e) => (e.onclick = () => { const i = +e.dataset.save, m = etat().montages[i]; enregistrer(i, m ? m.nom : 'Montage ' + (i + 1)); }));
     P.querySelectorAll('[data-load]').forEach((e) => (e.onclick = () => chargerMontage(+e.dataset.load)));
