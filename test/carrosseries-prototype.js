@@ -89,8 +89,12 @@
     // tous les gabarits de roues) est rentrée vers l'axe du kart, comme une caisse qui se creuse autour de la roue. Même règle que
     // tests/ancrages-karts.cjs ; les moyeux et bras de suspension (près de l'axe de roue) ne sont pas concernés.
     { const add0 = add, fz0 = AVANT[body], rw0 = .92 + (LARGEUR[body] || 0) + WD.w / 2 - .12, R = WD.r, hw = WD.w / 2 - .015 + .03, roues = [[-1, fz0, 1], [1, fz0, 1], [-1, -1, 0], [1, -1, 0]];
-      const dedans = (x, y, z) => { for (const [sd, zc, av] of roues) for (const a of av ? [-.45, -.22, 0, .22, .45] : [0]) { const dx = x - sd * rw0, dz = z - zc, lx = dx * Math.cos(a) - dz * Math.sin(a), lz = dx * Math.sin(a) + dz * Math.cos(a), rd = Math.hypot(y - R, lz);
-        if (Math.abs(lx) < hw && rd < R + .01 && rd > R * .55) return true; } return false; };
+      /* Démarrage (11 nov.) : test appelé pour chaque sommet du kart (12 poses de roue, cosinus et sinus recalculés à chaque fois).
+         Rejets exacts avant le calcul : un sommet plus haut que le pneu, ou plus loin de l'axe de roue que sa diagonale, ne peut pas
+         être dans la bande ; cosinus et sinus calculés une fois. Mêmes résultats au bit près (scripts/empreinte-carrosseries.cjs). */
+      const ANG_AV = [-.45, -.22, 0, .22, .45].map((a) => [Math.cos(a), Math.sin(a)]), ANG_AR = [[Math.cos(0), Math.sin(0)]], yMax = 2 * R + .02, d2Max = (hw * hw + (R + .01) * (R + .01)) * 1.001;
+      const dedans = (x, y, z) => { if (y > yMax) return false; for (const [sd, zc, av] of roues) { const dx = x - sd * rw0, dz = z - zc; if (dx * dx + dz * dz > d2Max) continue; for (const [ca, sa] of av ? ANG_AV : ANG_AR) { const lx = dx * ca - dz * sa, lz = dx * sa + dz * ca, rd = Math.hypot(y - R, lz);
+        if (Math.abs(lx) < hw && rd < R + .01 && rd > R * .55) return true; } } return false; };
       add = (k, g) => { if (PIECE) g.userData.piece = PIECE; const p = g.attributes.position; let moved = false;
         for (let i = 0; i < p.count; i++) { let x = p.getX(i); const y = p.getY(i), z = p.getZ(i); if (!dedans(x, y, z)) continue; const sg = Math.sign(x) || 1;
           for (let n = 0; n < 80 && dedans(x, y, z); n++) x -= sg * .01; p.setX(i, x); moved = true; }

@@ -505,18 +505,20 @@ function grassMaterial(time, far) {
 }
 
 /* ---------- Placement ---------- */
+// Limite latérale locale d'un chemin (largeur par passage de la route principale, 9 nov.) : les décors se rapprochent des passages étroits.
+function murLocal(W, P, i) { return P === W.S && W.S.wallv ? W.S.wallv[i] : (P.wallD || W.wallD); }
 function samplerFor(W, sansEnvol = false) {
   const paths = [W.S, ...W.branches];
   // Distance horizontale conservative aux segments de toutes les routes (principale + branches).
   // sansEnvol : ignore les portions survolées d'un envol (pas de chaussée, donc pas de bande usée sur le fond du ravin).
   const cell = 24, grid = new Map();
-  for (const P of paths) for (let i = 0; i < P.N; i++) { if (sansEnvol && P !== W.S && P.glide && P.glide[i]) continue; const k = Math.floor(P.px[i] / cell) + ',' + Math.floor(P.pz[i] / cell); let l = grid.get(k); if (!l) grid.set(k, l = []); l.push(P, i); }
+  for (const P of paths) for (let i = 0; i < P.N; i++) { if (sansEnvol && P !== W.S && P.glide && P.glide[i]) continue; const k = (Math.floor(P.px[i] / cell) + 32768) * 65536 + Math.floor(P.pz[i] / cell) + 32768; let l = grid.get(k); if (!l) grid.set(k, l = []); l.push(P, i); }   /* clé numérique (11 nov.) : une clé texte par case coûtait jusqu'à 0,4 s d'un bloc au démarrage (CPU ×4) ; même ordre de parcours, mêmes résultats */
   return (x, z, reach = 80) => {
     const cx = Math.floor(x / cell), cz = Math.floor(z / cell), rc = Math.ceil(reach / cell); let best = Infinity, wall = W.wallD;
-    for (let a = -rc; a <= rc; a++) for (let b = -rc; b <= rc; b++) { const l = grid.get((cx + a) + ',' + (cz + b)); if (!l) continue;
+    for (let a = -rc; a <= rc; a++) for (let b = -rc; b <= rc; b++) { const l = grid.get((cx + a + 32768) * 65536 + cz + b + 32768); if (!l) continue;
       for (let k = 0; k < l.length; k += 2) { const P = l[k], i = l[k + 1], j = i + 1 < P.N ? i + 1 : P === W.S ? 0 : i, dx = P.px[j] - P.px[i], dz = P.pz[j] - P.pz[i], L = dx * dx + dz * dz;
-        const t = L ? clamp(((x - P.px[i]) * dx + (z - P.pz[i]) * dz) / L, 0, 1) : 0, d = Math.hypot(x - P.px[i] - t * dx, z - P.pz[i] - t * dz) - ((P.wallD || W.wallD) - W.wallD);
-        if (d < best) { best = d; wall = P.wallD || W.wallD; } } }
+        const t = L ? clamp(((x - P.px[i]) * dx + (z - P.pz[i]) * dz) / L, 0, 1) : 0, wl = murLocal(W, P, i), d = Math.hypot(x - P.px[i] - t * dx, z - P.pz[i] - t * dz) - (wl - W.wallD);
+        if (d < best) { best = d; wall = wl; } } }
     return best === Infinity ? 1e9 : best;
   };
 }
@@ -606,8 +608,12 @@ function* buildSteps(W, quality, renderer) {
     const distSol = samplerFor(W, true); for (let i = 0; i < p.count; i++) road[i] = clamp(distSol(p.getX(i), p.getZ(i), 40) - wallD, 0, 60);
     g.setAttribute('wkRoad', new T.BufferAttribute(road, 1)); zoneAttribute(g, zf);
     if (W.massifRoche && W.massifRoche.length === p.count) g.setAttribute('wkRoche', new T.BufferAttribute(W.massifRoche, 1));   // massifs « roche » (0 ailleurs : attribut absent)
-    const hi = B.high ? (W.terrainMin || 0) + (W.th.terrain.h || 60) * .75 : 1e5, low = B.sandLow != null ? (W.terrainMin || 0) + B.sandLow : -1e5;
-    const old = W.terrain.material; W.terrain.material = terrainMaterial(B, { B2, patch: B.patch, hiLevel: hi, lowLevel: low, rockSlope: biomeId === 'snow' ? .38 : .3, roche: !!g.attributes.wkRoche });
+    const hi = B.high ? (W.terrainMin || 0) + (W.th.terrain.h || 60) * .75 : 1e5, low = (W.def.natureSol && W.def.natureSol.niveauSable != null) ? W.def.natureSol.niveauSable : B.sandLow != null ? (W.terrainMin || 0) + B.sandLow : -1e5;
+    const old = W.terrain.material; const NS = W.def.natureSol || {}; W.terrain.material = terrainMaterial(B, { B2, patch: B.patch, wkPatch: NS.patch, hiLevel: hi, lowLevel: low, rockSlope: NS.rockSlope || (biomeId === 'snow' ? .38 : .3), roche: !!g.attributes.wkRoche });   // natureSol : réglage du sol par carte (paysage composé)
+    // Pièce fine du relief des lieux (ravins taillés, Grande Cascade) : même sol multicouche que le terrain (sinon elle gardait l'ancien
+    // matériau, libéré juste après), avec ses propres attributs de distance à la route et de parcelle.
+    if (W.terrainPiece && W.terrainPiece.material === old && W.lieuxRelief && W.lieuxRelief.fins) { const gp = W.terrainPiece.geometry, pp = gp.attributes.position, rp = new Float32Array(pp.count); for (let i = 0; i < pp.count; i++) rp[i] = clamp(distSol(pp.getX(i), pp.getZ(i), 40) - wallD, 0, 60);
+      gp.setAttribute('wkRoad', new T.BufferAttribute(rp, 1)); zoneAttribute(gp, zf); W.terrainPiece.material = W.terrain.material; }
     if (W.roles) { W.roles.delete(old); W.roles.set(W.terrain.material, 'terrain'); } if (old.map && !old.map.userData.wkShared) old.map.dispose(); old.dispose();
     state.terrainMat = W.terrain.material;
   }
@@ -650,7 +656,9 @@ function* buildSteps(W, quality, renderer) {
   const trees = new Map(); // espèce → items
   const pick = (list) => { let x = R() * list.reduce((s, e) => s + e[1], 0); for (const e of list) { x -= e[1]; if (x <= 0) return e; } return list[0]; };
   const maxN = Math.max(B.trees_n, B2 ? B2.trees_n : 0), nTrees = Math.round(lerp(B.trees_n, B2 ? B2.trees_n : B.trees_n, wAvg) * q), seedN = (W.th.terrain.seed || 17) + 77; let guard = 0, placed = 0;
-  while (placed < nTrees && guard++ < nTrees * 40) {
+  /* Tranches fines (11 nov.) : ce placement tenait dans une seule tranche (jusqu'à 1,2 s d'un bloc au démarrage, CPU ×4). Un point de
+     reprise tous les 32 essais ; mêmes tirages dans le même ordre, donc mêmes décors (empreinte des instances identique). */
+  while (placed < nTrees && guard++ < nTrees * 40) { if ((guard & 31) === 0) yield;
     const x = cx + (R() * 2 - 1) * (bb.ext + 330), z = cz + (R() * 2 - 1) * (bb.ext + 330); if (!inTerrain(x, z, 30) || blocked(x, z)) continue;
     const d = dist(x, z, 60) - wallD; if (d < 5) continue;
     const [Bz, bzId] = biomeAt(x, z); if (R() > Bz.trees_n / maxN) continue;
@@ -663,10 +671,20 @@ function* buildSteps(W, quality, renderer) {
     const key = bzId + ':' + kind + variant; if (!trees.has(key)) trees.set(key, { kind, lods, items: [], snow: !!Bz.snow });
     trees.get(key).items.push({ x, y, z, s, r: R() * TAU, color: [col.r, col.g, col.b], bound: Math.max(lods[0].height, lods[0].radius) }); placed++;
   }
+  // Forêts des lieux (def.forets, concepteur « paysage composé », 8 nov.) : bois, bosquets, verger, île boisée. Densité imposée par le lieu
+  // (pas le bruit de bosquets) ; mêmes garde-fous que ci-dessus (route, pente, couronne hors de l'enveloppe roulable) ; `sol` : hauteur
+  // minimale du terrain (île au-dessus de l'eau, qui sinon exclut toute sa surface).
+  for (const F of W.def.forets || []) { const n = Math.round((F.n || 60) * q); let ok = 0, g2 = 0;
+    while (ok < n && g2++ < n * 30) { if ((g2 & 31) === 0) yield; const a = R() * TAU, rr = F.r * Math.sqrt(R()), x = F.x + Math.cos(a) * rr, z = F.z + Math.sin(a) * rr; if (!inTerrain(x, z, 30)) continue;
+      if (F.sol != null ? (W.hAt(x, z) < F.sol || occupied(x, z, 2)) : blocked(x, z)) continue; const d = dist(x, z, 60) - wallD; if (d < (F.pres ? 1.5 : 6) || slopeAt(W, x, z) > .6) continue;   /* F.pres : rangée ou allée qui borde la chaussée (verger, bois du col) */
+      const [Bz, bzId] = biomeAt(x, z), sp = pick(Bz.trees), kind = sp[0], variant = Math.floor(R() * 3), lods = speciesLods(kind, variant), s = (F.taille || 1) * (.85 + R() * .5);
+      if (d < lods[0].radius * s + (F.pres ? 1 : 3)) continue; const y = groundHeight(W, x, z, .6) - .15, col = new T.Color(sp[2][Math.floor(R() * sp[2].length)]).offsetHSL((R() - .5) * .03, (R() - .5) * .08, (R() - .5) * .08);
+      const key = bzId + ':' + kind + variant; if (!trees.has(key)) trees.set(key, { kind, lods, items: [], snow: !!Bz.snow });
+      trees.get(key).items.push({ x, y, z, s, r: R() * TAU, color: [col.r, col.g, col.b], bound: Math.max(lods[0].height, lods[0].radius) }); ok++; placed++; } }
   // Buissons et fougères près des routes : premier plan visible depuis la caméra du kart.
   const shrubs = [];
-  for (let k = 0, n = Math.round(700 * q); k < n; k++) {
-    const i = Math.floor(R() * W.S.N), side = R() < .5 ? -1 : 1, off = wallD + 2.2 + Math.pow(R(), 1.6) * 45, x = W.S.px[i] + W.S.rx[i] * side * off + (R() - .5) * 4, z = W.S.pz[i] + W.S.rz[i] * side * off + (R() - .5) * 4;
+  for (let k = 0, n = Math.round(700 * q); k < n; k++) { if ((k & 31) === 31) yield;
+    const i = Math.floor(R() * W.S.N), side = R() < .5 ? -1 : 1, off = murLocal(W, W.S, i) + 2.2 + Math.pow(R(), 1.6) * 45, x = W.S.px[i] + W.S.rx[i] * side * off + (R() - .5) * 4, z = W.S.pz[i] + W.S.rz[i] * side * off + (R() - .5) * 4;
     if (!inTerrain(x, z) || blocked(x, z) || W.S.glide[i] || dist(x, z, 30) - wallD < 2.2) continue;
     const [Bz, bzId] = biomeAt(x, z), kind = Bz.fern && R() < .45 ? 'fern' : 'bush', lods = speciesLods(kind, Math.floor(R() * 2)), s = kind === 'fern' ? .9 + R() * .6 : .55 + R() * .6;
     if (dist(x, z, 30) - wallD < lods[0].radius * s + .8) continue;
@@ -682,6 +700,7 @@ function* buildSteps(W, quality, renderer) {
       if (L.wood) meshes.push(instancedMesh(L.wood, barkByKind[T0.kind] || barkByKind.other, n, false, shadow));
       meshes.push(instancedMesh(L.leaf, leafFor(!!T0.snow), n, true, shadow)); meshes.forEach(m => { m.name = 'Nature ' + key; group.add(m); }); return { meshes }; });
     state.pops.push(new Population(key, lods, T0.items, (key.startsWith('shrub') ? 70 : 140) * (low ? .6 : 1), (key.startsWith('shrub') ? 260 : 1500) * (low ? .45 : 1), shadow));
+    yield;
   }
   yield;
   // 5. Rochers : quatre silhouettes, ancrés (enfoncés de 25 %) et orientés au hasard, hors des zones roulables.
@@ -703,7 +722,7 @@ function* buildSteps(W, quality, renderer) {
   if (B.grass || (B2 && B2.grass)) {
     const gmat = grassMaterial(time, low ? 60 : 95), ggeo = grassGeometry(), cell = 48, cells = new Map(), target = Math.round(42000 * (low ? .22 : q) * (B.tallGrass ? .8 : 1));
     for (let k = 0, tries = 0; k < target && tries < target * 3; tries++) {
-      const i = Math.floor(R() * W.S.N), side = R() < .5 ? -1 : 1, off = wallD + .6 + Math.pow(R(), 1.9) * 62, j = (i + Math.floor((R() - .5) * 4) + W.S.N) % W.S.N;
+      const i = Math.floor(R() * W.S.N), side = R() < .5 ? -1 : 1, off = murLocal(W, W.S, i) + .6 + Math.pow(R(), 1.9) * 62, j = (i + Math.floor((R() - .5) * 4) + W.S.N) % W.S.N;
       const x = W.S.px[j] + W.S.rx[j] * side * off + (R() - .5) * 3, z = W.S.pz[j] + W.S.rz[j] * side * off + (R() - .5) * 3;
       if (W.S.glide[j] || !inTerrain(x, z) || blocked(x, z)) continue; const d = dist(x, z, 20) - wallD; if (d < .5) continue;
       if (slopeAt(W, x, z) > .9) continue;
@@ -751,7 +770,7 @@ function audit(W, extra = []) {
   const clearance = (x, z, reach) => { let best = Infinity; const rc = Math.ceil(reach / cell);
     for (let a = -rc; a <= rc; a++) for (let b = -rc; b <= rc; b++) { const l = grid.get((Math.floor(x / cell) + a) + ',' + (Math.floor(z / cell) + b)); if (!l) continue;
       for (let k = 0; k < l.length; k += 3) { const P = l[k], i = l[k + 1], j = l[k + 2], dx = P.px[j] - P.px[i], dz = P.pz[j] - P.pz[i], L = dx * dx + dz * dz, t = L ? clamp(((x - P.px[i]) * dx + (z - P.pz[i]) * dz) / L, 0, 1) : 0;
-        best = Math.min(best, Math.hypot(x - P.px[i] - t * dx, z - P.pz[i] - t * dz) - (P.wallD || W.wallD)); } }
+        best = Math.min(best, Math.hypot(x - P.px[i] - t * dx, z - P.pz[i] - t * dz) - murLocal(W, P, i)); } }
     return best; };
   const out = { checked: 0, intrusions: [], floating: [], buried: [], submerged: [], minMargin: Infinity };
   const check = (kind, x, y, z, radius, height) => {

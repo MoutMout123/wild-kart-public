@@ -260,14 +260,18 @@ function riviere(T, o) {
    sur les hauts-fonds, bleu au centre ; cellules entièrement sous le terrain omises. */
 function lagon(T, o) {
   const low = qualiteBasse(o), [cx, cz] = o.centre, R = o.rayon, nv = o.niveau, n = low ? 34 : 60, M = new Mesher(), sol = o.sol, groupe = new T.Group();
-  const cE = C('#eefcf8'), cH = C('#6fe3cf'), cM = C('#20b6e0'), cF = C('#0c5f96'); let surface = 0;
+  // o.palette 'lac' (lac de prairie, concepteur paysage 9 nov.) : bord vert-gris et fond bleu profond, contraste avec l'herbe et le ciel ;
+  // par défaut, lagon tropical turquoise (Grande Cascade).
+  const PAL = o.palette === 'lac' ? ['#8fb8a0', '#3f8fa6', '#22658f', '#123c63'] : ['#eefcf8', '#6fe3cf', '#20b6e0', '#0c5f96'];
+  const cE = C(PAL[0]), cH = C(PAL[1]), cM = C(PAL[2]), cF = C(PAL[3]); let surface = 0;
   for (let j = 0; j <= n; j++) for (let i = 0; i <= n; i++) { const x = cx - R + 2 * R * i / n, z = cz - R + 2 * R * j / n, d = nv - sol(x, z), c = d < .45 ? cE.clone().lerp(cH, smooth(.1, .45, d)) : d < 2.5 ? cH.clone().lerp(cM, smooth(.45, 2.5, d)) : cM.clone().lerp(cF, smooth(2.5, 7, d));
     M.v(x, nv, z, 0, 1, 0, c, x * .05, z * .05); }
   const dans = (k) => { const x = M.p[k * 3], z = M.p[k * 3 + 2]; return (x - cx) ** 2 + (z - cz) ** 2 < R * R && nv - sol(x, z) > -1.2; }, cel = (2 * R / n) ** 2;
   for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const a = j * (n + 1) + i, b = a + 1, c = a + n + 1, d = c + 1; if (!(dans(a) || dans(b) || dans(c) || dans(d))) continue; M.t(a, c, b); M.t(b, c, d);
     const xm = M.p[a * 3] + R / n, zm = M.p[a * 3 + 2] + R / n; if (nv > sol(xm, zm)) surface += cel; }
   M.versHaut(); if (!TEX_VAGUES.t) TEX_VAGUES.t = texVagues();
-  const eau = new T.Mesh(M.geo(true), matEau(T, TEX_VAGUES.t, .88)); eau.renderOrder = 2; eau.userData.wkDecorsRole = 'eau'; groupe.add(eau);
+  const mE = matEau(T, TEX_VAGUES.t, o.palette === 'lac' ? .94 : .88); if (o.palette === 'lac') { mE.roughness = .34; mE.envMapIntensity = .32; mE.normalScale.set(.22, .22); }   // reflet du ciel atténué : l'eau garde sa couleur en incidence rasante
+  const eau = new T.Mesh(M.geo(true), mE); eau.renderOrder = 2; eau.userData.wkDecorsRole = 'eau'; groupe.add(eau);
   return { groupe: marquer(groupe, 'eau'), emprise: [{ x: cx, z: cz, r: R }], cout: cout(groupe), maj: majVagues, infos: { surface: Math.round(surface), niveau: nv } };
 }
 

@@ -99,7 +99,13 @@
       for (let i = 0; i <= n; i++) { const th = -arc / 2 + arc * i / n, E = evol(th, arc, o), rc = rIn + ep / 2 * E.e + E.r; pts.push(V(cx + bord * (wf / 2 * E.w - rj * .55), cy + rc * Math.cos(th), cz + rc * Math.sin(th))); }
       const g = new T.TubeGeometry(new T.CatmullRomCurve3(pts), n, rj, 6, false), p = g.attributes.position, L = pts.length;
       /* effilement du jonc aux bouts : rayon ramené vers l'axe proportionnellement à la largeur de l'aile */
-      for (let i = 0; i < p.count; i++) { const ring = Math.floor(i / 7), t = ring / n, th = -arc / 2 + arc * t, E = evol(th, arc, o), k = (.45 + .55 * (E.w - .55) / .45) * Math.sqrt(Math.min(1, Math.max(0, (.5 - Math.abs(t - .5)) / .03))), c = new T.Vector3();   /* bouts du jonc refermés en pointe (tube non ouvert) */ new T.CatmullRomCurve3(pts).getPointAt(Math.min(1, t), c); const q = V(p.getX(i), p.getY(i), p.getZ(i)).sub(c).multiplyScalar(k).add(c); p.setXYZ(i, q.x, q.y, q.z); void L; }
+      /* Démarrage (11 nov.) : la courbe était recréée pour chaque sommet (table des longueurs d'arc, 200 points, recalculée 7 fois par
+         anneau) : jusqu'à 35 % du temps de construction d'un kart. Une seule courbe, centre et effilement calculés une fois par anneau ;
+         mêmes valeurs au bit près (scripts/empreinte-carrosseries.cjs). */
+      const axe = new T.CatmullRomCurve3(pts), c = new T.Vector3(); let anneau = -1, k = 0;
+      for (let i = 0; i < p.count; i++) { const ring = Math.floor(i / 7);
+        if (ring !== anneau) { anneau = ring; const t = ring / n, th = -arc / 2 + arc * t, E = evol(th, arc, o); k = (.45 + .55 * (E.w - .55) / .45) * Math.sqrt(Math.min(1, Math.max(0, (.5 - Math.abs(t - .5)) / .03)));   /* bouts du jonc refermés en pointe (tube non ouvert) */ axe.getPointAt(Math.min(1, t), c); }
+        const q = V(p.getX(i), p.getY(i), p.getZ(i)).sub(c).multiplyScalar(k).add(c); p.setXYZ(i, q.x, q.y, q.z); void L; }
       g.computeVertexNormals(); return g;
     }
     const AILE_AVANT = typeof window !== 'undefined' && !!window.WK_AILE_AVANT;   /* témoin : ancien garde-boue (planches avant/après) */
